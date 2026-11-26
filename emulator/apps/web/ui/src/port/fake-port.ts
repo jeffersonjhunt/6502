@@ -33,7 +33,7 @@ export class FakePort implements MachinePort {
   readonly memory = new Map<number, number>();
   /** What readMemory(..., "io") returns where set (else `memory`): the cards, whatever the CPU sees. */
   readonly io = new Map<number, number>();
-  /** A revision 2 video card's memory (readCardMemory), by card address; null: no such card. */
+  /** The video card's memory (readCardMemory), by card address; null: no such card. */
   cardMemory: Map<number, number> | null = null;
   labels = new Map<string, number>();
   traceRows: TraceRow[] = [];

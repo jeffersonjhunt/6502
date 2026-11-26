@@ -87,7 +87,7 @@ SE_LOAD         = 13                   ; the file's load or its play refused (th
 ;
 ;   GX_INIT     A/X the event area the program opened (0 none: no slots,
 ;               so no GX_PALSHOW or GX_SPRSHOW): OODOS's interface checked
-;               (8 at least, with DMA, and a revision 2 card), the W1 map
+;               (8 at least, with DMA, and the video card), the W1 map
 ;               and the card's room read (function 83's DM_INFO), the
 ;               program's card memory all free. Slot 1's window is block 33
 ;               ($84000, MAP's AP8 left as it is): the old mode, always, as
@@ -96,7 +96,7 @@ SE_LOAD         = 13                   ; the file's load or its play refused (th
 ;               $80000-$8FFFF, the program's RAM until the warm boot
 ;               (function 83's DM_BANK8), slot 1's window WIN1H $0E with
 ;               block 1 ($E04000), and blocks 32-39 in the W1 map. Carry
-;               clear, with no revision 2 card too (bank 8 RAM, no window).
+;               clear, with no video card too (bank 8 RAM, no window).
 ;               GE_VERSION, nothing changed and the old mode kept: OODOS's
 ;               interface below 12, no DMA, a revision 1 north bridge or a
 ;               ROM BIOS older than 0.17. A program that loads card memory
@@ -235,7 +235,7 @@ GB_640          = 3                    ;   bitmap 640 (layer type 6: 1,024 x 480
 GB_DIRECT       = 4                    ;   direct 640 (type 7: 640 x 480, a $0RGB word a pixel, bit 15
                                        ;   transparent, 1,280 bytes a row): colours are words, A/X
 
-GE_VERSION      = 1                    ; OODOS's interface below 8, no DMA area, or no revision 2 card
+GE_VERSION      = 1                    ; OODOS's interface below 8, no DMA area, or no video card
 GE_MAP          = 2                    ; a block the W1 map hasn't
 GE_MEMORY       = 3                    ; no card memory free, or not the program's
 GE_DMA          = 4                    ; function 83 refused

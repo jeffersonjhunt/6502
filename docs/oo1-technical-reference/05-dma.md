@@ -66,7 +66,7 @@ elsewhere.
 Status: **proposed**, on revision 2, which OODOS's code drives from B2 (OODOS.SYS on the cards in the repo). An
 OODOS.SYS built before B2 drives revision 1, and on revision 2 it reaches `A>` but can't use a file. Its SD card's
 sectors still reach channel 0, because revision 1's channel 0 sat where the window is (with SELECT 0 and the master
-on, as BIOS 0.15 leaves them with a revision 2 video card). But its channel-3 work times out and moves nothing, and
+on, as BIOS 0.15 leaves them with the video card). But its channel-3 work times out and moves nothing, and
 its BDOS moves every FCB and every record between banks on channel 3: DIR says "No File", TYPE never comes back,
 and a write saves nothing it should. Its paths that check the ID see no controller. Replace such a card with the
 built-in one, and don't write with it. Without a revision 2 video card the master is off, and its sector reads fail
@@ -681,7 +681,7 @@ Emulated as step B2.
 
 backplane.inc names `DMA_ON` (`$71`: on, no limit, SELECT 0), `DMA_MASTER` (`$01`), `DMA_SEL` (`$0E`, SELECT's
 mask) and `DMA_SEL0`–`DMA_SEL7` (n × 2). Code that sets SELECT saves CONTROL first and puts it back after
-([the SELECT rule](#the-controller)). The BIOS writes `DMA_ON` in VINIT at boot, with a revision 2 video card, and
+([the SELECT rule](#the-controller)). The BIOS writes `DMA_ON` in VINIT at boot, with the video card, and
 leaves it there, so under the monitor CONTROL reads `$71`; the SD boot's read saves it and puts it back, and Break
 leaves it as it was. Apple II mode's fills write `DMA_ON` with SELECT 3 (`$77`), and the /RESET that enters the mode
 puts back `$70`. BURST limits demand and block transfers and memory-to-memory copies; a single transfer gives a cycle

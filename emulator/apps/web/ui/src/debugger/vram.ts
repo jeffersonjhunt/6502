@@ -1,7 +1,7 @@
 /**
  * Card memory, under the Devices tab's video card: the WebUI's `vram`, as
  * the terminal app's debugger has it (hw/video-rev2.md, "Emulator
- * changes"). A revision 2 card draws from 2 MB of its own memory, which the
+ * changes"). The card draws from 2 MB of its own memory, which the
  * CPU reaches only through the aperture's slots; this shows and writes it
  * directly, with no bus cycle and the card's port untouched.
  *

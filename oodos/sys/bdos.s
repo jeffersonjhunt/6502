@@ -24,7 +24,7 @@
 ;                   free), and FARCALL's address; A/X = FARCALL
 ;   75  O_ROM       leave OODOS for the ROM BIOS, not to come back: A = 0 the
 ;                   Woz Monitor (as Break goes there: common.s's NMI); A = 1
-;                   Apple II mode (the ROM's C806), if the revision 2 video
+;                   Apple II mode (the ROM's C806), if the video
 ;                   card and the DMA controller are there and ROM A's images
 ;                   0-3 hold a IIe ROM (the cartridge under a ROM BIOS before
 ;                   0.16, as its C806 looks), else A = $FF and X = $FD (no
@@ -289,12 +289,12 @@ F_ROMVER:       LDA     ROMVER
 ; The IIe ROM is looked for through W2, put back on the BIOS after, where the
 ; running ROM BIOS's $C806 looks for it (NEWROM): ROM A's images 0-3 from
 ; 0.16 on (the first good one), the cartridge (ROM B's first block) before.
-; Apple II mode needs the revision 2 video card and the revision 2 DMA
+; Apple II mode needs the video card and the revision 2 DMA
 ; controller too (ID $82 exactly: a revision 1 controller reads as none;
 ; the ROM's APPLE checks both, the card first, and goes to its monitor
 ; without either): looked at first, in APPLE's order, before anything is
 ; written back (without DMA SDIO can't move a sector). Without the card
-; (none, or revision 1) A = $FF, X = $FD; without DMA A = $FF, X = $FE; so a
+; A = $FF, X = $FD; without DMA A = $FF, X = $FE; so a
 ; program can tell them from no IIe ROM's X = $FF.
 ; The diagnostics (A = 2, interface 10) need flash block 23 to hold the ones
 ; linked with the ROM BIOS that is running (DIAGIN): else $C815 would come

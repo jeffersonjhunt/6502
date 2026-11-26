@@ -157,7 +157,7 @@ RESULT: ALL PASSED                                      LIGHTS FF
 CONT OR RETURN: BOOT        EXAM OR ESC: MONITOR
 ```
 
-**The screen,** with video card revision 2, is a fixed form: the title and the form on row 0, stage n's line on
+**The screen,** with the video card, is a fixed form: the title and the form on row 0, stage n's line on
 row n + 2, the run's first failure's detail on row 18 (the serial line has every detail), the tests' line on row
 19, the result on row 20, then the keys.
 While V4–V7 have card memory the screen is off; it is drawn again, font and palette, after V7. With no video card

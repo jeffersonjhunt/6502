@@ -34,9 +34,8 @@
  *   frame, R G B A per pixel, row by row; empty without a card. A new one
  *   each frame (videoFrames() counts them), so copy it before running on.
  *
- * A revision 2 video card's own memory (hw/video-rev2.md), the debugger's
- * `vram`: vramSize() is its bytes, 0 without one (revision 1 has
- * none); vramPeek(addr) and vramPoke(addr, byte) take a 24-bit card address,
+ * The video card's own memory (hw/video-rev2.md), the debugger's
+ * `vram`: vramSize() is its bytes, 0 without a card; vramPeek(addr) and vramPoke(addr, byte) take a 24-bit card address,
  * with no bus cycle and the port untouched ($FF past what is fitted, where
  * writes are ignored).
  *
@@ -299,17 +298,17 @@ namespace
         double vram_size() const
         {
             const VideoCard *v = session_->video();
-            return v && v->revision() == 2 ? VideoCard::MEMORY_SIZE : 0;
+            return v ? VideoCard::MEMORY_SIZE : 0;
         }
         unsigned vram_peek(unsigned addr) const
         {
             const VideoCard *v = session_->video();
-            return v && v->revision() == 2 ? v->card_peek(addr & 0xFFFFFF) : 0xFF;
+            return v ? v->card_peek(addr & 0xFFFFFF) : 0xFF;
         }
         void vram_poke(unsigned addr, unsigned data)
         {
             VideoCard *v = session_->video();
-            if (v && v->revision() == 2)
+            if (v)
                 v->card_poke(addr & 0xFFFFFF, static_cast<uint8_t>(data));
         }
         void set_clock(double hz) { session_->set_cpu_hz(static_cast<uint32_t>(hz)); }

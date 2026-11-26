@@ -4,12 +4,11 @@
  * registers") at $C580, read with readMemory, which takes no bus cycle and
  * changes nothing (ISR is read, not cleared; the mouse is not latched).
  * They are read in I/O space, so Apple II mode, where the CPU sees the
- * Apple's $C000-$CFFF, does not hide them. Video bases are shown as the
- * addresses they point at: on revision 1 (ID $91) the physical address
- * $80000 + base x 1 KB; on revision 2 (ID $92, hw/video-rev2.md) the card
- * memory address, six digits, base x 256, with the aperture's slots, the
- * data port and the fitted memory; and, on revision 2, the card's memory
- * itself (vram.ts: the terminal debugger's `vram`).
+ * Apple's $C000-$CFFF, does not hide them. The video card (ID $92,
+ * hw/video-rev2.md): its bases shown as the card memory addresses they
+ * point at, six digits, base x 256, with the aperture's slots, the data
+ * port and the fitted memory; and the card's memory itself (vram.ts: the
+ * terminal debugger's `vram`).
  *
  * Then Apple II mode: whether it is on, and the IIe's soft switches
  * (readApple), which keep their state in native mode too. Then the Disk II
@@ -22,7 +21,7 @@
  * command's UNIT, LBA and COUNT. Then the north bridge's real-time clock
  * (readClock): SEC-YEAR as the bridge last read them from its DS3231, as
  * a date and time, RTCCTL's flags, and the chip's own control, status,
- * alarm, aging and temperature registers; on a revision 3 bridge its
+ * alarm, aging and temperature registers; its
  * timebase too: TBCTL, the millisecond counter, MSS and SYNC; and its
  * random source's RNGST and pool.
  */
@@ -34,8 +33,7 @@ import { hex } from "./breakpoints";
 import { vramView } from "./vram";
 
 export const VIDEO = 0xc480;
-const VIDEO_ID = 0x91;
-const VIDEO_ID_REV2 = 0x92;
+const VIDEO_ID = 0x92;
 export const USB = 0xc580;
 const USB_ID = 0xb1;
 export const SOUND = 0xc500;
@@ -51,9 +49,8 @@ export function keyText(key: number): string {
   const text = names[c] ?? (c < 0x20 ? `^${String.fromCharCode(c + 0x40)}` : String.fromCharCode(c));
   return `$${hex(key, 2)} ${text}${key & 0x80 ? " · new" : ""}`;
 }
-const TYPES = ["text 80×30", "text 40×30", "tile", "bitmap 256", "bitmap 512", "mono 640×480", "type 6", "type 7"];
-/** Revision 2's: types 6 and 7 are bitmap 640 and direct 640 (hw/video640.md). */
-const TYPES2 = [...TYPES.slice(0, 6), "bitmap 640", "direct 640"];
+/** The layer types; 6 and 7 are bitmap 640 and direct 640 (hw/video640.md). */
+const TYPES = ["text 80×30", "text 40×30", "tile", "bitmap 256", "bitmap 512", "mono 640×480", "bitmap 640", "direct 640"];
 
 /** What the Apple's screen shows, from its switches. */
 export function appleVideo(s: AppleState): string {
@@ -118,8 +115,7 @@ export function sdCardText(c: SdInfo | null): string {
   return [c.name || "(no name)", `${c.sectors} sectors (${cardSize(c.sectors)})`, ...(c.writeProtected ? ["write-protected"] : []), ...(c.changed ? ["written to"] : [])].join(" · ");
 }
 
-const base = (unit: number) => `$${hex(0x80000 + unit * 1024, 5)}`;
-/** A revision 2 base register's two bytes (256-byte card pages), as the card address it names. */
+/** A base register's two bytes (256-byte card pages), as the card address it names. */
 const page = (r: Uint8Array, at: number) => `$${hex((r[at] | (r[at + 1] << 8)) * 256, 6)}`;
 const bits = (v: number, names: [number, string][]) => names.filter(([b]) => v & b).map(([, n]) => n).join(" · ") || "none";
 
@@ -139,7 +135,7 @@ export function clockTime(t: Uint8Array): string {
 
 /** RTCCTL in words. SET reads 0, so a pending one is BUSY, and `setPending` (the bridge's queue) says so. */
 export function rtcctlText(v: number, setPending = false): string {
-  return bits(v, [[0x80, "TICK"], [0x40, "TIE"], [0x20, "ALARM"], [0x04, "LOST"], [0x01, setPending ? "BUSY (SET)" : "BUSY"]]);
+  return bits(v, [[0x80, "TICK"], [0x20, "ALARM"], [0x04, "LOST"], [0x01, setPending ? "BUSY (SET)" : "BUSY"]]);
 }
 
 /** Revision 3's TBCTL in words. */
@@ -263,11 +259,11 @@ export function soundPortText(c: SoundCpu): string {
   return `DDR $${hex(c.ddr, 2)} · $${hex(c.port, 2)} · ${lines & 4 && lines & 3 ? "I/O in" : "RAM at $D000"}`;
 }
 
-/** A revision 2 layer's registers (hw/video-rev2.md): two-byte bases, the scrolls and PALOFS one byte up. */
-export function describeLayer2(r: Uint8Array, on: boolean): string {
+/** A layer's registers (hw/video-rev2.md): two-byte bases, the scrolls and PALOFS. */
+export function describeLayer(r: Uint8Array, on: boolean): string {
   const config = r[0];
   const type = config & 7;
-  const parts = [on ? TYPES2[type] : `off (${TYPES2[type]})`];
+  const parts = [on ? TYPES[type] : `off (${TYPES[type]})`];
   if (type <= 1) parts.push(`text ${page(r, 1)}`, `font ${page(r, 3)}`);
   else if (type === 2) parts.push(`map ${page(r, 1)}`, `tiles ${page(r, 3)}`);
   else parts.push(`image ${page(r, 1)}`);
@@ -276,21 +272,6 @@ export function describeLayer2(r: Uint8Array, on: boolean): string {
   const vs = r[7] | ((r[8] & 3) << 8);
   if (hs || vs) parts.push(`scroll ${hs},${vs}`);
   if (r[9]) parts.push(`palofs ${r[9]}`);
-  return parts.join(" · ");
-}
-
-export function describeLayer(r: Uint8Array, on: boolean): string {
-  const config = r[0];
-  const type = config & 7;
-  const parts = [on ? TYPES[type] : `off (${TYPES[type]})`];
-  if (type <= 1) parts.push(`text ${base(r[1])}`, `font ${base(r[2])}`);
-  else if (type === 2) parts.push(`map ${base(r[1])}`, `tiles ${base(r[2])}`);
-  else parts.push(`image ${base(r[1])}`);
-  if (type <= 1 && config & 0x80) parts.push("blink");
-  const hs = r[3] | ((r[4] & 3) << 8);
-  const vs = r[5] | ((r[6] & 3) << 8);
-  if (hs || vs) parts.push(`scroll ${hs},${vs}`);
-  if (r[7]) parts.push(`palofs ${r[7]}`);
   return parts.join(" · ");
 }
 
@@ -483,7 +464,7 @@ export function devicesView(port: MachinePort) {
     }
     const r = c.chip;
     const alarm = (from: number, n: number) => Array.from(r.subarray(from, from + n), (v) => `$${hex(v, 2)}`).join(" ");
-    clockStatusEl.textContent = c.rtcctl & 0x04 ? "lost" : c.rtcctl & 0x40 ? "ticking" : "running";
+    clockStatusEl.textContent = c.rtcctl & 0x04 ? "lost" : "running";
     clockRows.replaceChildren(
       ...row("Time", clockTime(c.time)),
       ...row("RTCCTL", `$${hex(c.rtcctl, 2)}  ${rtcctlText(c.rtcctl, c.setPending)}`),
@@ -511,9 +492,9 @@ export function devicesView(port: MachinePort) {
     await refreshApple();
     await refreshDisk();
     const r = await port.readMemory(VIDEO, 0x80, "io");
-    vramBox.hidden = r[0x7f] !== VIDEO_ID_REV2;
+    vramBox.hidden = r[0x7f] !== VIDEO_ID;
     if (!vramBox.hidden) await vram.refresh();
-    if (r[0x7f] !== VIDEO_ID && r[0x7f] !== VIDEO_ID_REV2) {
+    if (r[0x7f] !== VIDEO_ID) {
       status.textContent = "none";
       rows.replaceChildren(h("dd", {}, "No video card on this machine."));
       return;
@@ -522,36 +503,23 @@ export function devicesView(port: MachinePort) {
     status.textContent = `ID $${hex(r[0x7f], 2)}`;
     const line = r[6] | ((r[7] & 3) << 8);
     const collided = r[8] & 0x0f ? ` · collided: groups $${hex(r[8] & 0x0f, 1)}` : "";
-    if (r[0x7f] === VIDEO_ID_REV2) {
-      const slot = (n: number) => `$${hex((r[0x30 + 2 * n] | (r[0x31 + 2 * n] << 8)) * 0x4000, 6)}`;
-      const paddr = r[0x38] | (r[0x39] << 8) | (r[0x3a] << 16);
-      const pctl = r[0x3e];
-      const dir = pctl & 2 ? "from the card" : "to the card";
-      rows.replaceChildren(
-        ...row("CTRL", `$${hex(ctrl, 2)}  ${bits(ctrl, [[1, "display"], [2, "layer 0"], [4, "layer 1"], [8, "sprites"]])}`),
-        ...row("Layer 0", describeLayer2(r.subarray(0x10, 0x20), (ctrl & 3) === 3)),
-        ...row("Layer 1", describeLayer2(r.subarray(0x20, 0x30), (ctrl & 5) === 5)),
-        ...row("Palette", `${page(r, 0x0a)}  border ${r[1]}`),
-        // SPRCTL ($0E) bit 0: full-resolution sprites (hw/sprites640.md)
-        ...row("Sprites", `${ctrl & 8 ? "on" : "off"} · table ${page(r, 0x0c)}${r[0x0e] & 1 ? " · full" : ""}${collided}`),
-        ...row("IEN / ISR", `$${hex(r[4], 2)} / $${hex(r[5], 2)}  ${bits(r[5], [[1, "vblank"], [2, "line"], [4, "collision"]])}`),
-        ...row("Beam", `line ${line}${r[8] & 0x80 ? " · vertical blank" : ""}`),
-        ...row("Splash", `$${hex(r[9], 2)}  ${r[9] & 1 ? "playing (the card's ROM covers the screen)" : "off"}`),
-        ...row("Slots", [0, 1, 2, 3].map(slot).join(" ")),
-        ...row("Port", `$${hex(paddr, 6)} · step ${r[0x3c] | (r[0x3d] << 8)}${pctl & 4 ? " down" : ""} · ${pctl & 1 ? `DMA ${dir}` : "DMA off"}`),
-        ...row("Memory", `${r[0x3f] * 64} KB`),
-      );
-      return;
-    }
+    const slot = (n: number) => `$${hex((r[0x30 + 2 * n] | (r[0x31 + 2 * n] << 8)) * 0x4000, 6)}`;
+    const paddr = r[0x38] | (r[0x39] << 8) | (r[0x3a] << 16);
+    const pctl = r[0x3e];
+    const dir = pctl & 2 ? "from the card" : "to the card";
     rows.replaceChildren(
       ...row("CTRL", `$${hex(ctrl, 2)}  ${bits(ctrl, [[1, "display"], [2, "layer 0"], [4, "layer 1"], [8, "sprites"]])}`),
-      ...row("Layer 0", describeLayer(r.subarray(0x10, 0x18), (ctrl & 3) === 3)),
-      ...row("Layer 1", describeLayer(r.subarray(0x20, 0x28), (ctrl & 5) === 5)),
-      ...row("Palette", `${base(r[2])}  border ${r[1]}`),
-      ...row("Sprites", `${ctrl & 8 ? "on" : "off"} · table ${base(r[3])}${collided}`),
+      ...row("Layer 0", describeLayer(r.subarray(0x10, 0x20), (ctrl & 3) === 3)),
+      ...row("Layer 1", describeLayer(r.subarray(0x20, 0x30), (ctrl & 5) === 5)),
+      ...row("Palette", `${page(r, 0x0a)}  border ${r[1]}`),
+      // SPRCTL ($0E) bit 0: full-resolution sprites (hw/sprites640.md)
+      ...row("Sprites", `${ctrl & 8 ? "on" : "off"} · table ${page(r, 0x0c)}${r[0x0e] & 1 ? " · full" : ""}${collided}`),
       ...row("IEN / ISR", `$${hex(r[4], 2)} / $${hex(r[5], 2)}  ${bits(r[5], [[1, "vblank"], [2, "line"], [4, "collision"]])}`),
       ...row("Beam", `line ${line}${r[8] & 0x80 ? " · vertical blank" : ""}`),
       ...row("Splash", `$${hex(r[9], 2)}  ${r[9] & 1 ? "playing (the card's ROM covers the screen)" : "off"}`),
+      ...row("Slots", [0, 1, 2, 3].map(slot).join(" ")),
+      ...row("Port", `$${hex(paddr, 6)} · step ${r[0x3c] | (r[0x3d] << 8)}${pctl & 4 ? " down" : ""} · ${pctl & 1 ? `DMA ${dir}` : "DMA off"}`),
+      ...row("Memory", `${r[0x3f] * 64} KB`),
     );
   };
   return { element, refresh };

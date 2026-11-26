@@ -172,52 +172,38 @@ DMA_MOD_VIDEO   = $09                  ;   channel 1's, the video card
 DMA_MOD_SOUND   = $0A                  ;   channel 2's, the sound card (channels 3-7: DMA_NONE)
 DMA_MODE_IRQ    = $80                  ; MODE: interrupt at terminal count
 
-; Video card (module 9): VGA 640x480. Revision 1 (ID $91) draws from banks 8-B,
-; which it snoops; revision 2 (ID $92, hw/video-rev2.md, proposed) from 2 MB of its
-; own memory, through the aperture and the port. The _R1 names are revision 1's
-; registers where revision 2 moved them; the plain names are revision 2's.
+; Video card (module 9, revision 2, ID $92, hw/video-rev2.md, proposed): VGA 640x480
+; from 2 MB of its own memory, through the aperture and the port.
 VIDEO           = $C480
 VIDEO_CTRL      = VIDEO + $00
 VIDEO_BORDER    = VIDEO + $01
-VIDEO_PALBASE_R1 = VIDEO + $02         ; revision 1
-VIDEO_SPRBASE_R1 = VIDEO + $03         ; revision 1
 VIDEO_IEN       = VIDEO + $04
 VIDEO_ISR       = VIDEO + $05          ; pending: write 1s to clear
 VIDEO_LINE      = VIDEO + $06          ; 2 bytes: write the line to interrupt at; read the beam's line
 VIDEO_STATUS    = VIDEO + $08          ; bit 7: in vertical blank
 VIDEO_SPLASH    = VIDEO + $09          ; the boot splash (splash.s)
-VIDEO_PALBASE   = VIDEO + $0A          ; revision 2: 2 bytes, card address / 256
-VIDEO_SPRBASE   = VIDEO + $0C          ; revision 2: 2 bytes, card address / 256
-VIDEO_SPRCTL    = VIDEO + $0E          ; revision 2: sprite control, bit 0 FULL (hw/sprites640.md)
+VIDEO_PALBASE   = VIDEO + $0A          ; 2 bytes, card address / 256
+VIDEO_SPRBASE   = VIDEO + $0C          ; 2 bytes, card address / 256
+VIDEO_SPRCTL    = VIDEO + $0E          ; sprite control, bit 0 FULL (hw/sprites640.md)
 VIDEO_L0        = VIDEO + $10          ; layer 0
 VIDEO_L0_CONFIG = VIDEO_L0 + 0
-VIDEO_L0_MAP_R1 = VIDEO_L0 + 1         ; revision 1's layer registers
-VIDEO_L0_TILE_R1 = VIDEO_L0 + 2
-VIDEO_L0_HSCROLL_R1 = VIDEO_L0 + 3
-VIDEO_L0_VSCROLL_R1 = VIDEO_L0 + 5
-VIDEO_L0_PALOFS_R1 = VIDEO_L0 + 7
-VIDEO_L0_MAP    = VIDEO_L0 + 1         ; revision 2's: 2 bytes, card address / 256
+VIDEO_L0_MAP    = VIDEO_L0 + 1         ; 2 bytes, card address / 256
 VIDEO_L0_TILE   = VIDEO_L0 + 3         ; 2 bytes, card address / 256
 VIDEO_L0_HSCROLL = VIDEO_L0 + 5        ; 2 bytes
 VIDEO_L0_VSCROLL = VIDEO_L0 + 7        ; 2 bytes
 VIDEO_L0_PALOFS = VIDEO_L0 + 9
 VIDEO_L1        = VIDEO + $20          ; layer 1, the same registers
 VIDEO_L1_CONFIG = VIDEO_L1 + 0
-VIDEO_L1_MAP_R1 = VIDEO_L1 + 1         ; revision 1's
-VIDEO_L1_TILE_R1 = VIDEO_L1 + 2
-VIDEO_L1_HSCROLL_R1 = VIDEO_L1 + 3
-VIDEO_L1_VSCROLL_R1 = VIDEO_L1 + 5
-VIDEO_L1_PALOFS_R1 = VIDEO_L1 + 7
-VIDEO_L1_MAP    = VIDEO_L1 + 1         ; revision 2's
+VIDEO_L1_MAP    = VIDEO_L1 + 1
 VIDEO_L1_TILE   = VIDEO_L1 + 3
 VIDEO_L1_HSCROLL = VIDEO_L1 + 5
 VIDEO_L1_VSCROLL = VIDEO_L1 + 7
 VIDEO_L1_PALOFS = VIDEO_L1 + 9
-VIDEO_SLOT0     = VIDEO + $30          ; revision 2: aperture slot 0's 16 KB page, 2 bytes
+VIDEO_SLOT0     = VIDEO + $30          ; aperture slot 0's 16 KB page, 2 bytes
 VIDEO_SLOT1     = VIDEO + $32
 VIDEO_SLOT2     = VIDEO + $34
 VIDEO_SLOT3     = VIDEO + $36
-VIDEO_PADDR     = VIDEO + $38          ; revision 2: the port's address, 3 bytes
+VIDEO_PADDR     = VIDEO + $38          ; the port's address, 3 bytes
 VIDEO_PDATA     = VIDEO + $3B          ; the port's data: each access moves PADDR by PSTEP
 VIDEO_PSTEP     = VIDEO + $3C          ; 2 bytes
 VIDEO_PCTL      = VIDEO + $3E
@@ -229,13 +215,12 @@ VIDEO_TEXT80B   = $80                  ; CONFIG: text 80x30, attribute bit 7 bli
 VIDEO_TEXT40    = $01                  ; CONFIG: text 40x30
 VIDEO_TILE      = $02                  ; CONFIG: tiles, 8x8 at 4 bits...
 VIDEO_MAP_W64   = $20                  ; ...from a map 64 wide (32 high)
-VIDEO_BITMAP640 = $06                  ; CONFIG, revision 2: bitmap 640, 1,024-byte rows of palette indices
-VIDEO_DIRECT640 = $07                  ; CONFIG, revision 2: direct 640, 1,280-byte rows of $0RGB words
+VIDEO_BITMAP640 = $06                  ; CONFIG: bitmap 640, 1,024-byte rows of palette indices
+VIDEO_DIRECT640 = $07                  ; CONFIG: direct 640, 1,280-byte rows of $0RGB words
 VIDEO_DIRECT_T  = $80                  ; direct 640: a pixel's byte 1 bit 7, transparent (hw/video640.md)
 VIDEO_SPR_FULL  = $01                  ; SPRCTL: an entry's byte 3 bit 7 makes that sprite full resolution
 VIDEO_SPRX_FULL = $80                  ; a sprite entry's byte 3 (X high) bit 7: full resolution, 640x480 units
 VIDEO_ALL       = $0F                  ; CTRL: display, both layers, sprites
-VIDEO_ID_V1     = $91
 VIDEO_ID_V2     = $92
 VIDEO_IRQ_VBLANK = $01                 ; IEN, ISR: vertical blank
 VIDEO_IRQ_LINE  = $02                  ; IEN, ISR: the scan line LINE
@@ -246,7 +231,7 @@ VIDEO_PCTL_DRQ  = $01                  ; PCTL: request DMA (/DREQ), served by ch
 VIDEO_PCTL_FROM = $02                  ; PCTL: DMA reads the card (0: DMA writes it)
 VIDEO_PCTL_DOWN = $04                  ; PCTL: PADDR steps down
 VIDEO_MEMSIZE_2MB = 32                 ; MEMSIZE on a 2 MB card
-VIDEO_APERTURE  = $80000               ; revision 2: the aperture, physical bank 8 (four 16 KB slots), while
+VIDEO_APERTURE  = $80000               ; the aperture, physical bank 8 (four 16 KB slots), while
                                        ;   the north bridge's AP8 is set
 VIDEO_APERTURE2 = $E00000              ; the aperture's own address (B7): slot n at $E00000 + n x $4000
 VIDEO_APER_H    = $0E                  ; the WINnH that reaches it, with BLOCK the slot (0-3)

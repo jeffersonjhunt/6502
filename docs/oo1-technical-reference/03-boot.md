@@ -175,7 +175,7 @@ ENTRY:          JMP     START          ; $C800: reset, as the vector does
 | Address | Entry | What it does |
 |---|---|---|
 | `$C800` | reset | Starts again as a hard reset does: W3 and VEC go back to the flash and the CPU takes the flash's reset vector, so the BIOS is copied afresh. After a /BOOTSEL boot there is no flash to go back to, and the RAM copy starts again. The way back runs a short stub in zero page through W0, so (*proposed*, B7) `START` first sets WIN0H to 0, whatever a program left there |
-| `$C803` | the video demo | Tiles, sprites, scrolling and a palette fade, run from ROM A block 29, on video card revision 2 (*proposed*; with any other card it goes straight back). Any key goes back to the monitor |
+| `$C803` | the video demo | Tiles, sprites, scrolling and a palette fade, run from ROM A block 29, on the video card (*proposed*; with none it goes straight back). Any key goes back to the monitor |
 | `$C806` | Apple II mode | Copies the first good IIe ROM image in ROM A, of images 0–3, with its own character set, and enters the mode ([chapter 13](13-apple-ii-mode.md)); refuses without video card revision 2 (*proposed*). Since BIOS 0.16 (*proposed*); BIOS 0.15 and before took the cartridge's IIe ROM. Only a hard reset comes back |
 | `$C809` | the SD card's directory | The card's name and size, then its root directory, one entry a line |
 | `$C80C` | boot the SD card | `/BOOT.BIN`, as [below](#booting-from-the-sd-card) |
@@ -219,7 +219,7 @@ Status: **emulated**
 2. The card mounts `/BOOT.BIN` as unit 1 ([chapter 10](10-storage.md)).
 3. Its sectors are read to `$1000` by DMA channel 0, whose CARD names the SD card (module 7): 88 at most, 44 KB,
    `$1000–$BFFF`. The BIOS selects channel 0 for the read and puts CONTROL back as it found it afterwards, so
-   `/BOOT.BIN` starts with the BIOS's own CONTROL: `$71` with a revision 2 video card, `$70` without one, since BIOS
+   `/BOOT.BIN` starts with the BIOS's own CONTROL: `$71` with the video card, `$70` without one, since BIOS
    0.15 (*proposed*).
 4. The BIOS calls `$1000` with JSR. A program that returns comes back to the monitor.
 

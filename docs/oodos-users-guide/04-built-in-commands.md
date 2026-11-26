@@ -633,8 +633,8 @@ The Apple IIe's start.
 
 #### Errors
 
-- `Apple II mode needs the revision 2 video card` (since OODOS 0.9): the machine's video card is revision 1, or there is
-  none; Apple II mode draws from revision 2's own memory. Nothing is written to the card, and OODOS goes on.
+- `Apple II mode needs the video card`: the machine has no video card; Apple II mode draws from the card's own
+  memory. Nothing is written, and OODOS goes on.
 - `Apple II mode needs the DMA controller`: the machine has no DMA controller, which Apple II mode needs. Nothing
   is written to the card, and OODOS goes on.
 - `No IIe ROM in the flash (the emulator: Settings, ROMs)`: none of images 0–3 holds a IIe ROM. OODOS goes on.

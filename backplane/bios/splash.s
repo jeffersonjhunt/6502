@@ -33,7 +33,7 @@ SPLASH:
                 LDA     VIDEO_ID
                 CMP     #VIDEO_ID_V2
                 BEQ     :+
-                RTS                    ; no revision 2 video card: no splash, and no sound for it
+                RTS                    ; no video card: no splash, and no sound for it
 :               STZ     PLAYS
                 LDA     SOUND_ID
                 CMP     #SOUND_ID_V3

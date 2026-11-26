@@ -192,16 +192,10 @@ namespace ooe::emu
     std::unique_ptr<Machine> Machine::build(const std::string &text, const std::string &origin,
                                             const MachineOptions &options, std::string &error)
     {
-        if (options.video_revision > 2)
-        {
-            error = origin + ": video_revision: want the video card's revision, 1 or 2 (0: the description's)";
-            return nullptr;
-        }
         std::unique_ptr<Machine> m(new Machine(options.bridge));
         bool rom_overridden = false;
         std::unordered_map<const Via6522 *, std::string> via_users; // the last peripheral type on each VIA
-        unsigned video_rev = 1;                 // the video line's rev=
-        std::vector<Mapping> apertures;         // mapped at the end, when the video card is revision 2
+        std::vector<Mapping> apertures;         // mapped at the end, when there is a video card
         std::vector<VideoAperture *> aperture_devices;
         int lineno = 0;
         std::istringstream lines(text);
@@ -358,7 +352,6 @@ namespace ooe::emu
                 return fail(type + ": range is outside A0-A23");
 
             std::string name, image;
-            unsigned rev = 0;
             unsigned memsize = 0; // the sound card's, in MB (revision 3)
             Space space = Space::Memory;
             for (size_t i = 2; i < w.size(); ++i)
@@ -397,13 +390,10 @@ namespace ooe::emu
                 else if (eq != std::string::npos && arg.compare(0, eq, "rev") == 0)
                 {
                     const std::string n = arg.substr(eq + 1);
-                    if (type != "video" && type != "sound")
-                        return fail("rev: only the video and sound cards take a revision");
-                    if (type == "video" && n != "1" && n != "2")
-                        return fail("rev: want the video card's revision, 1 or 2");
-                    if (type == "sound" && n != "3")
+                    if (type != "sound")
+                        return fail("rev: only the sound card takes a revision");
+                    if (n != "3")
                         return fail("rev: want the sound card's revision, 3");
-                    rev = static_cast<unsigned>(n[0] - '0');
                 }
                 else if (eq != std::string::npos && arg.compare(0, eq, "memsize") == 0)
                 {
@@ -541,9 +531,6 @@ namespace ooe::emu
                     if (m->video_card_)
                         return fail("video: only one per machine");
                     auto card = std::make_unique<VideoCard>();
-                    video_rev = options.video_revision ? options.video_revision : rev ? rev : 1;
-                    if (!card->set_revision(video_rev)) // a new card: never locked yet
-                        return fail("video: the revision didn't take");
                     m->video_card_ = card.get();
                     dev = std::move(card);
                 }
@@ -605,12 +592,12 @@ namespace ooe::emu
             return nullptr;
         }
         {
-            // Revision 2: the card answers its aperture. The north bridge sends bank 8 there while
-            // MAP's AP8 is set (hw/design.md). A revision 1 card has no aperture, nor a machine without
-            // the card: the line is inert. A line at bank 8 itself, as machine files had it before the 24-bit
-            // bus, is taken for the aperture's own place, E00000, on the backplane.
+            // The card answers its aperture. The north bridge sends bank 8 there while MAP's AP8 is
+            // set (hw/design.md). A machine without the card has no aperture: the line is inert. A line
+            // at bank 8 itself, as machine files had it before the 24-bit bus, is taken for the aperture's
+            // own place, E00000, on the backplane.
             auto *bp = dynamic_cast<BackplaneBridge *>(m->bridge_);
-            if (m->video_card_ && video_rev == 2)
+            if (m->video_card_)
             {
                 for (VideoAperture *ap : aperture_devices)
                     ap->attach(m->video_card_);
@@ -623,32 +610,6 @@ namespace ooe::emu
                     }
                     m->bus_.map(map);
                 }
-            }
-        }
-        if (m->video_card_)
-            m->video_card_->lock_revision(); // the bus is wired for it now: set_revision() can't change it
-        if (m->video_card_ && video_rev == 1)
-        {
-            // Revision 1 draws from banks 8-B, which it snoops: give it the RAM there.
-            // (Revision 2's card memory is its own; only Apple II mode reads system RAM.)
-            const uint32_t first = bus_address(Space::Memory, VideoCard::VRAM_BASE);
-            const uint32_t last = first + VideoCard::VRAM_SIZE - 1;
-            const Ram *ram = nullptr;
-            const auto &maps = m->bus_.mappings();
-            for (auto it = maps.rbegin(); it != maps.rend(); ++it) // the later mapping wins
-            {
-                if (it->last < first || it->first > last)
-                    continue;
-                if (it->first <= first && it->last >= last)
-                    ram = dynamic_cast<const Ram *>(it->device);
-                if (ram)
-                    m->video_card_->attach(ram->data() + (first - it->first));
-                break;
-            }
-            if (!ram)
-            {
-                error = origin + ": video: banks 8-B (80000-BFFFF) must be one ram line";
-                return nullptr;
             }
         }
         if (m->video_card_)

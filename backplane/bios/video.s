@@ -30,7 +30,7 @@
 ; blinks (bit 7, with CONFIG's blink on), so the card blinks it and the BIOS
 ; does nothing.
 ;
-; With no revision 2 video card, or no DMA controller, VINIT leaves VOK clear
+; With no video card, or no DMA controller, VINIT leaves VOK clear
 ; and VPUTC does nothing. Break (NMI) puts W2 back and calls VSCREEN, which
 ; sets VOK again from the ID bytes, so one during VPUTC, or a program that
 ; moved the screen or wrote VOK, leaves the monitor on the text screen as
@@ -129,7 +129,7 @@ VINIT:
                 BRA     VSCREEN
 @done:          RTS
 
-; VOK from the ID bytes: $FF (N set) with a revision 2 video card and the
+; VOK from the ID bytes: $FF (N set) with the video card and the
 ; DMA controller, else 0.
 PROBE:
                 STZ     VOK

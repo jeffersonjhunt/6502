@@ -41,8 +41,8 @@ Each line of `backplane.machine` is a part of the OO-1:
 | `joyports … via=via` | the two joysticks, on the VIA's PA0–PA4 and PB0–PB4 ([chapter 9](09-serial-and-via.md#the-joysticks)) |
 | `sd 380-3FF … irq drq` | the mass storage card, its DMA request on /DREQ, served by channel 0 (CARD `$07`) ([chapter 10](10-storage.md)) |
 | `dma 400-47F … irq` | the DMA controller ([chapter 5](05-dma.md)) |
-| `video 480-4FF … irq drq rev=2` | the video card ([chapter 6](06-video.md)). `rev=` is its revision, 1 or 2, and 1 if left out; the machine has 2 (*proposed*), which draws from its own 2 MB, with its data port's DMA request on /DREQ, served by channel 1 (CARD `$09`). Revision 1 draws from banks 8–B, which must then be one `ram` line ([below](#revision-2-of-the-video-card)) |
-| `aperture E00000-E0FFFF` | revision 2's aperture (*proposed*): 64 KB at `$E00000` and nowhere else (the old `80000-8FFFF` excepted, below), four slots on card memory ([chapter 6](06-video.md#the-aperture)), at `$E00000`. While the north bridge's AP8 (MAP, bit 0) is set, as from every reset whatever is fitted, it sends bank 8 (`$080000–$08FFFF`) there, so the CPU's windows and DMA reach the aperture at bank 8 as before, and RAM C's bank 8 can't then be reached by them; with AP8 clear bank 8 is RAM (*proposed*, B7). With a revision 1 card, or none, the line is inert: bank 8 reads `$FF` while AP8 is set, until the BIOS clears it at boot. A line at `80000-8FFFF`, as the file had it before the 24-bit bus, means the same |
+| `video 480-4FF … irq drq` | the video card ([chapter 6](06-video.md)), revision 2, ID `$92` (*proposed*), the only one: it draws from its own 2 MB, with its data port's DMA request on /DREQ, served by channel 1 (CARD `$09`) ([below](#revision-2-of-the-video-card)). The line takes no `rev=` |
+| `aperture E00000-E0FFFF` | the video card's aperture (*proposed*): 64 KB at `$E00000` and nowhere else (the old `80000-8FFFF` excepted, below), four slots on card memory ([chapter 6](06-video.md#the-aperture)), at `$E00000`. While the north bridge's AP8 (MAP, bit 0) is set, as from every reset whatever is fitted, it sends bank 8 (`$080000–$08FFFF`) there, so the CPU's windows and DMA reach the aperture at bank 8 as before, and RAM C's bank 8 can't then be reached by them; with AP8 clear bank 8 is RAM (*proposed*, B7). With no video card the line is inert: bank 8 reads `$FF` while AP8 is set, until the BIOS clears it at boot. A line at `80000-8FFFF`, as the file had it before the 24-bit bus, means the same |
 | `sound 500-57F … irq drq` | the sound card (revision 3, `rev=3` and `memsize=` optional), its DMA request (DATA's, while a transfer is open) on /DREQ, served by channel 2 (CARD `$0A`) ([chapter 7](07-sound.md)) |
 | `usb 580-5FF … irq` | the USB card ([chapter 8](08-usb.md)), with its DMA request left off /DREQ |
 | `disk2 600-67F` | the Disk II card, with no IRQ ([chapter 10](10-storage.md#the-disk-ii)) |
@@ -59,9 +59,6 @@ Each line of `backplane.machine` is a part of the OO-1:
   without it never pulls /DREQ. A line with no module ID (a memory line without `module=`) can't take it: no
   CARD could name the card, so `drq` there is refused with an error. `drq=N`, revision 1's channel number, is refused, with an error that says a channel
   serves a card by its CARD register, so an old machine file can't load wired wrong.
-- **`rev=N`**, on the `video` line only, picks the card's revision, 1 or 2. A program that builds the machine can
-  override it with `MachineOptions::video_revision` (0 keeps the line's, 1 or 2 overrides it). The revision is fixed
-  once the machine is built: the card's `set_revision` then returns false.
 - **`wait=N`**, 0–15, which `backplane.machine` doesn't use, is the card's /WAIT: N extra cycles on every CPU
   access to the mapping, as a slow card would ask, and N on each DMA grant cycle it answers. On a fly-by both the
   memory and the card answer, and the grant takes the longer of their two. The north bridge's WAIT0–3 add nothing
@@ -87,8 +84,8 @@ Emulated as step B1 of [the new bus](../../hw/design.md#the-new-bus-memory-by-ad
   with the address in at least five hex digits (six when A20–A23 aren't 0).
 - **What a tool reads at a physical address.** The decoder's `peek_physical()` (and the WebUI's physical view, the
   tests' `phys()`) is the CPU card's view: while MAP's AP8 is set (*proposed*, B7) bank 8 is the aperture, as
-  `$E0xxxx` is, and reads `$FF` without a revision 2 card; with AP8 clear bank 8 is RAM; in Apple II mode both
-  read `$FF`; without a revision 2 card `$E0xxxx` reads `$FF`. It follows MAP as it is written. The console card's
+  `$E0xxxx` is, and reads `$FF` without the video card; with AP8 clear bank 8 is RAM; in Apple II mode both
+  read `$FF`; without the video card `$E0xxxx` reads `$FF`. It follows MAP as it is written. The console card's
   EXAM and DEP go by the bus itself (`peek_bus()`), where bank 8 is always RAM: the redirection is the CPU card's.
 - **The console card stays 20 bits:** its breakpoint matches a cycle only when A20–A23 are 0, so it never fires on
   a cycle to the flash or the aperture, and LADDR and the lights show A0–A19.
@@ -422,13 +419,13 @@ emulator; each link goes to the note.
 
 Status: **proposed**
 
-The emulator has both revisions of the card ([chapter 6](06-video.md#revision-2-card-memory)); `backplane.machine`
-fits revision 2, the card BIOS 0.13 and OODOS drive. Where it differs from the design:
+The emulator has the one card, revision 2 ([chapter 6](06-video.md#revision-2-card-memory)), which
+`backplane.machine` fits and the BIOS and OODOS drive. Where it differs from the design:
 
 - **The machine's RAM.** The RAM C line covers bank 8, as the design's RAM card does. While the north bridge's
   AP8 is set the aperture is sent over it ([chapter 2](02-memory-and-banking.md#revision-2-bank-8-the-aperture)),
   and the RAM's bank 8 can't be reached by the CPU or DMA; once AP8 is clear it is ordinary RAM (*proposed*, B7).
-- **Apple II mode** reads banks 0 and 1 directly, as with revision 1, where the card keeps a snooped copy in its own
+- **Apple II mode** reads banks 0 and 1 directly, where the card keeps a snooped copy in its own
   memory ([chapter 13](13-apple-ii-mode.md#revision-2-of-the-video-card)); only the character ROM comes from card
   memory. Nothing outside the card can tell the two apart.
 

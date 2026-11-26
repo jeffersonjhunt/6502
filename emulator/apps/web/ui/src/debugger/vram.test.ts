@@ -66,9 +66,9 @@ describe("vram: card memory", () => {
     expect(dump.textContent).toMatch(/^002000  42 /);
   });
 
-  test("the Devices tab shows it for a revision 2 card only", async () => {
+  test("the Devices tab shows it for the video card only", async () => {
     const port = new FakePort();
-    port.io.set(VIDEO + 0x7f, 0x91);
+    port.io.set(VIDEO + 0x7f, 0xff); // no video card
     const v = devicesView(port);
     await v.refresh();
     const box = v.element.querySelector<HTMLElement>('[data-testid="dev-vram"]')!;

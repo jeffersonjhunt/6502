@@ -12,7 +12,7 @@ Console card's HALT set by the program, and `r` releases it; --trace
 writes a well-formed trace that tools/trace_diff.py agrees with, and
 disagrees with once a byte is changed; --screen saves the video card's
 frame as a PPM, and fails on a machine without one; `vram` shows and
-writes a revision 2 card's memory, which the aperture shows too; leaving Apple II mode
+writes the card's memory, which the aperture shows too; leaving Apple II mode
 by a hard reset paces at --clock again; the flash's busy times are
 counted at --clock. That check covers only the clock the app gives the
 flash at start: the one clock change the app has is Apple II mode's, and
@@ -192,13 +192,12 @@ def main():
             f.write("cpu w65c02s\nnorthbridge backplane bootsel\nram 00000-FFFFF module=0\n"
                     "rom 00000-7FFFF space=flash module=4\nacia6551 300-37F space=io name=terminal\n"
                     "video 480-4FF space=io name=video irq\n")
-        write_hex(hexfile, [(0x0300, [0x9C, 0xA5, 0xC6,               # STZ MAP: AP8 clear, bank 8 the RAM's
-                                      0xA9, 0x20, 0x8D, 0x81, 0xC6,   # LDA #$20; STA WIN1: $4000 = $80000
-                                      0xA9, 0x23, 0x8D, 0x06, 0x40,   # palette entry 3 = $123
-                                      0xA9, 0x01, 0x8D, 0x07, 0x40,
+        write_hex(hexfile, [(0x0300, [0xA9, 0x06, 0x8D, 0xB8, 0xC4,   # LDA #6; STA PADDR: card $000006
+                                      0xA9, 0x23, 0x8D, 0xBB, 0xC4,   # palette entry 3 = $123, by the port
+                                      0xA9, 0x01, 0x8D, 0xBB, 0xC4,
                                       0xA9, 0x03, 0x8D, 0x81, 0xC4,   # BORDER 3
                                       0xA9, 0x01, 0x8D, 0x80, 0xC4,   # CTRL: display on
-                                      0x4C, 0x1C, 0x03])])           # JMP *
+                                      0x4C, 0x19, 0x03])])           # JMP *
         screen = os.path.join(cwd, "screen.ppm")
         s = Session(binary, ["--machine", video, "--load", hexfile, "--screen", screen, "--halt", rom], cwd)
         s.expect(PROMPT)
@@ -222,13 +221,13 @@ def main():
         check(failures, "screen without a video card", rc == 1 and b"has no video card" in s.log and not lost,
               f"rc={rc} {text(s.log)}")
 
-        # vram: a revision 2 card's own memory at the prompt; the CPU sees the same bytes through the
-        # aperture (W1 at $80000, slot 0). On revision 1 it says the card has none.
+        # vram: the card's own memory at the prompt; the CPU sees the same bytes through the
+        # aperture (W1 at $80000, slot 0).
         video2 = os.path.join(cwd, "video2.machine")
         with open(video2, "w") as f:
             f.write("cpu w65c02s\nnorthbridge backplane bootsel\nram 00000-FFFFF module=0\n"
                     "rom 00000-7FFFF space=flash module=4\nacia6551 300-37F space=io name=terminal\n"
-                    "video 480-4FF space=io name=video irq rev=2\naperture 80000-8FFFF module=9\n")
+                    "video 480-4FF space=io name=video irq\naperture 80000-8FFFF module=9\n")
         s = Session(binary, ["--machine", video2, "--halt", rom], cwd)
         s.expect(PROMPT)
         out = s.send(b"h\n")
@@ -243,13 +242,6 @@ def main():
         os.write(s.master, b"q\n")
         rc, lost = s.close()
         check(failures, "vram session: exit", rc == 0 and not lost, f"rc={rc} lost={lost} {text(s.log)}")
-        s = Session(binary, ["--machine", video, "--halt", rom], cwd)
-        s.expect(PROMPT)
-        out = s.send(b"vram 0\n")
-        check(failures, "vram: revision 1", b"no card memory" in out, text(out))
-        os.write(s.master, b"q\n")
-        rc, lost = s.close()
-        check(failures, "vram rev 1 session: exit", rc == 0 and not lost, f"rc={rc} lost={lost}")
 
         # Apple II mode paces at its own clock; a hard reset leaves it, and
         # pacing (and the cards) go back to --clock, not stay at 1.02 MHz.

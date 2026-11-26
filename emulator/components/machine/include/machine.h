@@ -40,15 +40,14 @@
  * acia6551, dma (the DMA controller, dma_controller.h; at most one, and it
  * takes the bus from the CPU), console (the Console card, console_card.h;
  * at most one; the run loop wires it to the CPU, see console_card()), video
- * (the video card, video_card.h; at most one; `rev=1` or `rev=2`, 1 if
- * omitted, or MachineOptions::video_revision; on revision 1 banks 8-B,
- * 80000-BFFFF, must be one ram line, which it draws from), aperture
- * (revision 2's 64 KB window on card memory, video_card.h's VideoAperture,
- * at E00000-E0FFFF on the backplane: on a revision 2 card it answers, as if
+ * (the video card, video_card.h: at most one; revision 2, ID $92, the only
+ * one, drawing from its own card memory), aperture
+ * (the card's 64 KB window on card memory, video_card.h's VideoAperture,
+ * at E00000-E0FFFF on the backplane: the card answers it, as if
  * mapped last, and the CPU card sends bank 8, 080000-08FFFF, to it while
  * the north bridge's MAP has AP8 set (backplane_bridge.h); a line at
  * 80000-8FFFF, as machine files had it before the 24-bit bus, means the
- * same. On a revision 1 card, or with no video line, it is inert: the
+ * same. With no video line it is inert: the
  * bridge sends bank 8 to the empty E00000 while AP8 is set), usb (the USB card, usb_card.h;
  * at most one; the run loop takes its /NMI), disk2 (the Disk II controller,
  * disk2_card.h; at most one, slot 6 in Apple II mode), sound (the sound
@@ -110,10 +109,6 @@ namespace ooe::emu
     {
         /// If set, replaces the image of the first `rom` or `flash` line.
         std::string rom_override;
-        /// The video card's revision (1 or 2), over the `video` line's `rev=`; 0: the line's. Anything
-        /// else fails the build. The machine wires the bus for it, so the card's revision is then fixed
-        /// (VideoCard::set_revision() returns false).
-        unsigned video_revision{0};
         /// An Apple IIe ROM for ROM A's image 0 (the flash line named `rom_a`, at its
         /// start): one 16 KB file ($C000-$FFFF), or the two 8 KB halves, CD then EF.
         /// Apple's ROMs are copyrighted: the owner supplies them.

@@ -11,11 +11,10 @@
  * into the monitor, and the /BOOTSEL boot from an image already in RAM.
  * Then the screen (video.s): the monitor on the video card's text layer,
  * typing and backspace, scrolling by DMA, and a machine with no card. And
- * the video demo (demo.s, C803R) on a revision 2 card (hw/video-rev2.md,
+ * the video demo (demo.s, C803R) on the video card (hw/video-rev2.md,
  * proposed): tiles, sprites, scroll, fade and the ripple, loaded through the
  * card's port, and back to the monitor's screen as it was on a key, the
- * BIOS's and Apple II mode's card memory untouched; on revision 1 it goes
- * straight back. And the USB keyboard (input.s): the monitor takes keys
+ * BIOS's and Apple II mode's card memory untouched. And the USB keyboard (input.s): the monitor takes keys
  * from it, Pause/Break breaks in, and a USB key ends the demo. And Apple
  * II mode's way in (apple.s, C806R), with a stand-in for the owner's IIe
  * ROM: these tests never need Apple's. And the BIOS's recovery: Break (in
@@ -77,23 +76,14 @@ namespace
         return std::string((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
     }
 
-    /// The video card these run on: revision 2 (hw/video-rev2.md), as backplane.machine says (rev=2) and the BIOS
-    /// is built for; a test that wants revision 1 asks for it.
-    constexpr unsigned VIDEO_REVISION = 2;
-
     /// backplane.machine with the BIOS, its console and CPU, reset and ready.
     struct Board
     {
-        /// Board(Board::Rev2{}): the video card at revision 2 (hw/video-rev2.md), as the demo needs it.
-        struct Rev2
-        {
-        };
-
         /// `images` and `charsets`: a 16 KB IIe ROM file and a character set for ROM A's image and set n
         /// (MachineOptions::apple_roms and apple_charsets), as `apple_rom` and `apple_chars` give image 0.
         explicit Board(bool bootsel = false, bool video = true, std::vector<std::string> apple_rom = {},
                        std::string apple_chars = "", std::vector<std::string> without = {},
-                       unsigned video_revision = 0, std::array<std::string, 4> images = {},
+                       std::array<std::string, 4> images = {},
                        std::array<std::string, 4> charsets = {}, unsigned sound_rev = 0)
         {
             std::string text = read_file(EMU_MACHINE_DIR "/backplane.machine");
@@ -142,7 +132,6 @@ namespace
                     opt.apple_roms[n] = {images[n]};
                 opt.apple_charsets[n] = charsets[n];
             }
-            opt.video_revision = video_revision ? video_revision : VIDEO_REVISION; // 1 only where a test asks
             std::string error;
             machine = Machine::build(text, "backplane.machine", opt, error);
             if (machine)
@@ -155,14 +144,12 @@ namespace
             cpu = std::make_unique<Cpu6502>(machine->bus(), Cpu6502::Model::W65C02S);
         }
 
-        explicit Board(Rev2) : Board(false, true, {}, "", {}, 2) {}
-
         /// Board(Board::Sound3{}): the sound card at revision 3, the device (hw/future/sound-device.md), which the
-        /// ROM drives; the video card at revision 2.
+        /// ROM drives.
         struct Sound3
         {
         };
-        explicit Board(Sound3) : Board(false, true, {}, "", {}, 0, {}, {}, 3) {}
+        explicit Board(Sound3) : Board(false, true, {}, "", {}, {}, {}, 3) {}
 
         bool ok() const { return cpu != nullptr; }
 
@@ -291,7 +278,7 @@ namespace
         return static_cast<unsigned>(std::stoul(lbl.substr(at - 6, 6), nullptr, 16));
     }
 
-    /// A revision 2 card's two-byte register at `offset`, low byte first.
+    /// The card's two-byte register at `offset`, low byte first.
     unsigned reg16(const VideoCard &card, unsigned offset)
     {
         return card.peek(offset) | unsigned{card.peek(offset + 1)} << 8;
@@ -413,8 +400,8 @@ TEST(the_monitor_is_on_the_vga_screen_in_the_vga_font)
     CHECK_EQ(card->peek(VideoCard::CTRL), 0x03);
     const uint8_t l0 = VideoCard::LAYER0;
     CHECK_EQ(card->peek(l0 + VideoCard::CONFIG), 0x80); // text 80x30, blink
-    CHECK_EQ(reg16(*card, l0 + VideoCard::Rev2::MAPBASE), 0x0020); // card $2000, the old unit 8
-    CHECK_EQ(reg16(*card, l0 + VideoCard::Rev2::TILEBASE), 0x0004); // card $0400, the old unit 1
+    CHECK_EQ(reg16(*card, l0 + VideoCard::Rev2::MAPBASE), 0x0020); // card $2000
+    CHECK_EQ(reg16(*card, l0 + VideoCard::Rev2::TILEBASE), 0x0004); // card $0400
     CHECK_EQ(b.row(0), std::string(""));
     CHECK_EQ(b.row(1), std::string("BACKPLANE BIOS 0.21"));
     CHECK_EQ(b.row(2), std::string("\\"));
@@ -512,7 +499,7 @@ namespace
         return seen.size();
     }
 
-    // The demo (demo.s) on a revision 2 card: where it puts things in card memory, the programs' region.
+    // The demo (demo.s) on the video card: where it puts things in card memory, the programs' region.
     constexpr uint32_t DEMO_PAL = 0x040000, DEMO_FONT = 0x040400, DEMO_TEXT1 = 0x041400, DEMO_TEXT2 = 0x041E00;
     constexpr uint32_t DEMO_TILES = 0x043000, DEMO_MAP = 0x044000, DEMO_BALL = 0x045000, DEMO_SPR = 0x045100;
     constexpr uint32_t DEMO_RIPPLE = 0x050000, RIPPLE_SIZE = 0xF000; // 16 bitmaps of 256 x 240
@@ -562,7 +549,7 @@ namespace
         CHECK(entered);
     }
 
-    /// The BIOS's text screen's registers on revision 2, as Break and the demo's end leave them (VSCREEN: the
+    /// The BIOS's text screen's registers, as Break and the demo's end leave them (VSCREEN: the
     /// card memory layout of hw/video-rev2.md, the font at $000400 and the text at $002000).
     void check_text_screen_registers(const VideoCard &card)
     {
@@ -883,7 +870,7 @@ TEST(break_stops_a_paused_stream_and_drops_a_half_written_record)
 
 TEST(the_demo_runs_from_c803_tiles_sprites_scroll_and_fade)
 {
-    Board b{Board::Rev2{}};
+    Board b;
     REQUIRE(b.ok());
     b.reset();
     b.run(BOOT);
@@ -932,9 +919,9 @@ TEST(the_demo_runs_from_c803_tiles_sprites_scroll_and_fade)
 
 TEST(the_demos_ripple_is_sixteen_bitmaps_in_card_memory_flipped_by_mapbase)
 {
-    // The new effect: 960 KB of frames, more than revision 1's whole 256 KB. Each row of frame f is a window on
+    // The new effect: 960 KB of frames, more than 256 KB. Each row of frame f is a window on
     // the stripes (colours 80-95, a ramp up and down every 32 pixels) at (y / 2 + 2f + sine[4y + 16f]) mod 32.
-    Board b{Board::Rev2{}};
+    Board b;
     REQUIRE(b.ok());
     b.reset();
     b.run(BOOT);
@@ -1004,11 +991,11 @@ TEST(the_demos_ripple_is_sixteen_bitmaps_in_card_memory_flipped_by_mapbase)
 
 TEST(a_key_ends_the_demo_with_the_monitors_screen_as_it_was)
 {
-    // On revision 2 the monitor's screen is in card memory, in the BIOS's and OODOS's region below $040000;
+    // The monitor's screen is in card memory, in the BIOS's and OODOS's region below $040000;
     // Apple II mode's is from $1C0000. The demo leaves both as they were: each is filled with a pattern as the
     // demo starts and must still hold it when BREAK takes over (whose VSCREEN writes only registers). Then what
     // was there goes back, for the monitor's checks after.
-    Board b{Board::Rev2{}};
+    Board b;
     REQUIRE(b.ok());
     b.reset();
     b.run(BOOT);
@@ -1054,31 +1041,6 @@ TEST(a_key_ends_the_demo_with_the_monitors_screen_as_it_was)
     CHECK_EQ(b.bridge().window(2), 0x02);
     CHECK_EQ(b.row(5), before);                  // the text screen kept
     CHECK(has(b.run(BOOT, "C680.C684\r"), "C680: 00 01 02 7F 7F")); // and the monitor works
-}
-
-TEST(on_a_revision_1_card_the_demo_goes_straight_back_to_the_monitor)
-{
-    // The demo is revision 2's: on revision 1 it changes nothing on the card (whether the BIOS's C803 lets it start
-    // or not), and the monitor carries on.
-    Board b(false, true, {}, "", {}, 1);
-    REQUIRE(b.ok());
-    REQUIRE(b.machine->video_card()->revision() == 1);
-    REQUIRE(boot_past_splash(b));                // so Break's end of the splash isn't taken for the demo's doing
-    const VideoCard *card = b.machine->video_card();
-    auto registers = [&] {
-        std::string r; // all but what the beam changes
-        for (uint8_t o = VideoCard::CTRL; o < 0x30; ++o)
-            if (o != VideoCard::ISR && o != VideoCard::LINE && o != VideoCard::LINE + 1 && o != VideoCard::STATUS)
-                r += static_cast<char>(card->peek(o));
-        return r;
-    };
-    const std::string before = registers();
-    const std::string out = b.run(BOOT, "C803R\r");
-    CHECK(has(out, "C803: 4C\\"));
-    CHECK(registers() == before);
-    CHECK_EQ(b.bridge().window(1), 0x01);
-    CHECK_EQ(b.bridge().window(2), 0x02);
-    CHECK(has(b.run(BOOT, "C680.C684\r"), "C680: 00 01 02 7F 7F"));
 }
 
 TEST(without_a_video_card_c803_goes_back_to_the_monitor)
@@ -1181,7 +1143,7 @@ TEST(pause_break_on_the_usb_keyboard_enters_the_monitor)
 
 TEST(a_usb_key_ends_the_demo)
 {
-    Board b{Board::Rev2{}};
+    Board b;
     REQUIRE(b.ok());
     b.reset();
     b.run(BOOT);
@@ -1235,34 +1197,24 @@ TEST(c806_without_a_iie_rom_says_so_and_goes_back_to_the_monitor)
     CHECK(has(p.run(BOOT, "C806R\r"), "NO APPLE IIE ROM IN FLASH IMAGES 0-3\\"));
 }
 
-TEST(c806_on_a_revision_1_card_says_so_and_stays_in_the_native_map)
+TEST(c806_without_a_video_card_says_so_and_stays_in_the_native_map)
 {
-    // Apple II mode is revision 2's (its character ROM goes in through revision 2's port): with a IIe ROM in
-    // ROM A but a revision 1 card, C806R refuses before it touches anything, and the monitor carries on.
-    const std::string rom = fake_iie_rom("test_rev1_iie.rom");
-    Board b(false, true, {rom}, "", {}, 1);
+    // Apple II mode needs the video card (its character ROM goes in through the card's port): with a IIe ROM in
+    // ROM A but no card, C806R refuses before it touches anything, and the monitor carries on.
+    const std::string rom = fake_iie_rom("test_novideo_iie.rom");
+    Board b(false, false, {rom});
     std::remove(rom.c_str());
     REQUIRE(b.ok());
-    REQUIRE(b.machine->video_card()->revision() == 1);
+    REQUIRE(b.machine->video_card() == nullptr);
     b.reset();
     b.run(BOOT);
     Decoder &bus = b.machine->bus();
     bus.write_physical(0x2ABCD, 0x5A);                        // what the fills would clear
-    const VideoCard *card = b.machine->video_card();
-    std::string regs;
-    for (uint8_t o = VideoCard::CTRL; o < 0x30; ++o)
-        if (o != VideoCard::ISR && o != VideoCard::LINE && o != VideoCard::LINE + 1 && o != VideoCard::STATUS)
-            regs += static_cast<char>(card->peek(o));
     const std::string out = b.run(2 * BOOT, "C806R\r");
-    CHECK(has(out, "APPLE II MODE NEEDS THE REVISION 2 VIDEO CARD\\")); // then the monitor's prompt
+    CHECK(has(out, "APPLE II MODE NEEDS THE VIDEO CARD\\")); // then the monitor's prompt
     CHECK(!b.bridge().apple());                                // still the native map
     CHECK_EQ(bus.peek_physical(0x2ABCD), 0x5A);                // nothing cleared
     CHECK(bus.peek_physical(0xEFFFC) != 0x62 || bus.peek_physical(0xEFFFD) != 0xFA); // no IIe ROM copied to bank E
-    std::string after;
-    for (uint8_t o = VideoCard::CTRL; o < 0x30; ++o)
-        if (o != VideoCard::ISR && o != VideoCard::LINE && o != VideoCard::LINE + 1 && o != VideoCard::STATUS)
-            after += static_cast<char>(card->peek(o));
-    CHECK(after == regs);                                      // the card as it was
     CHECK_EQ(b.bridge().window(1), 0x01);
     CHECK_EQ(b.bridge().window(2), 0x02);
     CHECK(has(b.run(BOOT, "C680.C684\r"), "C680: 00 01 02 7F 7F")); // the monitor carries on
@@ -1321,7 +1273,6 @@ TEST(rom_a_takes_16_kb_or_two_halves_and_a_4_or_8_kb_character_rom)
         opt.rom_override = EMU_BIOS_ROM;
         opt.apple_rom = std::move(parts);
         opt.apple_chars = std::move(chars);
-        opt.video_revision = VIDEO_REVISION;
         error.clear();
         return Machine::build(text, "backplane.machine", opt, error);
     };
@@ -1374,7 +1325,7 @@ TEST(c806_puts_the_character_rom_in_card_memory_or_makes_one_from_the_vga_font)
         b->run(2 * BOOT, "C806R\r");
     }
     // In the card's memory at $1E0000 (hw/video-rev2.md's layout), where it draws Apple text from.
-    constexpr uint32_t CHARS = VideoCard::APPLE_CHARS_V2;
+    constexpr uint32_t CHARS = VideoCard::APPLE_CHARS;
     const VideoCard &with_card = *with.machine->video_card();
     size_t differ = 0;
     for (uint32_t i = 0; i < 0x800; ++i)
@@ -1435,8 +1386,8 @@ namespace
             uint8_t dots = 0;
             for (unsigned bit = 0; bit < 7; ++bit)
                 dots = static_cast<uint8_t>(dots | ((vga >> (7 - bit)) & 1) << bit);
-            wrong += card.card_peek(VideoCard::APPLE_CHARS_V2 + 0xC1 * 8 + r) != static_cast<uint8_t>(~dots);
-            wrong += card.card_peek(VideoCard::APPLE_CHARS_V2 + 0x01 * 8 + r) != dots;
+            wrong += card.card_peek(VideoCard::APPLE_CHARS + 0xC1 * 8 + r) != static_cast<uint8_t>(~dots);
+            wrong += card.card_peek(VideoCard::APPLE_CHARS + 0x01 * 8 + r) != dots;
         }
         return wrong;
     }
@@ -1449,7 +1400,6 @@ TEST(apple_rom_and_apple_chars_n_place_image_n_at_n_x_4000_and_set_n_at_10000_pl
     const std::string set2 = charset("test_set2.chr", 7, 3, 0x2000);
     MachineOptions opt;
     opt.rom_override = EMU_BIOS_ROM;
-    opt.video_revision = VIDEO_REVISION;
     opt.apple_rom = {zero};                                   // image 0, as every caller had it
     opt.apple_roms[2] = {two};
     opt.apple_charsets[2] = set2;
@@ -1482,7 +1432,7 @@ TEST(apple_rom_and_apple_chars_n_place_image_n_at_n_x_4000_and_set_n_at_10000_pl
 TEST(c806_takes_image_2_when_image_0_is_erased)
 {
     const std::string two = fake_iie_rom("test_c806_2.rom", 0x06, 0xB2);
-    Board b(false, true, {}, "", {}, 0, {"", "", two, ""});
+    Board b(false, true, {}, "", {}, {"", "", two, ""});
     std::remove(two.c_str());
     REQUIRE(b.ok());
     REQUIRE(b.machine->find("rom_a")->peek(0x3BB3) == 0xFF);  // image 0 erased
@@ -1495,7 +1445,7 @@ TEST(c806_takes_image_2_when_image_0_is_erased)
 TEST(c806_takes_the_first_good_image_of_two)
 {
     const std::string one = fake_iie_rom("test_first_1.rom", 0x06, 0xB1), two = fake_iie_rom("test_first_2.rom", 0x06, 0xB2);
-    Board b(false, true, {}, "", {}, 0, {"", one, two, ""});
+    Board b(false, true, {}, "", {}, {"", one, two, ""});
     std::remove(one.c_str());
     std::remove(two.c_str());
     REQUIRE(b.ok());
@@ -1508,8 +1458,8 @@ TEST(c806_draws_with_the_images_own_set_or_the_vga_font_never_set_0)
 {
     const std::string two = fake_iie_rom("test_set_img2.rom");
     const std::string set0 = charset("test_set0.chr", 0, 0x11), set2 = charset("test_set2b.chr", 5, 3, 0x2000);
-    Board with(false, true, {}, set0, {}, 0, {"", "", two, ""}, {"", "", set2, ""});
-    Board without(false, true, {}, set0, {}, 0, {"", "", two, ""});  // set 2 erased, set 0 there
+    Board with(false, true, {}, set0, {}, {"", "", two, ""}, {"", "", set2, ""});
+    Board without(false, true, {}, set0, {}, {"", "", two, ""});  // set 2 erased, set 0 there
     for (const std::string &f : {two, set0, set2})
         std::remove(f.c_str());
     REQUIRE(with.ok() && without.ok());
@@ -1519,7 +1469,7 @@ TEST(c806_draws_with_the_images_own_set_or_the_vga_font_never_set_0)
     const VideoCard &card = *with.machine->video_card();
     size_t differ = 0;
     for (uint32_t i = 0; i < 0x800; ++i)
-        differ += card.card_peek(VideoCard::APPLE_CHARS_V2 + i) != static_cast<uint8_t>(i * 5 + 3);
+        differ += card.card_peek(VideoCard::APPLE_CHARS + i) != static_cast<uint8_t>(i * 5 + 3);
     CHECK_EQ(differ, size_t{0});                              // set 2's first 2 KB
     CHECK_EQ(vga_a_wrong(*without.machine->video_card()), size_t{0}); // made from the VGA font, not set 0's
 }
@@ -1529,7 +1479,7 @@ TEST(c806_with_no_good_image_of_the_four_says_so_with_w1_put_back)
     std::array<std::string, 4> plus;                          // an Apple II Plus's ROM in every image: not a IIe's
     for (unsigned n = 0; n < 4; ++n)
         plus[n] = fake_iie_rom("test_plus_" + std::to_string(n) + ".rom", 0xEA);
-    Board b(false, true, {}, "", {}, 0, plus);
+    Board b(false, true, {}, "", {}, plus);
     for (const std::string &f : plus)
         std::remove(f.c_str());
     REQUIRE(b.ok());
@@ -1570,7 +1520,7 @@ namespace
     struct TwoImages
     {
         std::string zero = fake_iie_rom("test_c818_0.rom", 0x06, 0xB0), two = fake_iie_rom("test_c818_2.rom", 0x06, 0xB2);
-        Board b{false, true, {}, "", {}, 0, {zero, "", two, ""}};
+        Board b{false, true, {}, "", {}, {zero, "", two, ""}};
         TwoImages()
         {
             std::remove(zero.c_str());
@@ -1834,7 +1784,7 @@ TEST(the_build_splits_rom_a_into_its_even_chip_and_its_odd)
 
 TEST(break_during_the_demo_puts_the_windows_and_the_screen_back)
 {
-    Board b{Board::Rev2{}};
+    Board b;
     REQUIRE(b.ok());
     b.reset();
     b.run(BOOT);
@@ -1947,7 +1897,7 @@ TEST(the_screen_scrolls_whole_with_a_burst_limit)
 
 TEST(the_demo_balls_bounce_off_the_bottom)
 {
-    Board b{Board::Rev2{}};
+    Board b;
     REQUIRE(b.ok());
     b.reset();
     b.run(BOOT);
@@ -2221,7 +2171,7 @@ TEST(a_scroll_leaves_the_dma_master_enable_as_it_was)
 
 TEST(the_demo_runs_with_the_dma_master_enable_off)
 {
-    Board b{Board::Rev2{}};
+    Board b;
     REQUIRE(b.ok());
     b.reset();
     b.run(BOOT);
@@ -2479,7 +2429,7 @@ TEST(golden_frame_the_monitors_text_screen)
 
 TEST(golden_frames_the_demos_first_its_first_light_and_a_settled_one)
 {
-    Board b{Board::Rev2{}};
+    Board b;
     REQUIRE(b.ok());
     b.reset();
     b.run(BOOT);
@@ -2575,8 +2525,8 @@ namespace
 
 TEST(the_boot_clears_ap8_with_no_video_card_and_keeps_it_with_one)
 {
-    // R1. MAP resets to $01 whatever is fitted; BOOT2's NBSET writes it whole: 0 with no revision 2 video card (bank
-    // 8 is then RAM), 1 with one (bank 8 the aperture, as old software expects).
+    // R1. MAP resets to $01 whatever is fitted; BOOT2's NBSET writes it whole: 0 with no video card (bank
+    // 8 is then RAM), 1 with one (bank 8 the aperture).
     {
         Board b(false, false);
         REQUIRE(b.ok());
@@ -2743,7 +2693,7 @@ TEST(c818_apple_ii_mode_with_win2h_left_on_0e_starts_the_image)
     // R11. A program that leaves WIN2H on $0E and calls $C818's $A1 with image 0: APPLE clears WIN0H-WIN2H
     // before it copies the IIe ROM into RAM block 59 through W2, so Apple II mode starts the image.
     const std::string zero = fake_iie_rom("test_b7_0.rom", 0x06, 0xB0);
-    Board b(false, true, {}, "", {}, 0, {zero, "", "", ""});
+    Board b(false, true, {}, "", {}, {zero, "", "", ""});
     std::remove(zero.c_str());
     REQUIRE(b.ok());
     b.reset();
@@ -2768,7 +2718,7 @@ TEST(c818_apple_ii_mode_with_win0h_left_set_starts_the_image)
     for (const uint8_t h : {uint8_t{0x03}, APER_H})
     {
         const std::string zero = fake_iie_rom("test_b7_0.rom", 0x06, 0xB0);
-        Board b(false, true, {}, "", {}, 0, {zero, "", "", ""});
+        Board b(false, true, {}, "", {}, {zero, "", "", ""});
         std::remove(zero.c_str());
         REQUIRE(b.ok());
         b.reset();

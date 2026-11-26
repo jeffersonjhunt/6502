@@ -1381,7 +1381,7 @@ Emulated as step B7.
 
 #### Notes
 
-`NB_MAP_AP8` (`$01`) is the bit. With AP8 set and no revision 2 video card, bank 8 reads `$FF`: the BIOS writes
+`NB_MAP_AP8` (`$01`) is the bit. With AP8 set and no video card, bank 8 reads `$FF`: the BIOS writes
 MAP whole at boot and at Break, 1 with `VIDEO_ID` `$92`, else 0, and the diagnostics write 0 for their run, so they
 test all 64 RAM blocks ([chapter 15](15-diagnostics.md)). OODOS writes MAP the same way at its warm boot and clears
 AP8 only for a program that asks, by function 83's `DM_BANK8`

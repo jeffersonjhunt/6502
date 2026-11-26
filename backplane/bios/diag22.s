@@ -430,7 +430,7 @@ NB6:
                 cmp     #2
                 beq     @video
                 SAY     "BY THE VIDEO FRAME"
-                TS      "NO REVISION 2 VIDEO CARD"
+                TS      "NO VIDEO CARD"
                 rts
 @video:         lda     #<VIDEO_STATUS
                 sta     HW_WATCH
@@ -1461,13 +1461,7 @@ D5:
 STAGE9:
                 lda     #9
                 jsr     SBEGIN
-                lda     HW_REV + 9
-                cmp     #1
-                bne     @r2
-                lda     #<SVREV1
-                ldx     #>SVREV1
-                jmp     CSKIP
-@r2:            ldx     #9
+                ldx     #9
                 lda     #2
                 jsr     CARDIS
                 bcc     @card
@@ -2683,7 +2677,6 @@ CGA:            RGB     $0, $0, $0
                 RGB     $F, $F, $F
 
 SNOCARD:        .byte   "NO CARD", 0
-SVREV1:         .byte   "REVISION 1: LISTED, NOT TESTED (BIOS ", BIOS_VERSION, " DOESN'T DRIVE IT)", 0
 SLOST:          .byte   "LOST: THE CLOCK CHIP'S OSCILLATOR STOPPED; SET THE TIME", 0
 SCOPYUP:        .byte   "THE COPY UP DOESN'T MATCH ITS SOURCE", 0
 SCOPYDN:        .byte   "THE COPY DOWN (MODE'S DEC) DOESN'T MATCH ITS SOURCE", 0

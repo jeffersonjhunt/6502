@@ -3507,7 +3507,7 @@ TEST(after_dm_bank8_oodos_itself_never_reaches_bank_8)
     CHECK_EQ(seen.hits, 0u);
     if (seen.hits)
         std::printf("  first bank 8 cycle at $%06X\n", static_cast<unsigned>(seen.first));
-    CHECK_EQ(r.bridge().map(), 1); // the warm boot's WINH0: the revision 2 video card
+    CHECK_EQ(r.bridge().map(), 1); // the warm boot's WINH0: the video card
 }
 
 TEST(after_dm_bank8_break_sets_ap8_again_before_the_rom_and_leaves_bank_8_ram_alone)
@@ -3550,7 +3550,7 @@ TEST(after_dm_bank8_break_sets_ap8_again_before_the_rom_and_leaves_bank_8_ram_al
     CHECK(r.until("\\\r", ms(1000), from));
     r.watch = nullptr;
     CHECK(at_tramp);
-    CHECK_EQ(map, 1); // before the ROM: AP8 set again (the revision 2 video card)
+    CHECK_EQ(map, 1); // before the ROM: AP8 set again (the video card)
     CHECK_EQ(winh1, 0);
     CHECK_EQ(r.bridge().map(), 1);
     CHECK(bank8_ram(r) == ram);

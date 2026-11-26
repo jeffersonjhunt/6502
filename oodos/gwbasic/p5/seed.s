@@ -8,7 +8,7 @@
 ;             SCB's $24, function 49), GX_INIT with no event area (A/X 0),
 ;             and the screen chosen from the two (7d1, the owner's answer 2
 ;             of 2026-11-18): GW-BASIC's own text layer (SCRMOD bit 7) only
-;             when GX_INIT took it (a revision 2 card, OODOS's interface 8 or
+;             when GX_INIT took it (the video card, OODOS's interface 8 or
 ;             later, with DMA) and CON:'s output includes the CRT; else 7a's
 ;             console mode. Then GX_BANK8 whatever GX_INIT answered (with no
 ;             revision 2 card GX_BANK8 is a success that changes nothing,
@@ -45,7 +45,7 @@
 ;      the block, GX_W1BACK (an allocated block, P1-P8's among them, or
 ;      banks 9-B);
 ;   4. if GX_BLOCK refuses (the block isn't in OOLIB's W1 map, or there is
-;      no revision 2 card, B7's question 3): one byte by function 83's
+;      no video card, B7's question 3): one byte by function 83's
 ;      DM_COPY through the scratch byte, so OODOS decides what may be
 ;      reached and nothing of its own list is copied here. A refused PEEK
 ;      is 0 (the scratch byte cleared first); a refused POKE is Illegal

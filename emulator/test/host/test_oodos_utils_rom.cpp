@@ -27,11 +27,11 @@
  *     `dma` line): APPLE2 says so and OODOS goes on, and a program's
  *     function 75 comes back with A = $FF, X = $FE, where with no IIe ROM
  *     it's X = $FF; the ROM's APPLE would have gone to its monitor;
- *   - with the IIe ROM and the DMA controller but a revision 1 video card, or
- *     none (backplane.machine less its `video` and `aperture` lines): APPLE2
- *     says the revision 2 card is needed and OODOS goes on, function 75 comes
- *     back with A = $FF, X = $FD (review R1: the ROM's APPLE refuses there too,
- *     into its monitor). OODOS boots on both;
+ *   - with the IIe ROM and the DMA controller but no video card
+ *     (backplane.machine less its `video` and `aperture` lines): APPLE2
+ *     says the card is needed and OODOS goes on, function 75 comes back
+ *     with A = $FF, X = $FD (review R1: the ROM's APPLE refuses there too,
+ *     into its monitor). OODOS boots without it;
  *   - DIAG (function 75 with A = 2, interface 10; hw/diag.md's plan 2, D3c): N
  *     is the prompt again with the card's image as it was; Y runs the ROM's
  *     diagnostics, quick, from their first lines on the serial line to their
@@ -73,8 +73,8 @@ namespace
     struct RomRig : CcpRig
     {
         explicit RomRig(std::vector<std::string> apple_rom = {}, const std::string &machine_text = {},
-                        unsigned video_revision = 2, const std::array<std::string, 4> &images = {})
-            : CcpRig(std::move(apple_rom), machine_text, {}, video_revision, images)
+                        const std::array<std::string, 4> &images = {})
+            : CcpRig(std::move(apple_rom), machine_text, {}, images)
         {
             // Without the DMA controller the card's sectors don't move and each one waits out SDIO's time
             // limit, so the boot takes longer than CcpRig's 3 s: its prompt, given longer.
@@ -126,20 +126,6 @@ namespace
         if (at == std::string::npos)
             return {};
         text.erase(at + 1, text.find('\n', at + 1) - at);
-        return text;
-    }
-
-    /// backplane.machine without its video card (the card's line and its aperture's).
-    std::string no_video_machine()
-    {
-        std::string text = read_text(EMU_MACHINE_DIR "/backplane.machine");
-        for (const char *line : {"\nvideo ", "\naperture "})
-        {
-            const size_t at = text.find(line);
-            if (at == std::string::npos)
-                return {};
-            text.erase(at + 1, text.find('\n', at + 1) - at);
-        }
         return text;
     }
 
@@ -271,26 +257,9 @@ TEST(function_75_without_a_iie_rom_returns_ff_ff)
     CHECK(!r.bridge().apple());
 }
 
-// Review R1: the ROM's APPLE refuses without the revision 2 video card, before its DMA and IIe ROM checks,
-// into its monitor; function 75 looks first, so a refusal comes back to OODOS. The IIe ROM and the DMA
-// controller are there, so only the card's check can refuse.
-TEST(apple2_on_a_revision_1_video_card_says_so_and_oodos_goes_on)
-{
-    const auto iie = stand_in_rom();
-    RomRig r({iie->path}, {}, 1);
-    REQUIRE(r.ok);
-    REQUIRE(r.machine->bus().read(0xC4FF) == 0x91);         // VIDEO_ID: revision 1
-    const std::string o = r.cmd("APPLE2");
-    CHECK(o.find("\r\nApple II mode needs the revision 2 video card\r\nA>") != std::string::npos);
-    CHECK(o.find("No IIe ROM") == std::string::npos);
-    CHECK(!r.bridge().apple());
-    CHECK(r.cmd(":APPLE2").find("video card") == std::string::npos); // the return code: a failure
-    CHECK(r.cmd("APPLE2").find("revision 2 video card") != std::string::npos); // and again: OODOS goes on
-    r.poke_com(romtest());
-    CHECK_EQ(r.cmd("GO"), std::string("GO\r\nFFFD\r\nA>"));
-    CHECK(!r.bridge().apple());
-}
-
+// Review R1: the ROM's APPLE refuses without the video card, before its DMA and IIe ROM checks, into its
+// monitor; function 75 looks first, so a refusal comes back to OODOS. The IIe ROM and the DMA controller are
+// there, so only the card's check can refuse.
 TEST(apple2_without_a_video_card_says_so_and_oodos_goes_on)
 {
     const std::string text = no_video_machine();
@@ -298,13 +267,15 @@ TEST(apple2_without_a_video_card_says_so_and_oodos_goes_on)
     const auto iie = stand_in_rom();
     RomRig r({iie->path}, text);
     REQUIRE(r.ok);
-    REQUIRE(r.machine->bus().read(0xC4FF) != 0x92);          // VIDEO_ID: no revision 2 card answers
+    REQUIRE(r.machine->bus().read(0xC4FF) != 0x92);          // VIDEO_ID: no video card answers
     const std::string o = r.cmd("APPLE2");
-    CHECK(o.find("\r\nApple II mode needs the revision 2 video card\r\nA>") != std::string::npos);
+    CHECK(o.find("\r\nApple II mode needs the video card\r\nA>") != std::string::npos);
+    CHECK(o.find("No IIe ROM") == std::string::npos);
     CHECK(!r.bridge().apple());
+    CHECK(r.cmd(":APPLE2").find("video card") == std::string::npos); // the return code: a failure
     r.poke_com(romtest());
     CHECK_EQ(r.cmd("GO"), std::string("GO\r\nFFFD\r\nA>"));
-    CHECK(r.cmd("APPLE2").find("revision 2 video card") != std::string::npos); // and again: OODOS goes on
+    CHECK(r.cmd("APPLE2").find("needs the video card") != std::string::npos); // and again: OODOS goes on
 }
 
 // --- B5: the IIe ROM in ROM A's images, behind the ROM BIOS's version --------------------------------------
@@ -350,7 +321,7 @@ namespace
 TEST(apple2_finds_a_iie_rom_in_image_2_alone)
 {
     const auto iie = stand_in_rom();
-    RomRig r({}, {}, 2, {"", "", iie->path, ""});
+    RomRig r({}, {}, {"", "", iie->path, ""});
     REQUIRE(r.ok);
     REQUIRE(r.phys(romver_at()) == 0 && r.phys(romver_at() + 1) == 21);
     CHECK(apple2_reaches_the_loop(r));
@@ -379,7 +350,7 @@ TEST(function_75_under_a_rom_bios_1_0_looks_in_rom_a)
 {
     // The gate compares the major first: 1.0 is past 0.16 though its minor is below 16.
     const auto iie = stand_in_rom();
-    RomRig r({}, {}, 2, {"", "", iie->path, ""});
+    RomRig r({}, {}, {"", "", iie->path, ""});
     REQUIRE(r.ok);
     r.poke(romver_at(), 1);
     r.poke(romver_at() + 1, 0);
@@ -394,7 +365,7 @@ TEST(apple2_n_takes_image_n_though_image_0_is_good)
     // first good one, which A = 1's path, $C806, would take).
     const auto iie0 = stand_in_rom();
     const auto iie2 = stand_in_rom(LOOP2);
-    RomRig r({}, {}, 2, {iie0->path, "", iie2->path, ""});
+    RomRig r({}, {}, {iie0->path, "", iie2->path, ""});
     REQUIRE(r.ok);
     CHECK(apple2_reaches_the_loop(r, "APPLE2 2", LOOP2));
     CHECK(r.out.find("No IIe ROM") == std::string::npos);
@@ -404,7 +375,7 @@ TEST(function_75_with_a_3_takes_image_x)
 {
     const auto iie0 = stand_in_rom();
     const auto iie2 = stand_in_rom(LOOP2);
-    RomRig r({}, {}, 2, {iie0->path, "", iie2->path, ""});
+    RomRig r({}, {}, {iie0->path, "", iie2->path, ""});
     REQUIRE(r.ok);
     r.poke_com(romtest(3, 2));
     r.type("GO\r");
@@ -471,7 +442,7 @@ TEST(function_75_with_a_3_under_a_rom_bios_before_0_16_gives_ff_fb)
     // Case 29: such a ROM has no $C818 (it is its START there): image 2 good, but 75 refuses before anything,
     // and APPLE2 2 says what it needs.
     const auto iie = stand_in_rom();
-    RomRig r({}, {}, 2, {"", "", iie->path, ""});
+    RomRig r({}, {}, {"", "", iie->path, ""});
     REQUIRE(r.ok);
     r.poke(romver_at() + 1, 15);                           // the ROM BIOS 0.15, to OODOS
     r.poke_com(romtest(3, 2));
@@ -492,7 +463,7 @@ TEST(apple2_n_under_a_rom_bios_1_0_takes_image_n)
     // Case 29a: the gate compares the major first, for A = 3 too: 1.0 is past 0.16.
     const auto iie0 = stand_in_rom();
     const auto iie2 = stand_in_rom(LOOP2);
-    RomRig r({}, {}, 2, {iie0->path, "", iie2->path, ""});
+    RomRig r({}, {}, {iie0->path, "", iie2->path, ""});
     REQUIRE(r.ok);
     r.poke(romver_at(), 1);
     r.poke(romver_at() + 1, 0);
@@ -515,7 +486,7 @@ TEST(apple2_under_a_rom_bios_before_0_16_says_it_looks_in_the_cartridge)
     CHECK(r.cmd("APPLE2 1").find("No IIe ROM in flash image 1") != std::string::npos);
 }
 
-TEST(function_75_with_a_3_without_dma_or_the_revision_2_card_gives_fe_or_fd)
+TEST(function_75_with_a_3_without_dma_or_the_video_card_gives_fe_or_fd)
 {
     // Case 30: A = 3 has A = 1's checks, in the ROM's order.
     const auto iie = stand_in_rom();
@@ -530,11 +501,11 @@ TEST(function_75_with_a_3_without_dma_or_the_revision_2_card_gives_fe_or_fd)
         CHECK(!r.bridge().apple());
     }
     {
-        RomRig r({iie->path}, {}, 1);
+        RomRig r({iie->path}, no_video_machine());
         REQUIRE(r.ok);
         r.poke_com(romtest(3, 0));
         CHECK_EQ(r.cmd("GO"), std::string("GO\r\nFFFD\r\nA>"));
-        CHECK(r.cmd("APPLE2 0").find("\r\nApple II mode needs the revision 2 video card\r\nA>") != std::string::npos);
+        CHECK(r.cmd("APPLE2 0").find("\r\nApple II mode needs the video card\r\nA>") != std::string::npos);
         CHECK(!r.bridge().apple());
     }
 }
@@ -795,7 +766,7 @@ TEST(romapple_leaves_win1h_0_for_the_roms_apple)
 {
     // O6's ROMAPPLE part (B7, b7-plan.md §4): W1HTEST (oodos/sys/test/w1htest.s) puts WIN1H on $0E, clears MAP's
     // AP8 and calls function 75 with A = 1. ROMAPPLE clears WIN0H-WIN3H and VECH and sets MAP by the card (common.s's
-    // WINH0: AP8 set, the revision 2 video card) before its trampoline at TRAMP ($0A00) goes to the ROM's APPLE;
+    // WINH0: AP8 set, the video card) before its trampoline at TRAMP ($0A00) goes to the ROM's APPLE;
     // Apple II mode starts.
     const auto iie = stand_in_rom();
     RomRig r({iie->path});
@@ -820,7 +791,7 @@ TEST(romapple_leaves_win1h_0_for_the_roms_apple)
     CHECK(on);
     CHECK(at_tramp);
     CHECK_EQ(winh1, 0);
-    CHECK_EQ(map, 1); // set again: the revision 2 video card
+    CHECK_EQ(map, 1); // set again: the video card
     REQUIRE(r.bridge().apple());
     r.run(ms(50));
     const uint16_t pc = r.cpu->regs().pc;

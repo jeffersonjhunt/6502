@@ -191,11 +191,11 @@ describe("Breakpoints", () => {
   });
 
   // B7 (question 12, C12): with the bridge MAP's AP8 decides; with nothing answering at NB_ID, VIDEO_ID does.
-  test("with AP8 clear, a bank 8 breakpoint is kept though a revision 2 card is fitted", async () => {
+  test("with AP8 clear, a bank 8 breakpoint is kept though the video card is fitted", async () => {
     const p = port();
     p.io.set(0xc6ff, 0xd3); // NB_ID: the bridge
     p.io.set(0xc6a5, 0x00); // MAP: AP8 clear
-    p.io.set(0xc4ff, 0x92); // VIDEO_ID: a revision 2 card
+    p.io.set(0xc4ff, 0x92); // VIDEO_ID: the video card
     const bps = new Breakpoints(p);
     const kept = await bps.add("84123");
     expect(typeof kept).toBe("object");
@@ -209,13 +209,13 @@ describe("Breakpoints", () => {
     const p = port();
     p.io.set(0xc6ff, 0xff);
     p.io.set(0xc6a5, 0xff); // nothing answering reads $FF, AP8's bit too
-    p.io.set(0xc4ff, 0x91); // VIDEO_ID: revision 1, bank 8 is RAM
+    p.io.set(0xc4ff, 0xff); // VIDEO_ID: no video card, bank 8 is RAM
     const bps = new Breakpoints(p);
     const kept = await bps.add("84123");
     expect(typeof kept).toBe("object");
-    p.io.set(0xc4ff, 0x92); // a revision 2 card: bank 8 is the aperture
+    p.io.set(0xc4ff, 0x92); // the video card: bank 8 is the aperture
     const r = await bps.add("84124");
-    expect(r).toMatch(/84124: bank 8 is the video aperture with a revision 2 card/);
+    expect(r).toMatch(/84124: bank 8 is the video aperture with the video card/);
     expect(bps.list.length).toBe(1);
     await bps.recheck();
     expect(bps.list).toEqual([]);
@@ -223,11 +223,11 @@ describe("Breakpoints", () => {
   });
 
   test("a bank 8 breakpoint follows MAP's AP8 on a $D3 bridge", async () => {
-    // Whatever card is fitted: AP8 clear with a revision 2 card keeps it; AP8 set with none answering refuses it.
+    // Whatever card is fitted: AP8 clear with the video card keeps it; AP8 set with none answering refuses it.
     const p = port();
     p.io.set(0xc6ff, 0xd3); // NB_ID: the bridge, revision 3
     p.io.set(0xc6a5, 0x00); // MAP: AP8 clear
-    p.io.set(0xc4ff, 0x92); // VIDEO_ID: a revision 2 card
+    p.io.set(0xc4ff, 0x92); // VIDEO_ID: the video card
     const bps = new Breakpoints(p);
     const kept = await bps.add("84123");
     expect(typeof kept).toBe("object");

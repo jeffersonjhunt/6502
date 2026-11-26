@@ -801,11 +801,11 @@ DASK:           .byte   "ASK", 0
 
 ; APPLE2 [n] (ours, 2026-11-03; n since B5): leave OODOS for the ROM BIOS by
 ; function 75, which writes back the changed buffers first, and restart in
-; Apple II mode, if the revision 2 video card and the DMA controller are
+; Apple II mode, if the video card and the DMA controller are
 ; there and ROM A's images hold a IIe ROM: with no tail the first good image
 ; (75 with A = 1, as the ROM's $C806 takes it), with one digit n, 0-3, image
 ; n (A = 3, X = n: the ROM's $C818, interface 11). Otherwise it says which
-; is missing (75's X: $FD no revision 2 card, $FE no DMA controller, $FB a ROM
+; is missing (75's X: $FD no video card, $FE no DMA controller, $FB a ROM
 ; BIOS before 0.16, which has no $C818; $FF no IIe ROM, the message chosen by
 ; the ROM BIOS's version, function 77, as 75 chooses where to look), the
 ; return code $FF00, and OODOS goes on. Any other tail is the command and
@@ -2206,7 +2206,7 @@ EMUSET:         .byte   " (the emulator: Settings, ROMs)$" ; after NOIIEF and NO
                 .res    OLDNOIIE + 59 - *, $FF
 .assert * - OLDNOIIE = 59, error, "RES keeps its size: the old APPLE2's message was 59 bytes"
 NODMA:          .byte   "Apple II mode needs the DMA controller$"
-NOCARD:         .byte   "Apple II mode needs the revision 2 video card$"
+NOCARD:         .byte   "Apple II mode needs the video card$"
 NOPROG:         .byte   "NO PROGRAM$"
 BADPROG:        .byte   "BAD PROGRAM HEADER$"
 NOMEM:          .byte   "Insufficient Memory$"

@@ -168,7 +168,7 @@ OOLIB is OODOS's own extension, there so that programs don't go around the rules
 not, OODOS says so here, as part of the interface, and checks it by version. From OOLIB's interface version 4
 ([function 80's](07-function-reference.md#bdos-80) `FT_INFO`, OODOS 0.5), **OOLIB may write W1** (`NB_WIN1`,
 `$C681`) with any block [function 83's](07-function-reference.md#bdos-83) `DM_INFO` puts in its W1 map. From
-interface version 8 (OODOS 0.9, video card revision 2) that is block 1, the blocks the program has allocated, block
+interface version 8 (OODOS 0.9) that is block 1, the blocks the program has allocated, block
 33 (aperture slot 1's window) and blocks 36–47 (banks 9–B); never 32, 34 or 35, the windows of OODOS's slots
 while AP8 is set (after `DM_BANK8` they are the program's RAM, and in the map). And
 **OOLIB may write `SLOT1`** (`VIDEO_SLOT1`, `$C4B2`) with any of the program's card banks, 16–111, so that
@@ -185,8 +185,7 @@ block 33 shows the card memory it draws in. OODOS keeps W1 and `SLOT1`:
 A single `STA NB_WIN1` can't be split by an interrupt, and costs 4 cycles against about 450 for a BDOS call, which
 matters to a draw that crosses blocks. That holds while WIN1H stays 0; from interface version 12 a map may be two
 writes (below). The library checks `FT_INFO`'s version at its start (`GX_INIT`) and refuses to
-map below 8 (interface versions 4–7 were revision 1's: video memory's blocks 33–47 in W1); a change to the
-contract comes with a new version. Only W1: W2 and W3 stay OODOS's (`$0203` jumps to
+map below 8; a change to the contract comes with a new version. Only W1: W2 and W3 stay OODOS's (`$0203` jumps to
 `$BFFD` in block 2; FARCALL's block is mapped in W3, under the common hole).
 
 **Interface version 12** (since OODOS 0.11, B7: the north bridge's WIN1H). After the program's `GX_BANK8`,
@@ -241,4 +240,4 @@ card, or none, OODOS has no console screen and the card operations are refused. 
 
 The rest of this chapter (allocation, FARCALL, the DMA segment, physical addresses) is unchanged. A program tells
 the revisions apart by OOLIB's interface version ([function 80's](07-function-reference.md#bdos-80) `FT_INFO`, 8)
-and `DM_INFO`'s A, the card's memory (0 with no revision 2 card).
+and `DM_INFO`'s A, the card's memory (0 with no video card).

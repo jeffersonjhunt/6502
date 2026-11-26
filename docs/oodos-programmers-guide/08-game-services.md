@@ -27,7 +27,7 @@ A program that uses these services asks first, once: function 80's `FT_INFO`, wi
         jsr     BDOS            ; A = OOLIB's interface version, X = the service areas
 ```
 
-A is OOLIB's interface version: 1 from L1, 2 from L2, 3 from L3, 4 from L4, 5 from L4b (function 82's hold, go and volume), 6 from L5a (the mailbox's stamp), 7 from OODOS 0.8 (`EV_SFLAGS`; the hold, the stamp and `EV_SFLAGS` went at 18), 8 from OODOS 0.9 (video card revision 2: function 83's card operations and the W1 contract on the aperture, [below](#video-memory)), 9 from OODOS 0.10 ([function 77](07-function-reference.md#bdos-77), the ROM BIOS's version: from 9 the number marks OODOS's own additions a program needs to detect too), 10 from OODOS 0.10 ([function 75](07-function-reference.md#bdos-75)'s A = 2, the ROM's diagnostics), 11 from OODOS 0.11 (function 75's A = 3, Apple II mode with ROM A's image X), 12 from OODOS 0.11 (function 83's `DM_BANK8` and WIN1H in the W1 contract, [below](#video-memory)), 13 from OODOS 0.12 (function 83's `DM_VFILLW` and the 640x480 colour layers), 14 from OODOS 0.13 (the full-resolution pointer), 15 from OODOS 0.14 (nothing a program uses), 16 from OODOS 0.15 ([function 85](07-function-reference.md#bdos-85), the serial line's receive buffer, and the event area's `EV_RXCNT`, [below](#the-serial-line)), 17 from OODOS 0.16 ([function 78](07-function-reference.md#bdos-78), the random source, `FC_T1` and `FT_CLOCK`), 18 from OODOS 0.17 (sound card revision 3: function 82 numbered afresh, [below](#sound)); each step that adds to the services
+A is OOLIB's interface version: 1 from L1, 2 from L2, 3 from L3, 4 from L4, 5 from L4b (function 82's hold, go and volume), 6 from L5a (the mailbox's stamp), 7 from OODOS 0.8 (`EV_SFLAGS`; the hold, the stamp and `EV_SFLAGS` went at 18), 8 from OODOS 0.9 (the video card: function 83's card operations and the W1 contract on the aperture, [below](#video-memory)), 9 from OODOS 0.10 ([function 77](07-function-reference.md#bdos-77), the ROM BIOS's version: from 9 the number marks OODOS's own additions a program needs to detect too), 10 from OODOS 0.10 ([function 75](07-function-reference.md#bdos-75)'s A = 2, the ROM's diagnostics), 11 from OODOS 0.11 (function 75's A = 3, Apple II mode with ROM A's image X), 12 from OODOS 0.11 (function 83's `DM_BANK8` and WIN1H in the W1 contract, [below](#video-memory)), 13 from OODOS 0.12 (function 83's `DM_VFILLW` and the 640x480 colour layers), 14 from OODOS 0.13 (the full-resolution pointer), 15 from OODOS 0.14 (nothing a program uses), 16 from OODOS 0.15 ([function 85](07-function-reference.md#bdos-85), the serial line's receive buffer, and the event area's `EV_RXCNT`, [below](#the-serial-line)), 17 from OODOS 0.16 ([function 78](07-function-reference.md#bdos-78), the random source, `FC_T1` and `FT_CLOCK`), 18 from OODOS 0.17 (sound card revision 3: function 82 numbered afresh, [below](#sound)); each step that adds to the services
 raises it. X has a bit for each service area OODOS has, one BDOS function each from 80: `OA_FRAME` (`$01`, 80, frame
 and timing), `OA_INPUT` (`$02`, 81, input), `OA_SOUND` (`$04`, 82, sound), `OA_DMA` (`$08`, 83, DMA and loading)
 and `OA_SERIAL` (`$20`, 85, the serial line, since interface 16) now; `OA_VIDEO` (84) isn't needed (the program has its video memory whole) and stays unassigned. An OODOS without the services answers 80 as a
@@ -744,9 +744,6 @@ does, at 4 rows in every 64 (rows 12, 25, 38 and 51 of each 64 from a base on 16
 by its own address, so its draws are right there, but a program that writes along a row through `GX_VMAP`'s window
 itself must map the next page at the slot's end.
 
-Before interface version 8, on revision 1, the card drew from banks 8–B in 1 KB units: the library's `GX_ALLOC`,
-`GX_FREE` and `GX_UNIT`, which `GX_VALLOC`, `GX_VFREE` and `GX_VADDR` replace.
-
 ### Loading
 
 `DM_LOAD` loads a count of a file's records, up to 512 (64 KB), from a record of an open FCB, to a physical address:
@@ -829,9 +826,9 @@ card memory all free. Then:
 
 - **`GX_BANK8`** (`gxmem.s`, since OODOS 0.11, interface version 12), after `GX_INIT`: asks for function 83's
   `DM_BANK8` ([chapter 7](07-function-reference.md#bdos-83)) and takes slot 1's window from it.
-  - With a revision 2 card: carry clear; bank 8, `$80000–$8FFFF`, is the program's RAM until the warm boot, slot 1
+  - With the video card: carry clear; bank 8, `$80000–$8FFFF`, is the program's RAM until the warm boot, slot 1
     is mapped by WIN1H `$0E` with block 1, and blocks 32–39 join the W1 map.
-  - With no revision 2 card: carry clear; bank 8 is RAM, and there is no window (`GX_INIT` had said `GE_VERSION`).
+  - With no video card: carry clear; bank 8 is RAM, and there is no window (`GX_INIT` had said `GE_VERSION`).
   - `GE_VERSION`, with nothing changed and the old mode kept (block 33, WIN1H never written): OODOS's interface
     below 12, no DMA or a ROM BIOS older than 0.17.
   - `GX_INIT` always takes the old mode, so a `GX_INIT` after `GX_BANK8` needs `GX_BANK8` again.
@@ -894,8 +891,7 @@ palette, a bitmap, tiles and their map, sprite images and a sprite table, a font
 a card page, a multiple of 4 in the program's part or `$FFFF` for any, the first record, the records, the bytes, a
 width and height); each part starts on a 1 KB boundary of the file, so it loads in whole sectors. Sprite images are
 each padded to 256 bytes, a card page, and a sprite table's entries count them in pages from the images' part, which
-`GX_ASSET` moves on by where that part went. The library reads format 4 alone: format 3, revision 1's (a unit, one
-byte, at +2), is refused (`GE_FORMAT`). `oodos/tools/mkasset.py` makes them from PNG images on Linux (`bitmap256`, `bitmap512`, `tiles`,
+`GX_ASSET` moves on by where that part went. The library reads format 4 alone: an older format is refused (`GE_FORMAT`). `oodos/tools/mkasset.py` makes them from PNG images on Linux (`bitmap256`, `bitmap512`, `tiles`,
 `sprites`, `palette`, and since OODOS 0.12 `bitmap640`, a PNG up to 1,024 × 480 in 256 colours, its palette part
 first, and `direct640`, a PNG up to 640 × 480 in its own 12-bit colours, alpha below 128 the transparent `$8000`, no
 palette part), puts the parts of several into one file so a program loads them in one call (`combine`: a

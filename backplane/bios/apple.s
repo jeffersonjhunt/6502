@@ -25,8 +25,7 @@
 ; through its port, from the image's set n or, with that set erased, made
 ; from the VGA font.
 ;
-; With no revision 2 video card (whose ID is $92: the BIOS no longer drives
-; revision 1, and CHARS writes only revision 2's port), no DMA controller,
+; With no video card (ID $92; CHARS writes its port), no DMA controller,
 ; or no IIe ROM in any of the four images (in image A, for APPLEN), it says
 ; so and goes back to the monitor, still in the native map, with nothing
 ; changed but WIN0H (0).
@@ -296,4 +295,4 @@ MESSAGES:
 NOROM:          .byte   $0D, "NO APPLE IIE ROM IN FLASH IMAGES 0-3", 0
 NOROMN:         .byte   $0D, "NO APPLE IIE ROM IN FLASH IMAGE ", 0
 NODMA:          .byte   $0D, "APPLE II MODE NEEDS THE DMA CONTROLLER", 0
-NOCARD:         .byte   $0D, "APPLE II MODE NEEDS THE REVISION 2 VIDEO CARD", 0
+NOCARD:         .byte   $0D, "APPLE II MODE NEEDS THE VIDEO CARD", 0

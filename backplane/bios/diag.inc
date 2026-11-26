@@ -88,7 +88,7 @@ DG_STAGE        = $1C                  ; the stage running
 DG_NDET         = $1D                  ; detail lines written this stage
 DG_ROW          = $1E                  ; the screen's cursor
 DG_COL          = $1F
-DG_SCR          = $20                  ; bit 7: a revision 2 video card, so a screen; bit 6: write to it now
+DG_SCR          = $20                  ; bit 7: the video card, so a screen; bit 6: write to it now
 DG_APER         = $21                  ; 1: bank 8 is the video card's aperture, so not RAM: MAP's AP8,
                                        ;   which GO clears (0)
 DG_KEY          = $22                  ; the key that ended the run
@@ -296,7 +296,7 @@ via:            lda     #$7F
 
 ; The north bridge's window and vector registers set as the BIOS leaves them (step B7): WIN0H-WIN3H and
 ; VECH 0 (every window and the vectors below 1 MB), then MAP written whole: AP8 set (bank 8 the aperture)
-; with a revision 2 video card ($92), clear (bank 8 RAM) with none. With `clear`, MAP is 0 whatever the
+; with the video card ($92), clear (bank 8 RAM) with none. With `clear`, MAP is 0 whatever the
 ; card: the diagnostics' GO, which tests bank 8 as RAM and reaches the aperture at $E00000. Inline, with
 ; no stack: a subroutine that moved WIN0H would lose its own return address. A is kept; X and Y aren't.
 .macro NBSET clear

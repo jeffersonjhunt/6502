@@ -1308,7 +1308,7 @@ VIEW shows an asset file, a picture made for the video card (a bitmap, tiles and
 palette), on the screen until you press a key, then puts the console's screen back. The files are made on Linux from
 PNG images by `oodos/tools/mkasset.py`. VIEW is built on OOLIB's linked graphics library ([the Programmer's Guide,
 chapter 8](../oodos-programmers-guide/08-game-services.md#graphics)), which loads each part of the file from the SD
-card into the video card's own memory (since OODOS 0.9: video card revision 2, which VIEW needs).
+card into the video card's own memory (since OODOS 0.9: the video card, which VIEW needs).
 
 #### Forms
 
@@ -1360,7 +1360,7 @@ there) don't show at all.
   making again with `mkasset.py`). A VIEW.COM from before OODOS 0.12 says this for a part larger than 128 KB, as
   bitmap 640's and direct 640's are.
 - `Not enough video memory.`: the file's parts need more of the card's memory than there is.
-- `Needs OODOS's interface 8.`: an older OODOS, or no revision 2 video card. `Video memory W1 can't reach.` and
+- `Needs OODOS's interface 8.`: an older OODOS, or no video card. `Video memory W1 can't reach.` and
   `The asset wasn't loaded.`: a part OODOS refused.
 
 Each sets the return code to `$FF00`.

@@ -1135,7 +1135,7 @@ namespace
 
 TEST(dm_bank8_makes_bank_8_the_programs_ram_and_gives_slot_1_at_e04000)
 {
-    // D1. With the revision 2 video card: A = 0, +1/+2 WIN1H $0E and block 1 (slot 1's window at $E04000), MAP
+    // D1. With the video card: A = 0, +1/+2 WIN1H $0E and block 1 (slot 1's window at $E04000), MAP
     // 0. Then W1 on block 32 writes bank 8's RAM (read back by the backplane's own view), not the card; DM_INFO's
     // map takes in blocks 32-39 (its byte 4 $FF); and DM_COPY to $84000 lands in RAM, the card's slot 1 bank
     // untouched.
@@ -1162,11 +1162,11 @@ TEST(dm_bank8_makes_bank_8_the_programs_ram_and_gives_slot_1_at_e04000)
     CHECK(cmem(r, 0x040000, 64) == prog);
 }
 
-TEST(dm_bank8_with_no_revision_2_video_card_succeeds_with_no_window)
+TEST(dm_bank8_with_no_video_card_succeeds_with_no_window)
 {
-    // D2. No revision 2 card (revision 1's): the ROM BIOS left AP8 clear, bank 8 RAM from the boot; DM_BANK8 still
+    // D2. No video card: the ROM BIOS left AP8 clear, bank 8 RAM from the boot; DM_BANK8 still
     // succeeds, with +1/+2 0 and 0 (no aperture to map).
-    CcpRig r({}, {}, {}, 1);
+    CcpRig r({}, no_video_machine());
     REQUIRE(r.ok);
     open(r, "X");
     REQUIRE(r.bridge().map() == 0);

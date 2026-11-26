@@ -797,7 +797,7 @@ V8:
                 lda     HW_REV + 9
                 cmp     #2
                 beq     @card
-                TS      "NO REVISION 2 VIDEO CARD"
+                TS      "NO VIDEO CARD"
                 rts
 @card:          inc     T_ANY
                 lda     #<L1MAP

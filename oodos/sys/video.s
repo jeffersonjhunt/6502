@@ -20,7 +20,7 @@
 ; of 24 bits. OODOS owns $000000-$03FFFF (the console's palette, font and
 ; text, its units 0-12, in bank 0, which aperture slot 0 always shows: at
 ; $E00000-$E03FFF on a revision 2 north bridge, B7, and as block 32,
-; $80000-$83FFF, while MAP's AP8 is set or on revision 1); the program owns
+; $80000-$83FFF, while MAP's AP8 is set); the program owns
 ; $040000-$1BFFFF, through OOLIB; Apple II mode $1C0000-$1FFFFF. The warm boot (and so the cold boot, which ends in
 ; it) puts slot 1 on the program's first card bank (VM_PROG_BANK) and slots
 ; 2 and 3 on banks 2 and 3, OODOS's; DM_VCOPY borrows those two inside the
@@ -169,7 +169,7 @@ DSTOK:          JSR     SRCOK
 
 ; Carry set unless the card address SG to SG + VLEN is all in the fitted
 ; card memory (CSRCOK) and, for a destination (CDSTOK), in the program's
-; part, $040000-$1BFFFF; with no revision 2 card (CLOCKS's frame bit, which
+; part, $040000-$1BFFFF; with no video card (CLOCKS's frame bit, which
 ; irq.s sets only for one) or no DMA controller (every card operation's
 ; bytes go by DMA: review F4), never.
 CSRCOK:         LDA     CLOCKS
@@ -212,7 +212,7 @@ LENSET:         SEC
                 STA     VLEN + 1
                 RTS
 
-; A = the card's memory in 64 KB units (0 with no revision 2 card), X =
+; A = the card's memory in 64 KB units (0 with no video card), X =
 ; the slots; a block gets +1 those, +3 the slots' budget in pages, +4 the
 ; pointer's sprite ($FF off), +5-12 the W1 map: block 1, the blocks the
 ; program has allocated (53-58's AMAP, blocks 4-23), aperture slot 1's
@@ -294,7 +294,7 @@ DM_INFOX:       LDX     PX
                 LDX     #DM_SLOTS
                 RTS
 
-; A = the card's memory in 64 KB units, 0 with no revision 2 card.
+; A = the card's memory in 64 KB units, 0 with no video card.
 MEMSZ:          LDA     CLOCKS
                 AND     #CLK_FRAME
                 BEQ     @no
@@ -446,7 +446,7 @@ DM_FILLX:       BLOCK
 
 ; +1 the slot, +2-4 its source (physical), +5-7 its destination (card,
 ; the program's part), +8-9 its length (1-1,024, the four slots' 1,024 at
-; most; 0 frees it). Refused with no revision 2 video card or no DMA
+; most; 0 frees it). Refused with no video card or no DMA
 ; controller.
 DM_VBSETX:      BLOCK
                 LDA     CLOCKS
@@ -620,7 +620,7 @@ DM_CONSOLEX:    JSR     CRTREGS
 ; windows and a DMA address in $80000-$8FFFF reach the RAM card's bank 8,
 ; and the video card's aperture only at $E00000 (WIN1H $0E); BANK8 set,
 ; for OSWIN and DM_INFO's map, until the warm boot (common.s's WARM), whose
-; WINH0 sets AP8 again where there is a revision 2 video card. +1 and +2
+; WINH0 sets AP8 again where the video card is fitted. +1 and +2
 ; get slot 1's window for W1: WIN1H $0E and block 1, or 0 and 0 with no
 ; revision 2 video card (AP8 was clear already: bank 8 RAM from the boot).
 ; Refused, nothing changed, under a ROM BIOS older than 0.17 (cold.s's
@@ -645,7 +645,7 @@ DM_BANK8X:      BLOCK
                 JSR     PPUT
                 LDA     #VM_SLOT_W1
                 BRA     @last
-@none:          LDA     #0             ; no revision 2 card: no aperture
+@none:          LDA     #0             ; no video card: no aperture
                 JSR     PPUT           ; (keeps A)
 @last:          JSR     PPUT
                 JMP     DM00
@@ -1293,7 +1293,7 @@ VBQUIET:        STZ     VBON
                 BNE     @card
                 LDA     #DMA_CH1
                 STA     DMA_ABORT
-@card:          LDA     CLOCKS         ; a revision 2 card: its port quiet, the slots set
+@card:          LDA     CLOCKS         ; the video card: its port quiet, the slots set
                 AND     #CLK_FRAME
                 BEQ     @crt
                 STZ     VIDEO_PCTL

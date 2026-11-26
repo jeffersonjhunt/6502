@@ -355,19 +355,20 @@ TEST(the_banner_has_the_heading_and_at_least_32768_bytes_free)
     CHECK(got.find(std::to_string(n) + " Bytes free\r\nOk\r\n") != std::string::npos);
 }
 
-// 7d1's choice of screen (the owner's answer 2 of 2026-11-18): GW-BASIC's own text layer only when a revision 2
+// 7d1's choice of screen (the owner's answer 2 of 2026-11-18): GW-BASIC's own text layer only when the video
 // card answers GX_INIT and CON:'s output has the CRT, else 7a's console mode, exactly as it was. SCRMOD
-// (res/oem.s), read by its label once start-up is done (INITFG): bit 7 under CON: = CRT TTY on a revision 2
-// card; 0 under CON: = TTY alone (a user on the serial line, as every other case here is); 0 with a revision 1
+// (res/oem.s), read by its label once start-up is done (INITFG): bit 7 under CON: = CRT TTY with the video
+// card; 0 under CON: = TTY alone (a user on the serial line, as every other case here is); 0 with no video
 // card whatever CON: is. In console mode the banner and Ok come on the serial line, as ever.
 TEST(the_mode_follows_con_and_the_card)
 {
     const std::vector<uint8_t> com = file("GWBASIC.COM"), ovl = file("GWBASIC.OVL");
     const std::map<std::string, uint16_t> lab = labels();
     REQUIRE(!com.empty() && !ovl.empty() && lab.count("SCRMOD") == 1 && lab.count("INITFG") == 1);
-    // GW-BASIC started under CON: = `out` (the SCB's $25: CRT $80, TTY $40) on a card of `revision`: SCRMOD then.
-    auto mode = [&](uint8_t out, unsigned revision, bool console) -> int {
-        CcpRig r({}, {}, {}, revision);
+    // GW-BASIC started under CON: = `out` (the SCB's $25: CRT $80, TTY $40), with the video card or without it:
+    // SCRMOD then.
+    auto mode = [&](uint8_t out, bool card, bool console) -> int {
+        CcpRig r({}, card ? std::string() : no_video_machine());
         CHECK(r.ok);
         if (!r.ok)
             return -1;
@@ -382,9 +383,9 @@ TEST(the_mode_follows_con_and_the_card)
             CHECK(r.until("Bytes free\r\nOk\r\n", ms(3000), from));
         return r.phys(lab.at("SCRMOD"));
     };
-    CHECK_EQ(mode(0xC0, 2, false) & 0x80, 0x80);
-    CHECK_EQ(mode(0x40, 2, true), 0);
-    CHECK_EQ(mode(0xC0, 1, true), 0);
+    CHECK_EQ(mode(0xC0, true, false) & 0x80, 0x80);
+    CHECK_EQ(mode(0x40, true, true), 0);
+    CHECK_EQ(mode(0xC0, false, true), 0);
 }
 
 // The loader refuses a GWBASIC.OVL that isn't there or is short, with its message, and the warm boot.

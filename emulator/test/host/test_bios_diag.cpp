@@ -145,12 +145,11 @@ namespace
 
         /// `card`: an SD card image in the slot from power-on (AUTOBOOT boots it), or none.
         explicit Rig(uint32_t switches = 0, const std::string &rom = EMU_BIOS_ROM, const std::string &text = {},
-                     std::vector<uint8_t> card = {}, unsigned video_revision = 2)
+                     std::vector<uint8_t> card = {})
         {
             MachineOptions opt;
             opt.rom_override = rom;
             opt.rtc_time = Ds3231::Time{2026, 11, 14, 12, 0, 0, 6};
-            opt.video_revision = video_revision;
             std::string error;
             machine = Machine::build(text.empty() ? read_text(EMU_MACHINE_DIR "/backplane.machine") : text,
                                      "backplane.machine", opt, error);
@@ -1032,16 +1031,17 @@ TEST(c812r_takes_no_options_left_in_wait3)
 
 TEST(a18_stuck_backplane_wide_still_finds_a_zero_page_and_says_the_aliasing)
 {
-    // Half of RAM answering as the other half: A18 stuck at 0 on every module (video revision 1, so bank 8 is
-    // RAM C's). Stage 2's block-line probes rejected every block here (FATAL2); stage 4 finds it (review NN1).
-    Rig r(0, EMU_BIOS_ROM, {}, {}, 1);
+    // Half of RAM answering as the other half: A18 stuck at 0 on every module (bank 8 RAM C's: GO clears AP8,
+    // so the faults are on the RAM's). Stage 2's block-line probes rejected every block here (FATAL2); stage 4
+    // finds it (review NN1).
+    Rig r;
     REQUIRE(r.ok());
     std::vector<std::unique_ptr<FaultyMemory>> f;
     for (uint32_t b = 0; b < 64; ++b)
         if (b & 16)
         {
             f.push_back(std::make_unique<FaultyMemory>());
-            REQUIRE(fault_redirect(*r.machine, *f.back(), b * BLOCK, (b - 16) * BLOCK));
+            REQUIRE(fault_redirect(*r.machine, *f.back(), b * BLOCK, (b - 16) * BLOCK, true));
         }
     faulted_run(r);
     CHECK(stage_line(r, 2).find("ZERO PAGE AND STACK: BLOCK 0 ") != std::string::npos);

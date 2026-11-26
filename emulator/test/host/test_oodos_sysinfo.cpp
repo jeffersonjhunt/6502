@@ -17,7 +17,6 @@
  *     the console card): its CARDS line says "not found" and its own
  *     section says there is none, and nothing else changes (each its
  *     golden file, and the lines that differ from sysinfo.txt counted);
- *   - a revision changed: the video card at revision 1;
  *   - the floating bus (review CC5): no Disk II card, and a device in its
  *     block that answers each read with the last byte the CPU fetched, as
  *     an empty slot might: HW_PROBE's two reads disagree, so no Disk II is
@@ -203,8 +202,8 @@ namespace
     /// A rig with the build's SYSINFO on M:.
     struct InfoRig : CcpRig
     {
-        explicit InfoRig(const std::string &machine_text = {}, unsigned video_revision = 2)
-            : CcpRig({}, machine_text, {}, video_revision)
+        explicit InfoRig(const std::string &machine_text = {})
+            : CcpRig({}, machine_text)
         {
             if (ok)
                 put_util("sysinfo", UTILS);
@@ -499,20 +498,6 @@ TEST(the_random_line_says_what_rn_info_says)
     CHECK(full_golden().find("  RANDOM     ATECC608B on the north bridge\n") != std::string::npos);
 }
 
-TEST(a_revision_changed_changes_its_lines)
-{
-    {
-        std::printf("  the video card at revision 1\n");
-        InfoRig r({}, 1);
-        REQUIRE(r.ok);
-        const std::string got = normal(run(r, "m:sysinfo /all"), false);
-        CHECK(golden("sysinfo_video1.txt", got));
-        CHECK(got.find("  $C480  $91  video") != std::string::npos);
-        CHECK(got.find("(not known to SYSINFO)") != std::string::npos);
-        CHECK(got.find("VIDEO      revision 1, which OODOS no longer drives") != std::string::npos);
-    }
-}
-
 TEST(a_floating_bus_in_an_empty_slot_is_no_card)
 {
     InfoRig r(without("disk2"));
@@ -603,8 +588,8 @@ TEST(one_section_alone_and_a_wrong_word)
 TEST(the_ram_line_takes_bank_8_from_maps_ap8)
 {
     // D6 (B7, b7-plan.md §4, as C18 left it): SYSINFO reads the north bridge's MAP's AP8 to say what bank 8 is, with
-    // no new text. With the revision 2 video card and AP8 set (the golden's), the 960 KB clause; with MAP forced
-    // to 0 before it runs, bank 8 is RAM: the no-card text. With no revision 2 card and MAP forced to 1, the
+    // no new text. With the video card and AP8 set (the golden's), the 960 KB clause; with MAP forced
+    // to 0 before it runs, bank 8 is RAM: the no-card text. With no video card and MAP forced to 1, the
     // no-card text too (DM_INFO says there is no card).
     const std::string fitted = "MEMORY     1,024 KB fitted";
     const auto clause = [&](const std::string &o) { // what follows "1,024 KB fitted" on its line
@@ -624,9 +609,9 @@ TEST(the_ram_line_takes_bank_8_from_maps_ap8)
         CHECK_EQ(clause(run(r, "m:sysinfo system")), std::string());
     }
     {
-        InfoRig r({}, 1);
+        InfoRig r(no_video_machine());
         REQUIRE(r.ok);
-        r.machine->bus().write(0xC6A5, 1); // MAP: AP8 set, with no revision 2 card
+        r.machine->bus().write(0xC6A5, 1); // MAP: AP8 set, with no video card
         CHECK_EQ(clause(run(r, "m:sysinfo system")), std::string());
     }
 }

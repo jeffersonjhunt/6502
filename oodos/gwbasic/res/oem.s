@@ -752,7 +752,7 @@ KYBQIN:         .res    1
 KYBQOUT:        .res    1
 ; 7d1: which screen GW-BASIC has (hw/oodos.md, 7d1; the owner's answer 2 of
 ; 2026-11-18), chosen once at start-up by P5's GXSTRT: bit 7 its own text
-; layer (a revision 2 card answered GX_INIT and CON:'s output has the CRT),
+; layer (the video card answered GX_INIT and CON:'s output has the CRT),
 ; else 0, 7a's console mode, exactly as it was. In LOWRAM, since P5 writes it.
 SCRMOD:         .byte   0
 ; 7e4: the graphics' state that more than one block reads (hw/oodos.md,

@@ -780,13 +780,6 @@ video:  lda     #<svideo
         sta     vunits
         cmp     #0
         bne     @rev2
-        lda     HW_REV + 9
-        cmp     #1
-        bne     @nocard
-        lda     #<svrev1
-        ldx     #>svrev1
-        jmp     puts
-@nocard:
         lda     #<snovideo
         ldx     #>snovideo
         jmp     puts
@@ -1719,7 +1712,6 @@ sstandin: .byte "serial: the stand-in 6551 (no ID register)$"
 snotfound: .byte ": not found$"
 sunknown: .byte " (not known to SYSINFO)$"
 svideo: .byte   "VIDEO      $"
-svrev1: .byte   "revision 1, which OODOS no longer drives$"
 snovideo: .byte "no video card$"
 svmem:  .byte   " KB of card memory (MEMSIZE $"
 svdiff: .byte   ", not DM_INFO's$"

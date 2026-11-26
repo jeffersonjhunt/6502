@@ -187,7 +187,7 @@ test("C803R runs the video demo on VGA, and a key goes back to the monitor", asy
 });
 
 test("SPRCTL's full-resolution bit shows on the Devices tab's Sprites row", async ({ page }) => {
-  // hw/sprites640.md: $C48E on the revision 2 card, written at the monitor.
+  // hw/sprites640.md: $C48E on the video card, written at the monitor.
   await booted(page);
   await pastSplash(page);
   await openDebugger(page);

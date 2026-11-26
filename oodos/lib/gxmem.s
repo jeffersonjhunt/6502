@@ -114,7 +114,7 @@ GX_INIT:
         bcs     @old
         lda     GX_VUNITS
         ora     GX_VUNITS + 1
-        beq     @old                    ; no revision 2 card
+        beq     @old                    ; no video card
         ldx     #VM_UNITS / 8 - 1       ; every unit free
 @free:  stz     GX_UNITS,x
         dex
@@ -178,7 +178,7 @@ GX_REMAP:
 ; 12): slot 1's window is then WIN1H $0E and block 1, and blocks 32-39 join
 ; the W1 map. After GX_INIT. GE_VERSION, nothing changed, for an older
 ; OODOS, no DMA, a revision 1 north bridge or a ROM BIOS older than 0.17:
-; the library stays in the old mode. With no revision 2 card, carry clear:
+; the library stays in the old mode. With no video card, carry clear:
 ; bank 8 is the program's RAM, and there is no window.
 GX_BANK8:
         lda     #FT_INFO
@@ -197,7 +197,7 @@ GX_BANK8:
         jsr     GXDMA
         bcs     @old                    ; refused: the old mode, silently (not GE_DMA)
         lda     GXB + 1                 ; +1 WIN1H, +2 the block
-        beq     @ram                    ; no revision 2 card: no window
+        beq     @ram                    ; no video card: no window
         sta     GXAPH
         lda     GXB + 2
         sta     GXAPB

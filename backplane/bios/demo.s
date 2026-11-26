@@ -19,9 +19,9 @@
 ;            and streamed to the card's table by port DMA in each vertical blank
 ;   palette  its own, faded in from black over 16 frames
 ;
-; The ripple is the new effect, for what revision 2's memory allows: 16
-; frames of a 256x240 8-bit bitmap, 60 KB each, 960 KB in all (revision 1's
-; card had 256 KB for everything), built once at the start and then shown by
+; The ripple is the new effect, for what the card's 2 MB allows: 16
+; frames of a 256x240 8-bit bitmap, 60 KB each, 960 KB in all,
+; built once at the start and then shown by
 ; flipping layer 0's MAPBASE every frame, so it costs the CPU nothing while
 ; it plays. Each row of a frame is a window on a stripe pattern in RAM,
 ; moved along by a sine of the row and the frame: 3,840 port DMA transfers

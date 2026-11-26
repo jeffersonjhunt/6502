@@ -1624,9 +1624,9 @@ TEST(gx_bank8_needs_interface_12)
     CHECK_EQ(ac(gx(r, '8')), std::string("01 01"));
     CHECK_EQ(r.bridge().map(), 1);
     CHECK_EQ(r.phys(at("GXAPH")), 0);
-    // And with no revision 2 card (revision 1's), GX_INIT's GE_VERSION as before, while GX_BANK8 succeeds: bank 8 is
+    // And with no video card, GX_INIT's GE_VERSION as before, while GX_BANK8 succeeds: bank 8 is
     // RAM, with no window to map (b7-plan.md §2.4, step 4).
-    CcpRig n({}, {}, {}, 1);
+    CcpRig n({}, no_video_machine());
     REQUIRE(n.ok);
     start_gx(n);
     CHECK_EQ(ac(gx(n, 'I')), std::string("01 01"));

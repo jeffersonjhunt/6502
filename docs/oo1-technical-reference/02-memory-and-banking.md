@@ -23,7 +23,7 @@ physical `n × $4000`, and bank b is blocks 4b to 4b+3.
 | E | `$E0000–$EFFFF` | 56–59 | free; Apple II mode copies the IIe ROM image into it each time it starts, with the zero byte its fills copy from at `$EBFFF` |
 | F | `$F0000–$FFFFF` | 60–63 | free, but for block 63: the BIOS's copy of itself, read-only through W3, and under the I/O hole its first 2 KB, `$FC000–$FC7FF`, BIOS 0.13's scroll buffer, reached by DMA alone ([chapter 6](06-video.md#the-bioss-text-screen)) |
 
-Apple II mode uses banks 0–5 and E in its own way, and puts the IIe's character ROM in video card revision 2's own
+Apple II mode uses banks 0–5 and E in its own way, and puts the IIe's character ROM in the video card's own
 memory, not in these banks (*proposed*: [chapter 13](13-apple-ii-mode.md)). OODOS's use of the banks is in the
 [Programmer's Guide](../oodos-programmers-guide/05-memory-and-banking.md#blocks).
 
@@ -90,7 +90,7 @@ draws from 2 MB of its own memory and shows 64 KB of it, in four 16 KB slots, th
   and the DMA controller's addresses `$80000–$8FFFF`, so block 32 + *n* is slot *n*, as it has been since BIOS 0.13.
   RAM C's bank 8 is then out of the CPU's and DMA's reach, though the console card, which drives the bus itself,
   sees it. The machine then has 960 KB of RAM that software can reach, and the aperture's 64 KB.
-- **AP8 is 1 at reset.** The BIOS clears it at boot on a machine with no revision 2 card, where bank 8 would
+- **AP8 is 1 at reset.** The BIOS clears it at boot on a machine with no video card, where bank 8 would
   otherwise read `$FF`. OODOS keeps it set, so programs built for bank 8 run as they did, and clears it for a
   program that asks, by function 83's `DM_BANK8`
   ([the Programmer's Guide](../oodos-programmers-guide/07-function-reference.md#bdos-83)); its warm boot sets it
@@ -99,10 +99,7 @@ draws from 2 MB of its own memory and shows 64 KB of it, in four 16 KB slots, th
   aperture beside it at `$E00000`.
 
 Apple II mode doesn't use banks 8–B: the card ignores the aperture in the mode, and the IIe's character ROM is in
-card memory, not at `$BE000` ([chapter 13](13-apple-ii-mode.md#revision-2-of-the-video-card)).
-
-Revision 1, the old card, had no aperture: banks 8–B, blocks 32–47, were its video memory, ordinary RAM that it
-read by watching every write to them ([chapter 6](06-video.md#video-memory)).
+card memory ([chapter 13](13-apple-ii-mode.md#revision-2-of-the-video-card)).
 
 ## The four windows
 
