@@ -1486,6 +1486,150 @@ TEST(sn_play_after_a_tune_ended_shows_it_starting_until_the_card_says_more)
     CHECK_EQ(f82op(r, SN_STOP), std::string("00 00"));
 }
 
+namespace
+{
+    /// `block` given to function 82, and the area's bytes `lo`-`hi` as the call returns to the program. @return the
+    /// call's A and X, as f82 gives them
+    std::string f82_seen(CcpRig &r, const std::vector<uint8_t> &block, unsigned lo, unsigned hi,
+                         std::vector<uint8_t> &at_return)
+    {
+        const uint16_t f_sound = sym("F_SOUND");
+        at_return.clear();
+        bool in = false;
+        r.watch = [&](uint16_t pc) {
+            if (pc == f_sound && r.nb(2) == 61)
+                in = true;
+            else if (in && pc >= 0x0300 && pc < 0x4000) // back in the program
+            {
+                for (unsigned o = lo; o <= hi; ++o)
+                    at_return.push_back(area(r, o));
+                in = false;
+            }
+        };
+        const std::string got = f82(r, block);
+        r.watch = nullptr;
+        return got;
+    }
+    std::vector<uint8_t> area_bytes(Rig &r, unsigned lo, unsigned hi)
+    {
+        std::vector<uint8_t> f;
+        for (unsigned o = lo; o <= hi; ++o)
+            f.push_back(area(r, o));
+        return f;
+    }
+} // namespace
+
+TEST(sn_stream_after_a_stream_ended_shows_it_starting_until_the_card_says_more)
+{
+    // A stream that has ended leaves the area's stream fields at 5 (ended), the frames played, the ring's room and
+    // the last NEED. A refused SN_STREAM leaves them; one that succeeds shows the new stream starting when the call
+    // returns: EV_SSTATE 1 (buffering, as the card has it then), EV_SBUFS both free, +98-115 0 (no NEED yet, nothing
+    // played), before a frame's STREAM_STATUS reply says more. Must fail if the area is left to the next frame (5
+    // and the old figures then), if a refusal resets it, or if a field is written a byte off (the tune's state
+    // beside +115 and the byte before +96 untouched).
+    CcpRig r;
+    REQUIRE(r.ok);
+    streaming(r, 22050, FMT_16BIT);
+    r.poke(0x10000, noise(0x4000, 3));
+    CHECK_EQ(f82(r, buffer_block(0x10000, 0x4000)), std::string("00 00"));
+    CHECK_EQ(f82op(r, SN_END), std::string("00 00"));
+    for (int i = 0; i < 100 && area(r, EV_SSTATE) != ST_ENDED; ++i)
+        r.run(ms(10));
+    r.run(ms(50));
+    r.poke(AREA + EV_TSTATE, std::vector<uint8_t>{0x5A}); // the tune's state, its part not claimed: left as it is
+    const std::vector<uint8_t> ended = area_bytes(r, EV_SSTATE - 1, EV_TSTATE);
+    std::printf("  ended: state %u, %u frames played, room %u\n", area(r, EV_SSTATE), area32(r, EV_SPOS),
+                area16(r, EV_SFREE));
+    REQUIRE(area(r, EV_SSTATE) == ST_ENDED);
+    REQUIRE(area32(r, EV_SPOS) > 255); // the premise: the old figures not 0
+    REQUIRE(area16(r, EV_SFREE) > 255);
+    std::vector<uint8_t> at;
+    // Refused: the card takes a raw rate of 8,000-48,000 Hz.
+    const std::string refused = f82_seen(r, stream_block(0, 7999, FMT_16BIT), EV_SSTATE - 1, EV_TSTATE, at);
+    std::printf("  a refused SN_STREAM: %s\n", refused.c_str());
+    CHECK_EQ(refused.substr(0, 2), std::string("FD"));
+    REQUIRE(at.size() == ended.size());
+    CHECK(at == ended);
+    // Opened.
+    CHECK_EQ(f82_seen(r, stream_block(0, 22050, FMT_16BIT), EV_SSTATE - 1, EV_TSTATE, at), std::string("00 00"));
+    REQUIRE(at.size() == ended.size());
+    std::printf("  at SN_STREAM's return: state %u, buffers %u\n", at[1], at[2]);
+    CHECK_EQ(at[0], ended[0]);       // (the byte before untouched)
+    CHECK_EQ(at[1], ST_BUFFERING);   // EV_SSTATE
+    CHECK_EQ(at[2], 3);              // EV_SBUFS: both free
+    for (unsigned o = EV_SFREE; o < EV_TSTATE; ++o)
+        CHECK_EQ(at[1 + o - EV_SSTATE], 0);
+    CHECK_EQ(at.back(), 0x5A); // (EV_TSTATE untouched)
+    r.run(ms(100)); // the card says more
+    CHECK_EQ(area(r, EV_SSTATE), ST_BUFFERING);
+    CHECK(area16(r, EV_SFREE) > 255); // its first NEED
+    CHECK_EQ(f82op(r, SN_END), std::string("00 00"));
+}
+
+TEST(sn_music_after_music_ended_shows_it_playing_until_the_card_says_more)
+{
+    // Music that has ended leaves EV_MSTATE at 0 (stopped). An SN_MUSIC that MUSIC_PLAY refuses leaves it; one that plays shows 1
+    // (playing) when the call returns, before a frame's MUSIC_STATUS reply. Queued (MUSIC_PLAY's bit 0) behind
+    // music paused, it is left at 2: the music isn't playing yet. Must fail if the area is left to the next frame
+    // (0 then), if a refusal sets it, if a queued play over paused music sets it, or if the byte before is written.
+    CcpRig r;
+    REQUIRE(r.ok);
+    open(r, "2");
+    CHECK_EQ(f82(r, {SN_CLAIM, SC_MUSIC}), std::string("00 00"));
+    const std::vector<uint8_t> blk = note_block({tone(440, 100'000, 100'000)});
+    r.poke(0x30000, blk);
+    const std::vector<uint8_t> play = load_block(SN_MUSIC, {5}, 0x30000, static_cast<uint32_t>(blk.size()), {0});
+    CHECK_EQ(f82(r, play), std::string("00 00"));
+    for (int i = 0; i < 100 && !queued(r, SoundFw::EV_MUSIC_DONE, 5); ++i)
+        r.run(ms(10));
+    r.run(ms(50));
+    const std::vector<uint8_t> ended = area_bytes(r, EV_MSTATE - 1, EV_MSTATE + 4);
+    REQUIRE(area(r, EV_MSTATE) == SoundFw::M_STOPPED);
+    std::vector<uint8_t> at;
+    // Refused: by MUSIC_PLAY (its flags' bit 2 undefined, E_PARAM), the block loaded and checked.
+    std::vector<uint8_t> bad = play;
+    bad.back() = 4;
+    const std::string refused = f82_seen(r, bad, EV_MSTATE - 1, EV_MSTATE + 4, at);
+    std::printf("  a refused SN_MUSIC: %s\n", refused.c_str());
+    CHECK_EQ(refused, std::string("FD 02"));
+    REQUIRE(at.size() == ended.size());
+    CHECK(at == ended);
+    // Played again.
+    CHECK_EQ(f82_seen(r, play, EV_MSTATE - 1, EV_MSTATE + 4, at), std::string("00 00"));
+    REQUIRE(at.size() == ended.size());
+    std::printf("  at SN_MUSIC's return: state %u\n", at[1]);
+    CHECK_EQ(at[1], SoundFw::M_PLAYING);
+    for (size_t i = 0; i < at.size(); ++i)
+        if (i != 1)
+            CHECK_EQ(at[i], ended[i]); // (the fields beside it untouched)
+    // Paused, then a block queued behind it: left at 2.
+    const std::vector<uint8_t> lng = note_block({tone(440, 2'000'000, 2'000'000)});
+    r.poke(0x30000, lng);
+    CHECK_EQ(f82(r, load_block(SN_MUSIC, {6}, 0x30000, static_cast<uint32_t>(lng.size()), {0})), std::string("00 00"));
+    CHECK_EQ(f82(r, {SN_MCTL, 1}), std::string("00 00"));
+    r.run(ms(50));
+    REQUIRE(area(r, EV_MSTATE) == SoundFw::M_PAUSED);
+    CHECK_EQ(f82_seen(r, load_block(SN_MUSIC, {7}, 0x30000, static_cast<uint32_t>(lng.size()), {1}), EV_MSTATE,
+                      EV_MSTATE, at),
+             std::string("00 00"));
+    REQUIRE(at.size() == 1u);
+    std::printf("  a block queued behind paused music: state %u at the return\n", at[0]);
+    CHECK_EQ(at[0], SoundFw::M_PAUSED);
+    CHECK_EQ(fw(r).music_state(), SoundFw::M_PAUSED);
+    // Stopped, then a block queued: nothing plays, so it starts at once, and shows 1.
+    CHECK_EQ(f82(r, {SN_MCTL, 0}), std::string("00 00"));
+    r.run(ms(50));
+    REQUIRE(area(r, EV_MSTATE) == SoundFw::M_STOPPED);
+    CHECK_EQ(f82_seen(r, load_block(SN_MUSIC, {7}, 0x30000, static_cast<uint32_t>(lng.size()), {1}), EV_MSTATE,
+                      EV_MSTATE, at),
+             std::string("00 00"));
+    REQUIRE(at.size() == 1u);
+    std::printf("  a block queued with music stopped: state %u at the return\n", at[0]);
+    CHECK_EQ(at[0], SoundFw::M_PLAYING);
+    CHECK_EQ(fw(r).music_state(), SoundFw::M_PLAYING);
+    CHECK_EQ(f82(r, {SN_MCTL, 0}), std::string("00 00"));
+}
+
 TEST(the_bank_sample_effects_play_and_stop)
 {
     // SN_SAMPLE (a sample by DMA, its flags, rate and loop), SN_EFFECTS (a table of definitions), SN_EFFECT (A the

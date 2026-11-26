@@ -3270,8 +3270,7 @@ Five dice: 2 3 3 6 3
   receive buffer, and the event area's `EV_RXCNT`; 17 OODOS 0.16's [function 78](#bdos-78), the random source,
   `FC_T1` and `FT_CLOCK`; 18 OODOS 0.17's sound card revision 3, the card as a device: [function 82](#bdos-82)
   numbered afresh as one table grouped by job, with its new operations (tunes, the sound bank, music, `SN_NEXT`, the
-  mix, IDENTIFY and the firmware), `SN_REFUSED`, and the event area's tune and music fields; a program written for
-  function 82 checks for 18),
+  mix, IDENTIFY and the firmware), `SN_REFUSED`, and the event area's tune and music fields),
   X = a bit for each service area OODOS
   has (`OA_FRAME`, `$01`: this function; `OA_INPUT`, `$02`: [function 81](#bdos-81); `OA_SOUND`, `$04`: [function
   82](#bdos-82); `OA_DMA`, `$08`: [function 83](#bdos-83); `OA_SERIAL`, `$20`: [function 85](#bdos-85), since
@@ -3450,7 +3449,7 @@ OODOS's own: CP/M 3 has no function 81 (OODOS's range, 72 on). It is OOLIB's sec
   | 10 | `SN_TSTATUS` | 16 bytes to fill | the tune's state | |
   | 11 | `SN_TINFO` | +1 a slot, then 104 bytes to fill | the loaded file's header | |
   | | **Streams** | | | |
-  | 12 | `SN_STREAM` | +1 the codec (0 raw PCM, 1 MP3), +2–3 the rate (Hz), +4 the format (bit 0 stereo, bit 1 16-bit) | starts a stream afresh | stream |
+  | 12 | `SN_STREAM` | +1 the codec (0 raw PCM, 1 MP3), +2–3 the rate (Hz), +4 the format (bit 0 stereo, bit 1 16-bit) | starts a stream afresh; a layout-2 area shows it starting at once (`EV_SSTATE` 1, +98–115 0) | stream |
   | 13 | `SN_BUFFER` | +1–3 a physical address, +4–5 the length (2 bytes; 0: 65,536) | gives the stream a buffer | stream |
   | 14 | `SN_PAUSE` | none | holds the stream | stream |
   | 15 | `SN_RESUME` | none | lets it go on | stream |
@@ -3464,7 +3463,7 @@ OODOS's own: CP/M 3 has no function 81 (OODOS's range, 72 on). It is OOLIB's sec
   | 22 | `SN_EFFECT` | +1 the effect, +2 the volume (0–255), +3 the pan (0 left, 128 the centre, 255 right), +4 the priority (0–3), +5–6 a pitch offset in cents (signed), +7 the chip (0 any, 1 a SID, 2 the ES5503) | plays an effect on a voice | |
   | 23 | `SN_ESTOP` | +1 a voice handle, 0 every effect voice | stops it | |
   | | **Music** | | | |
-  | 24 | `SN_MUSIC` | +1 a music slot, 0–31, +2–4 a note block's physical address, +5–7 its length, +8 bit 0 queued behind what plays, bit 1 the slot freed when it is done | loads a note block by DMA and plays it | music |
+  | 24 | `SN_MUSIC` | +1 a music slot, 0–31, +2–4 a note block's physical address, +5–7 its length, +8 bit 0 queued behind what plays, bit 1 the slot freed when it is done | loads a note block by DMA and plays it; a layout-2 area shows it playing at once (`EV_MSTATE` 1), unless queued behind music playing or paused | music |
   | 25 | `SN_MCTL` | +1 0 stop, 1 pause, 2 resume, 3 the threshold (+2 n) | controls music | music |
   | 26 | `SN_MSTATUS` | 24 bytes to fill | music's state | |
   | | **The beep** | | | |

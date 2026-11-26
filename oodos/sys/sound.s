@@ -1260,9 +1260,10 @@ SNTAB:          OWN     SN_INFOX                                        ; 0
 ; command, the stream playing (DF_STREAM) and the block's parameters; its
 ; REPLY's results put in the block after them, or the first in A (DF_ARES).
 ; A tune played (SN_PLAY's REPLY OK): a layout-2 area's tune fields show it
-; starting, as the card has it then (EV_TSTATE 1, EV_TMS 0), not the last
-; run's until a frame's reply; the card answers in order, so a TUNE_STATUS
-; asked before the play has been written already. A refusal leaves them.
+; starting, as the card has it then (EV_TSTATE 1, EV_TMS 0; EVFLD), not the
+; last run's until a frame's reply; the card answers in order, so a
+; TUNE_STATUS asked before the play has been written already. A refusal
+; leaves them.
 GENERIC:        STA     T0             ; the flags
                 BIT     #DF_NOBLK
                 BNE     @blk
@@ -1306,27 +1307,44 @@ GENERIC:        STA     T0             ; the flags
                 BNE     @ret
                 TAY
                 BNE     @ret           ; refused, or no answer
-                BIT     EVON
-                BPL     @ret           ; no area with a sound part
-                PHP
-                SEI
-                LDX     NB_WIN1
-                LDA     EVBLK
-                STA     NB_WIN1
-                LDY     #EV_TMS + 2
-                LDA     #0
-@z:             STA     (EVP),Y        ; the ms played,
-                DEY
-                CPY     #EV_TSTATE
-                BNE     @z
-                INC     A              ; and T_STARTING
-                STA     (EVP),Y
-                STX     NB_WIN1
-                PLP
+                LDY     #EV_TSTATE
+                LDA     #1             ; T_STARTING,
+                LDX     #3             ; the ms played 0
+                CLC
+                JSR     EVFLD
                 JMP     SN00
 @ret:           RTS
 .assert EV_TMS = EV_TSTATE + 1, error, "GENERIC: the tune's ms follow its state"
+
 @ff:            JMP     RETFF
+
+; A part's fields in a layout-2 area at a start: +Y set to A and the X bytes
+; after it to 0 (X 0: none), through W1 with interrupts off; with carry set,
+; only if +Y reads 0 now. Nothing with no area. Keeps nothing.
+EVFLD:          BIT     EVON
+                BPL     @ret           ; no area with a sound part
+                PHP
+                SEI
+                STA     STMP
+                LDA     NB_WIN1
+                PHA
+                LDA     EVBLK
+                STA     NB_WIN1
+                BCC     @put
+                LDA     (EVP),Y
+                BNE     @done          ; (carry set: +Y not 0, left)
+@put:           LDA     STMP
+                STA     (EVP),Y
+                LDA     #0
+@z:             DEX
+                BMI     @done
+                INY
+                STA     (EVP),Y
+                BRA     @z
+@done:          PLA
+                STA     NB_WIN1
+                PLP
+@ret:           RTS
 
 ; RB's record (X = its length: 3 + n) sent and its REPLY awaited: A = X = 0;
 ; refused, SN_REFUSED and X its error; no answer, SN_BUSY. DF_ARES: A the
@@ -1648,7 +1666,10 @@ SN_EFFECTSX:    BLOCK
 .segment "BIOS"
 
 ; +1 a slot, +2-4 a note block's address, +5-7 its length, +8 MUSIC_PLAY's
-; flags: MUSIC_LOAD (the block checked: XFERDONE), then MUSIC_PLAY.
+; flags: MUSIC_LOAD (the block checked: XFERDONE), then MUSIC_PLAY. Played
+; (its REPLY OK), a layout-2 area's EV_MSTATE shows it playing at once (1),
+; not the last run's until a frame's reply; queued behind music playing or
+; paused, it is left. A refusal leaves it.
 SN_MUSICX:      BLOCK
                 NEED    SC_MUSIC
                 JSR     PGET
@@ -1671,9 +1692,20 @@ SN_MUSICX:      BLOCK
                 STA     RB + 3
                 LDA     T1
                 STA     RB + 4
+                PHA                    ; the flags
                 STZ     RMODE
                 LDX     #5
-                JMP     RUN
+                JSR     RUN
+                PLY
+                CMP     #0
+                BNE     @ret           ; refused, or no answer
+                TYA
+                LSR     A              ; carry: queued (bit 0), so only if stopped
+                LDA     #1             ; M_PLAYING
+                LDY     #EV_MSTATE
+                LDX     #0
+                JSR     EVFLD
+                JMP     SN00
 @ret:           RTS
 @no:            JMP     RETFF
 
@@ -1753,7 +1785,9 @@ SN_FIRMX:       BLOCK
 
 ; +1 the codec, +2-3 the rate, +4 the format: channel 2 stopped, both
 ; buffers free, both streams closed, then stream 0 opened (STREAM_OPEN with
-; OODOS's chunk and prebuffer).
+; OODOS's chunk and prebuffer). Opened, a layout-2 area shows it starting at
+; once: EV_SSTATE 1 (buffering, as the card has it then), +98-115 0 (no NEED
+; yet, nothing played); EV_SBUFS as SBUFS wrote it. A refusal leaves them.
 SN_STREAMX:     BLOCK
                 NEED    SC_STREAM
                 JSR     SPARM
@@ -1764,7 +1798,21 @@ SN_STREAMX:     BLOCK
                 PLP
                 JSR     SCLOSE         ; (RB's parameters first kept in SG and T0-T1)
                 LDA     #0
-                ; fall through: stream 0 opened
+                JSR     SOPENA
+                CMP     #0
+                BNE     @ret           ; refused, or no answer
+                LDY     #EV_SFREE      ; A = 0: no NEED yet, nothing played,
+                LDX     #EV_SNEED + 7 - EV_SFREE ;   to +115
+                CLC
+                JSR     EVFLD
+                LDA     #1             ; and buffering
+                LDY     #EV_SSTATE
+                LDX     #0
+                CLC
+                JSR     EVFLD
+                JMP     SN00
+@ret:           RTS
+.assert EV_SFREE = EV_SSTATE + 2 && EV_SNEED + 7 = EV_TSTATE - 1, error, "SN_STREAM: the stream's fields after EV_SBUFS, to +115"
 
 ; Stream A opened with SPARM's parameters (SG, SG + 1-2 ... see SPARM).
 SOPENA:         PHA

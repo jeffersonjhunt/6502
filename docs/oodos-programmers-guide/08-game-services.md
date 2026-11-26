@@ -36,8 +36,8 @@ says so and ends, rather than calling it. [Function 72](07-function-reference.md
 as before.
 
 Whether a card is there is another question, the program's own, by the card's ID byte, as the BIOS asks. `FT_INFO`
-with a block says which clocks run: the frame counter needs the video card, the millisecond counter the serial
-card's VIA.
+with a block says which clocks run: the frame counter needs the video card; the millisecond counter is the north
+bridge's, and always runs; `FC_T1` says the serial card's VIA is there, its timer 1 the program's.
 
 ## Calling function 80
 
@@ -421,10 +421,16 @@ behind. `EV_SBUFS` alone is written at once, as each stream buffer is taken or s
 | +122–123 | `EV_MWAIT` | the notes waiting, every voice, not yet begun |
 | +124–127 | | reserved, 0 |
 
-A part not claimed leaves its fields as they were. One write doesn't wait for a frame: an `SN_PLAY` that succeeds
-sets `EV_TSTATE` to 1 (starting, as the card has it then) and `EV_TMS` to 0 before it returns, so the state an
-earlier tune ended in isn't read as the new one's; the card's own figures follow from the next frame. A refused
-`SN_PLAY` leaves the fields as they were.
+A part not claimed leaves its fields as they were. Three writes don't wait for a frame, so the state an earlier run
+ended in isn't read as the new one's; each is made before the call returns, and the card's own figures follow from
+the next frame:
+
+- an `SN_PLAY` that succeeds sets `EV_TSTATE` to 1 (starting, as the card has it then) and `EV_TMS` to 0;
+- an `SN_STREAM` that succeeds sets `EV_SSTATE` to 1 (buffering) and +98–115 to 0 (no request for data yet, nothing
+  played); `EV_SBUFS` shows both buffers free;
+- an `SN_MUSIC` that plays sets `EV_MSTATE` to 1 (playing); one queued behind music playing or paused leaves it.
+
+A refused call leaves the fields as they were.
 
 ### Tunes
 
