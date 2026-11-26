@@ -424,10 +424,16 @@ INSCOPE:
 @r:     rts
 
 ; A a letter: carry clear and A the button or check box in the scope whose
-; key it is, shown and enabled (one that can't take the focus too).
+; key it is, shown and enabled (one that can't take the focus too). (S3)
+; No record looked at while ukeyl says none has a letter; and a record's
+; letter compared before its scope is placed (INSCOPE's RECT), so only the
+; one whose letter it is is placed: the same record found, as the tests
+; are ANDed and the walk keeps its order.
 FINDACC:
         sta     fb
         stz     fh
+        lda     ukeyl
+        beq     @no
 @l:     lda     fh                      ; a button or a check box, enabled: focusable or not (O12)
         cmp     utot
         bcs     @no
@@ -444,10 +450,6 @@ FINDACC:
         lda     (UIR),y
         and     #UF_DISABLED
         bne     @n
-        jsr     INSCOPE
-        bcs     @n
-        lda     fh
-        jsr     REC
         ldy     #UW_TEXT
         lda     (UIR),y
         sta     UIP
@@ -457,6 +459,8 @@ FINDACC:
         jsr     ACCEL
         cmp     fb
         bne     @n
+        jsr     INSCOPE
+        bcs     @n
         lda     fh
         clc
         rts

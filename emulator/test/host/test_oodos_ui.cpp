@@ -4273,16 +4273,18 @@ namespace
     constexpr uint8_t A_TIME = 2, A_EQ5B = 16, A_X4B = 89; ///< its first label; a band (A_EQ5); its last label
     /// A 'p' (ui_poll till UE_NONE): the cycles of all its ui_polls (each from its stub to its return, PRET), how
     /// many, the events, and how often OOUI's REC, RNEXT (a walk's step), FRONT and PASS were entered (U3b, B1-B4),
-    /// and (S1) ONE (a record drawn) and PLACE1 (a sprite thumb placed).
+    /// (S1) ONE (a record drawn) and PLACE1 (a sprite thumb placed), and (S3) RECT and POST.
     struct Polls
     {
         unsigned long cycles = 0, calls = 0, recs = 0, steps = 0, fronts = 0, passes = 0, ones = 0, places = 0;
+        unsigned long rects = 0, posts = 0; ///< (S3) RECT entered, POST entered
         std::vector<Event> ev;
     };
     Polls polls_cost(CcpRig &r)
     {
         const uint16_t stub = lab("ui_poll"), back = lab("PRET"), rec = lab("REC"), front = lab("FRONT"),
-                       pass = lab("PASS"), step = lab("RNEXT"), one = lab("ONE"), place = lab("PLACE1");
+                       pass = lab("PASS"), step = lab("RNEXT"), one = lab("ONE"), place = lab("PLACE1"),
+                       rect = lab("RECT"), post = lab("POST");
         const unsigned blocks[3] = {bank_block(r, "PAINT"), bank_block(r, "POST"), bank_block(r, "DLGON")};
         const unsigned passb = bank_block(r, "PASS"); // (block C's from S2)
         Polls p;
@@ -4310,6 +4312,10 @@ namespace
                 ++p.ones;
             else if (w3 == blocks[1] && pc == place)
                 ++p.places;
+            else if (ooui && pc == rect)
+                ++p.rects;
+            else if (w3 == blocks[1] && pc == post)
+                ++p.posts;
         };
         p.ev = poll(r);
         r.watch = nullptr;
@@ -5590,4 +5596,142 @@ TEST(uidemo_on_the_demo_card_by_keys_and_the_mouse)
         std::printf("  after A>: \"%s\", want \"DIR^M^J\"\n", shown.c_str());
     }
     CHECK_EQ(echo, std::string("DIR\r\n"));
+}
+
+// ---------------------------------------------------------------------------
+// S3, the faster paint pass (hw/ooui.md, "U3b: speed step S3"): a letter key walks no record when no button, check
+// box or radio button has a key letter (ukeyl), and a letter's scope placed only for the button whose letter it is;
+// POST only after a thumb's mark or a geometry event; the dirty list; PASS's fast walk over the position cache.
+
+namespace
+{
+    constexpr uint8_t A_PREV = 34, A_PLAY = 35, A_LOAD = 43; ///< block 8's first button, its second, its last
+    constexpr uint8_t U_G = 0x0A, U_H = 0x0B, U_J = 0x0D;   ///< HID usages
+    constexpr uint16_t S3TEXT = TEXTBUF + 0x80;             ///< the strings these cases write, past c_text's
+    /// (S3-1, the owner's answer 5) a letter key's poll over F7's in a table with no key letter: 312 cycles at S3-1
+    /// (the letter's own steps: its character, UPPER, ukeyl's test), plus 32 for a few page crossings; 38,000 or
+    /// so before S3, FINDACC's walk.
+    constexpr unsigned long S3_LETTER_CEILING = 312 + 32;
+    /// Record h of uitest.s's amp table (blocks 5 and 8).
+    uint16_t rec_amp(uint8_t h) { return static_cast<uint16_t>(lab("amp") + h * 16u); }
+    /// String `s` at S3TEXT + `at`, and record h's UW_TEXT pointed at it.
+    void text_at(CcpRig &r, uint8_t h, unsigned at, const std::string &s)
+    {
+        const uint16_t a = static_cast<uint16_t>(S3TEXT + at);
+        std::string z = s;
+        z.push_back('\0');
+        r.poke(a, bytes(z));
+        r.poke(rec_amp(h) + UW_TEXT, static_cast<uint8_t>(a & 0xFF));
+        r.poke(rec_amp(h) + UW_TEXT + 1, static_cast<uint8_t>(a >> 8));
+    }
+    /// Block 8 as OO-Amp's screen is: no key letter (its buttons' texts without '&'), opened and drawn.
+    void open_big_no_letters(CcpRig &r)
+    {
+        for (unsigned h = A_PREV; h <= A_LOAD; ++h)
+            text_at(r, static_cast<uint8_t>(h), 0, "Btn");
+        CHECK_EQ(ui(r, 'o', BLK_BIG).substr(6), std::string("00"));
+        poll(r);
+        poll(r);
+    }
+    bool clicked(const std::vector<Event> &ev, unsigned h)
+    {
+        return std::any_of(ev.begin(), ev.end(), [h](const Event &e) { return e.code == UE_CLICK && e.handle == h; });
+    }
+    bool keyed(const std::vector<Event> &ev, unsigned usage)
+    {
+        return std::any_of(ev.begin(), ev.end(), [usage](const Event &e) { return e.code == UE_KEY && e.y == usage; });
+    }
+} // namespace
+
+TEST(s3_a_letter_key_walks_no_records)
+{
+    // Block 8 (UITBAR's), 90 records as OO-Amp's screen. Each letter key's poll is measured against F7's, a key
+    // with no character, which never reaches the letter search (FINDACC): the rest of the two polls is the same.
+    // With the buttons' letters, a letter none of them has (Q): each record looked at for its letter, and no
+    // button's scope placed (RECT) before its letter matched (S3-1; before, an INSCOPE of each of the 10 enabled
+    // buttons). Then with no letter in the table, as OO-Amp's: no record walked at all (ukeyl 0; before, the 90
+    // RECs and the 10 RECTs). That poll's cycles over F7's are held to a ceiling (the owner's answer 5): the
+    // figure at S3-1 plus a small margin.
+    CcpRig r;
+    REQUIRE(r.ok);
+    start_ui(r, "uitbar");
+    CHECK_EQ(ui(r, 'o', BLK_BIG).substr(6), std::string("00"));
+    poll(r);
+    poll(r);
+    constexpr uint8_t U_F7 = 0x40;
+    key(r, U_F7);
+    const Polls ref = polls_cost(r);
+    say("F7, no character", ref);
+    std::printf("  ... and %lu RECT\n", ref.rects);
+    CHECK(keyed(ref.ev, U_F7));
+    key(r, K_Q);
+    const Polls some = polls_cost(r);
+    say("a letter no button has, the buttons' letters there", some);
+    std::printf("  ... and %lu RECT\n", some.rects);
+    CHECK(keyed(some.ev, K_Q));
+    CHECK(some.recs >= ref.recs + 90u); // every record looked at for its letter
+    CHECK_EQ(some.rects, ref.rects);
+    key(r, 0x1B); // X, A_PLAY's letter: pressed
+    CHECK(clicked(poll(r), A_PLAY));
+    CHECK_EQ(ui(r, 'c').substr(6), std::string("00"));
+    open_big_no_letters(r);
+    key(r, U_F7);
+    const Polls ref0 = polls_cost(r);
+    key(r, K_Q);
+    const Polls none = polls_cost(r);
+    say("a letter key, no key letter in the table", none);
+    std::printf("  ... and %lu RECT; %lu cycles more than F7's\n", none.rects, none.cycles - ref0.cycles);
+    CHECK(keyed(none.ev, K_Q));
+    CHECK_EQ(none.recs, ref0.recs);
+    CHECK_EQ(none.rects, ref0.rects);
+    CHECK(none.cycles <= ref0.cycles + S3_LETTER_CEILING);
+}
+
+TEST(s3_a_letter_given_later_takes_its_key)
+{
+    // ukeyl is found at ui_open and set again by every path that can give a button a letter after it: ui_settext;
+    // the program's own UW_TEXT and ui_dirty (the rule for a text written by its fields); a record made a button by
+    // its fields and ui_redraw (S1's rule for a type changed); the dialogs' records (DLGREC). Each part from a table
+    // with no letter (block 8 as OO-Amp's: ui_open again before each), its letter then pressing its button.
+    CcpRig r;
+    REQUIRE(r.ok);
+    start_ui(r, "uitbar");
+    open_big_no_letters(r);
+    // ui_settext: A_PREV is "&Go".
+    r.poke(TEXTBUF, bytes(std::string("&Go", 4)));
+    CHECK_EQ(ui(r, 'x', 0, 0, A_PREV).substr(6), std::string("00"));
+    poll(r);
+    key(r, U_G);
+    CHECK(clicked(poll(r), A_PREV));
+    // The program's own writing of A_PLAY's UW_TEXT ("&Hi"), and ui_dirty.
+    CHECK_EQ(ui(r, 'c').substr(6), std::string("00"));
+    open_big_no_letters(r);
+    text_at(r, A_PLAY, 0x10, "&Hi");
+    CHECK_EQ(ui(r, 'd', A_PLAY).substr(6), std::string("00"));
+    poll(r);
+    key(r, U_H);
+    CHECK(clicked(poll(r), A_PLAY));
+    // A label (A_ST0) made a button "&Jump" by its fields, and ui_redraw.
+    CHECK_EQ(ui(r, 'c').substr(6), std::string("00"));
+    open_big_no_letters(r);
+    text_at(r, A_ST0, 0x20, "&Jump");
+    r.poke(rec_amp(A_ST0) + UW_TYPE, 5); // UT_BUTTON
+    CHECK_EQ(ui(r, 'D').substr(6), std::string("00"));
+    poll(r);
+    key(r, U_J);
+    CHECK(clicked(poll(r), A_ST0));
+    // The picker over a table with no button letter (BLK_DESK: menus' letters only), as OO-Amp's Load Files: its
+    // "Add a&ll" takes L (UE_PICK 3).
+    CcpRig p;
+    REQUIRE(p.ok);
+    p.put_m({{0, "DATA00  BIN", std::vector<uint8_t>(10, 1)}, {0, "DATA01  BIN", std::vector<uint8_t>(10, 1)}});
+    start_ui(p, "uitpick");
+    CHECK_EQ(ui(p, 'o', BLK_DESK).substr(6), std::string("00"));
+    poll(p);
+    pick(p, 5);
+    key(p, 0x0F); // L
+    const std::vector<Event> all = poll(p);
+    CHECK(std::any_of(all.begin(), all.end(), [](const Event &e) { return e.code == UE_PICK && e.handle == P_WIN && e.value == 3; }));
+    key(p, K_ESC);
+    poll(p);
 }

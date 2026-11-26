@@ -52,6 +52,8 @@ udmg:   .res    8 * UI_BOXES           ; the damage: (B5) each layer's boxes, c0
 bxl:    .res    1                      ; (B5) BOXADD's layer
 udend:  .res    2                      ; (B5) each layer's boxes' end this paint: past the last used
 uany:   .res    1                      ; (U3b) UQ_*: a paint to do, OVERS's and FINDMODAL's answers stale
+ukeyl:  .res    1                      ; (S3) not 0: a button, a check box or a radio button may have a key
+                                       ;   letter, so FINDACC looks; 0: none has, no record walked for a letter
 ucli:   .res    4                      ; RECT's: the client area (column, row, width, height)
 rhid:   .res    1                      ;   not 0: hidden (it or a parent, or a menu not down)
 rover:  .res    1                      ;   1: on the overlay
@@ -414,6 +416,29 @@ DLEN:   lda     UIP
 @end:   lda     dl
 @r:     rts
         .code
+
+; (S3) Record UIR: ukeyl set if it is a button, a check box or a radio
+; button with a key letter (FINDACC's types). Keeps UIR. ui_open's
+; (CHECKTAB, every record), ui_settext's and ui_dirty's; ui_redraw and the
+; dialogs' records (DLGREC) set ukeyl themselves.
+ACCREC: ldy     #UW_TYPE
+        lda     (UIR),y
+        cmp     #UT_BUTTON
+        beq     @t
+        cmp     #UT_CHECK
+        beq     @t
+        cmp     #UT_RADIO
+        bne     @r
+@t:     ldy     #UW_TEXT
+        lda     (UIR),y
+        sta     UIP
+        iny
+        lda     (UIR),y
+        sta     UIP + 1
+        jsr     ACCEL
+        beq     @r
+        sta     ukeyl
+@r:     rts
 
 ; UIP a string (0 none): A its key, the letter after its first single '&'
 ; in capitals, or 0.
@@ -1060,8 +1085,10 @@ CHECKTAB:
         bcc     @go
 @b0:    jmp     @bad
 @go:    stz     t0
+        stz     ukeyl                   ; (S3) the key letters found again
 @rec:   lda     t0
         jsr     REC
+        jsr     ACCREC
         ldy     #UW_TYPE
         lda     (UIR),y
         cmp     #UT_COUNT
@@ -1676,6 +1703,7 @@ TXTCHK: cmp     #UT_VSCROLL
         iny
         lda     t1
         sta     (UIR),y
+        jsr     ACCREC                  ; (S3) a letter given: FINDACC to look
         clc
         rts
 
@@ -1715,6 +1743,7 @@ ui_dirty:
         jsr     ENTER
         jsr     CHKH
         jsr     DIRTY
+        jsr     ACCREC                  ; (S3) a letter in a text the program wrote itself
         ldy     #UW_TYPE                ; (U3b, B3) a window: its flags may be the program's
         lda     (UIR),y                 ;   own writing (UF_MODAL, UF_OVERLAY), so the modal
         cmp     #UT_WINDOW              ;   window and the overlay are found again
@@ -1727,6 +1756,8 @@ STALE:  lda     #UQ_STALE | UQ_GEOM | UQ_CSTALE ; (S1: a geometry event; S2: the
         rts
 
 ui_redraw:
+        lda     #1                      ; (S3) a record's type or text may be the program's own
+        sta     ukeyl                   ;   writing (S1's rule): FINDACC looks till ui_open
         jsr     ALLDIRTY
         bra     STALE
 
