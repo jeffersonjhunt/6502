@@ -386,6 +386,9 @@ namespace ooe::emu
             uint32_t count{0};
         };
         NeedSent last_need(unsigned s) const { return streams_[s % STREAMS].last_need; }
+        /// Tests: the STREAM_DATA records for stream `s` the card has had since it opened, taken or refused (each
+        /// should answer one of its NEEDs, last_need().count).
+        uint32_t stream_data_records(unsigned s) const { return streams_[s % STREAMS].data_records; }
         /// Tests: every stream's underruns since power-on (STREAM_STATUS's +19-20 are one stream's,
         /// from its open).
         uint64_t underruns_total() const { return underruns_total_; }
@@ -560,6 +563,7 @@ namespace ooe::emu
             int16_t prev[2]{0, 0}, cur[2]{0, 0};
             std::shared_ptr<Mp3> mp3;
             NeedSent last_need{}; ///< last_need()'s
+            uint32_t data_records{0}; ///< stream_data_records()'s
         };
         std::array<Stream, STREAMS> streams_{};
         std::array<Object, STREAMS> rings_{};

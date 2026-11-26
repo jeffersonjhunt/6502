@@ -1981,6 +1981,8 @@ namespace ooe::emu
         {
             const unsigned s = p[0];
             const uint32_t len = get24(p + 1);
+            if (s < STREAMS)
+                ++streams_[s].data_records; // taken or refused
             if (s >= STREAMS || !streams_[s].open || streams_[s].ended || len == 0)
             {
                 reply(tag, s >= STREAMS || len == 0 ? E_PARAM : E_STATE);

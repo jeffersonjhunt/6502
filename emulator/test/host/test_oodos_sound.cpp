@@ -2176,6 +2176,80 @@ TEST(a_stream_data_the_card_refuses_is_sent_again)
     CHECK(tap_bytes(r) == data);
 }
 
+TEST(each_stream_data_answers_one_need)
+{
+    // The card's flow control: it asks for a stream's data (NEED) when its ring has room for a chunk, and OODOS sends
+    // a buffer (STREAM_DATA) only to answer an ask, one record for each, marking the ask answered as it sends. A 2 MB
+    // card (its ring fills), two buffers of a chunk each (32 KB, so a NEED's room always takes one), given at once
+    // and again as each is freed, for 3 s: every 5 ms, the STREAM_DATA records the card has had, taken or refused,
+    // are at most its NEEDs, and every ask is answered. (With room in the ring the card asks again as soon as a chunk
+    // lands, so only a full ring shows an extra record.) Then an ask kept when its record can't go: CMD without room
+    // when the buffer is given (the card slow, the test's records in it), the buffer goes once CMD has room. Must
+    // fail with the ask not marked answered (TRB NEEDP removed), and with it marked before the record is sent (the
+    // ask lost when CMD is full).
+    constexpr unsigned LEN = 0x8000;
+    {
+        CcpRig r({}, machine_with_memsize(2));
+        REQUIRE(r.ok);
+        fw(r).set_stream_tap(true);
+        streaming(r);
+        const uint32_t at[2] = {0x10000, 0x20000};
+        r.poke(at[0], noise(LEN, 900));
+        r.poke(at[1], noise(LEN, 901));
+        unsigned given = 0, over = 0;
+        size_t most = 0;
+        auto give = [&] {
+            CHECK_EQ(f82(r, buffer_block(at[given & 1], LEN)).substr(3), std::string("00"));
+            ++given;
+        };
+        r.run(ms(20));
+        give();
+        give();
+        for (unsigned i = 0; i < 600; ++i) // 3 s
+        {
+            r.run(ms(5));
+            if (fw(r).stream_data_records(0) > fw(r).last_need(0).count)
+                ++over;
+            most = std::max(most, fw(r).stream_buffered(0));
+            if (area(r, EV_SBUFS) >> (given & 1) & 1)
+                give();
+        }
+        const uint32_t recs = fw(r).stream_data_records(0), needs = fw(r).last_need(0).count;
+        const size_t ring = fw(r).stream_ring(0);
+        std::printf("  %u buffers given, %u STREAM_DATA, %u NEEDs; %u times more records than NEEDs; the ring %zu, at "
+                    "most %zu in it\n",
+                    given, recs, needs, over, ring, most);
+        CHECK(needs >= 10);              // the premise: the stream was fed
+        CHECK(ring - most < 2 * LEN);    // and its ring all but filled
+        CHECK_EQ(over, 0u);              // never a record but for an ask
+        CHECK(recs + 1 >= needs);        // and every ask answered (one may wait on a buffer moving)
+    }
+    {
+        CcpRig r;
+        REQUIRE(r.ok);
+        streaming(r);
+        r.run(ms(20));
+        CHECK_EQ(sv(r, "NEEDP"), 1); // the card has asked
+        fw(r).set_latency_us(100'000);
+        for (int i = 0; i < 4; ++i) // 812 bytes waiting 100 ms (a NOP the card refuses; tag $80: OODOS drops it)
+            to_cmd(r, std::vector<uint8_t>{SoundFw::NOP, 200, 0x80} + std::vector<uint8_t>(200, 0));
+        fw(r).set_latency_us(SoundFw::LATENCY_US);
+        REQUIRE(!fw(r).cmd_ready()); // the premise: no room in CMD for a record
+        r.poke(0x10000, noise(LEN, 902));
+        CHECK_EQ(f82(r, buffer_block(0x10000, LEN)), std::string("00 00"));
+        const bool full = !fw(r).cmd_ready();
+        const uint32_t sent = fw(r).stream_data_records(0);
+        r.run(ms(300));
+        std::printf("  CMD full: %u STREAM_DATA while it was (%s), %u after; NEEDP %u, BBUSY %u\n", sent,
+                    full ? "still full" : "had room by then", fw(r).stream_data_records(0), sv(r, "NEEDP"),
+                    sv(r, "BBUSY"));
+        CHECK(full);
+        CHECK_EQ(sent, 0u);                             // the premise: the record couldn't go
+        CHECK_EQ(fw(r).stream_data_records(0), 1u);     // it went once CMD had room
+        CHECK_EQ(sv(r, "BBUSY"), 0);                    // and the buffer with it
+    }
+}
+
 TEST(sn_status_s_block_is_its_own_reply_s_with_the_frame_s_between)
 {
     // Review C5: SN_STATUS's block is of one moment, its own reply's, even when the frame's STREAM_STATUS reply (which
