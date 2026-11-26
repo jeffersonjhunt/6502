@@ -1814,6 +1814,67 @@ TEST(break_during_d1_puts_back_every_card_and_the_boot_reaches_a_prompt)
         CHECK_EQ(dma.peek_channel(n, DmaController::CARD), DmaController::CARD_RESET[n]);
 }
 
+namespace
+{
+    /// A card's ID register answering `id`, mapped over the card's own: a revision no build knows yet.
+    struct FutureId : Device
+    {
+        uint8_t id{0};
+        size_t size() const override { return 1; }
+        uint8_t read(uint32_t) override { return id; }
+        uint8_t peek(uint32_t) const override { return id; }
+        void write(uint32_t, uint8_t) override {}
+    };
+    /// `f` answering `id` at I/O `at`, module `module`'s, over what the machine has there.
+    bool map_id(Rig &r, FutureId &f, uint16_t at, uint8_t id, uint8_t module)
+    {
+        f.id = id;
+        Mapping m;
+        m.first = bus_address(Space::Io, at);
+        m.last = m.first;
+        m.device = &f;
+        m.module = module;
+        return r.machine->bus().map(m);
+    }
+    /// The line under stage `n`'s: why it skipped.
+    std::string stage_reason(Rig &r, unsigned n)
+    {
+        const std::string text = report(r);
+        const size_t s = text.find("\r" + stage_line(r, n) + "\r"); // the stage's line, then its reason's
+        const size_t why = s == std::string::npos ? s : s + stage_line(r, n).size() + 2;
+        return why == std::string::npos ? "" : text.substr(why, text.find('\r', why) - why);
+    }
+} // namespace
+
+TEST(a_dma_controller_at_a_future_revision_is_listed_and_never_driven)
+{
+    // A DMA controller whose ID says revision 3 ($83, one no build knows yet: its registers may be others) is no
+    // controller this ROM drives. Stage 8 skips it, its reason "REVISION 3: NOT KNOWN TO THIS BUILD" (CARDIS,
+    // CSKIPREV), D1-D5 never run, and NB3, V7, S4, SD3 and SD4 skip their DMA parts as with none fitted
+    // (HAVEDMA and the tests' own `cmp #2`). The run still passes. Must fail if HAVEDMA, a test's or CARDIS's
+    // revision compare takes more than revision 2 (the ROM would program a revision 3 controller with revision
+    // 2's registers), or if CSKIPREV's reason isn't said.
+    Rig r(SW19, EMU_BIOS_ROM, {}, sd_image("oodos.sparse"));
+    REQUIRE(r.ok());
+    FutureId id;
+    REQUIRE(map_id(r, id, 0x47F, 0x83, DmaController::MODULE));
+    REQUIRE(enter(r));
+    REQUIRE(to_result(r));
+    CHECK(ends(stage_line(r, 8), "SKIP"));
+    const std::string reason = stage_reason(r, 8);
+    std::printf("  stage 8: '%s' / '%s'\n", stage_line(r, 8).c_str(), reason.c_str());
+    CHECK(reason.find("REVISION 3: NOT KNOWN TO THIS BUILD") != std::string::npos);
+    for (const char *t : {"V7", "S4", "SD3", "SD4"})
+    {
+        CHECK(ends(test_line(r, t), "SKIP"));
+        CHECK(after_test(r, t).find("NO DMA CONTROLLER") != std::string::npos);
+    }
+    CHECK(test_line(r, "NB3").find("NO DMA CONTROLLER") != std::string::npos);
+    const std::string text = report(r);
+    CHECK(text.find("D1   ID") == std::string::npos); // D1-D5 never run
+    CHECK(text.find("RESULT: ALL PASSED") != std::string::npos);
+}
+
 // --- B7: the north bridge's MAP's AP8 (step B7) ----------------------------------
 //
 // GO clears AP8 (b7-plan.md, question 6): bank 8 is RAM and tested with the other 60 blocks, DG_APER (from AP8) is
@@ -1943,6 +2004,30 @@ TEST(stage_7_takes_d3)
     CHECK(ends(stage_line(r, 7), "PASS"));
     CHECK(test_line(r, "NB1").find("ID $D3; STATUS'S REVISION 3") != std::string::npos);
     CHECK(report(r).find("RESULT: ALL PASSED") != std::string::npos);
+}
+
+TEST(on_a_bridge_at_a_future_revision_stage_7_skips_not_known_to_this_build)
+{
+    // Stage 7 takes the bridge at revision 3, ID $D3 exactly. A bridge whose NB_ID says revision 4 ($D4, a fake ID
+    // register over the bridge's own; one no build knows yet) has registers this build can't assume, so NB1-NB12
+    // never run and the stage SKIPs, its reason "REVISION 4: NOT KNOWN TO THIS BUILD". The rest of the run is
+    // unchanged: the other stages pass. Must fail if CARDIS's revision compare takes another revision than the one
+    // asked for (stage 7 would run, and NB1 fail on STATUS's revision 3), or if CSKIPREV's reason isn't said.
+    Rig r(SW19, EMU_BIOS_ROM);
+    REQUIRE(r.ok());
+    FutureId id;
+    REQUIRE(map_id(r, id, 0x6FF, 0xD4, 0xD));
+    REQUIRE(enter(r));
+    REQUIRE(to_result(r));
+    CHECK(ends(stage_line(r, 7), "SKIP"));
+    const std::string reason = stage_reason(r, 7);
+    std::printf("  stage 7: '%s' / '%s'\n", stage_line(r, 7).c_str(), reason.c_str());
+    CHECK(reason.find("REVISION 4: NOT KNOWN TO THIS BUILD") != std::string::npos);
+    const std::string text = report(r);
+    CHECK(text.find("NB1  ID") == std::string::npos); // NB1-NB12 never run
+    for (unsigned n : {2u, 3u, 4u, 5u, 6u, 8u, 9u, 10u})
+        CHECK(ends(stage_line(r, n), "PASS"));
+    CHECK(text.find("RESULT: ALL PASSED") != std::string::npos);
 }
 
 // --- Revision 3: NB10, the timebase (N6; hw/diag.md, "The ROM BIOS 0.20: north bridge revision 3") ---------------

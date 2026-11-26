@@ -21,6 +21,8 @@
  *     block that answers each read with the last byte the CPU fetched, as
  *     an empty slot might: HW_PROBE's two reads disagree, so no Disk II is
  *     found;
+ *   - a card at a revision no build knows yet (a fake ID register, DMA $83, bridge $D4): its CARDS line
+ *     says "(not known to SYSINFO)", and nothing else changes;
  *   - function 77: the ROM BIOS's version, $FF $FF with no greeting found; function 72 as it was (VERTEST);
  *   - A:'s free space, exact, worked out from the card's directory (the golden files hold "#K free");
  *   - one section alone, and the usage line for a word that isn't one.
@@ -482,6 +484,61 @@ TEST(the_random_line_says_what_rn_info_says)
         CHECK_EQ(differing(got, full_golden()), size_t{2});
     }
     CHECK(full_golden().find("  RANDOM     ATECC608B on the north bridge\n") != std::string::npos);
+}
+
+namespace
+{
+    /// A card's ID register answering `id`, mapped over the card's own: one byte, which writes leave alone.
+    struct FixedId : Device
+    {
+        uint8_t id{0};
+        size_t size() const override { return 1; }
+        uint8_t read(uint32_t) override { return id; }
+        uint8_t peek(uint32_t) const override { return id; }
+        void write(uint32_t, uint8_t) override {}
+    };
+} // namespace
+
+TEST(a_card_at_a_revision_this_build_doesnt_know_is_said_so)
+{
+    // HW_KNOWN (hwname.s): a card whose ID names a revision not in its table, a future one, gets
+    // " (not known to SYSINFO)" after its revision on the CARDS line. A fake ID register over the card's own,
+    // mapped before OODOS boots, answers a revision no build knows yet: the DMA controller's $83 (OODOS then
+    // drives no DMA, as with none fitted) and the north bridge's $D4. That line alone changes from sysinfo.txt
+    // (two in differing()'s count). Must fail if HW_KNOWN takes an ID it hasn't (its fall-through SEC made CLC):
+    // the line would end at the revision.
+    struct Case
+    {
+        uint16_t at;
+        uint8_t id, module;
+        const char *line, *known;
+    };
+    for (const Case &c :
+         {Case{0x47F, 0x83, 8, "  $C400  $83  DMA controller                3 (not known to SYSINFO)",
+               "  $C400  $82  DMA controller                2"},
+          Case{0x6FF, 0xD4, 0xD, "  $C680  $D4  north bridge                  4 (not known to SYSINFO)",
+               "  $C680  $D3  north bridge                  3"}})
+    {
+        std::printf("  ID $%02X\n", c.id);
+        static FixedId f; // before_boot() takes no captures
+        static Mapping m;
+        f.id = c.id;
+        m = {};
+        m.first = bus_address(Space::Io, c.at);
+        m.last = m.first;
+        m.device = &f;
+        m.module = c.module;
+        before_boot() = [](Rig &b) { REQUIRE(b.machine->bus().map(m)); };
+        InfoRig r;
+        before_boot() = nullptr;
+        REQUIRE(r.ok);
+        const std::string got = normal(run(r, "m:sysinfo /all"));
+        CHECK(got.find(std::string(c.line) + "\n") != std::string::npos);
+        CHECK(full_golden().find(std::string(c.known) + "\n") != std::string::npos);
+        CHECK_EQ(differing(got, full_golden()), size_t{2});
+        if (got.find(c.line) == std::string::npos)
+            std::printf("  %s\n", vis(got).c_str());
+    }
 }
 
 TEST(a_floating_bus_in_an_empty_slot_is_no_card)

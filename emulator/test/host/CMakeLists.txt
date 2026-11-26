@@ -173,6 +173,8 @@ set(EMU_SLOW_test_bios_diag
         a_loop_runs_two_passes_and_a_key_ends_it_after_the_second
         no_sound_card_skips_stage_10_and_no_dma_skips_stage_8_v7_s3_and_sd3
         break_during_d1_puts_back_every_card_and_the_boot_reaches_a_prompt
+        a_dma_controller_at_a_future_revision_is_listed_and_never_driven
+        on_a_bridge_at_a_future_revision_stage_7_skips_not_known_to_this_build
         the_wait_states_and_the_vias_ier_are_put_back
         a18_stuck_ram_b_answers_as_ram_a_and_w0_goes_to_ram_c
         a_block_stage_2_passed_over_is_never_w0s_spare
