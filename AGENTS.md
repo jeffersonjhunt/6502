@@ -49,8 +49,8 @@ yet, [docs/tools/unwritten.txt](docs/tools/unwritten.txt) says so; go to hw/ and
   hardware below directly under OODOS: `SYSINFO.COM`, built from `oodos/utils/sysinfo.s` with `backplane/oohw/`. No
   other program, RSX or library may claim it, by name or by copying its code; anything else still asks first, as
   above. The list, cut to what SYSINFO reads and writes:
-  - **Reads:** each card's ID byte (twice, CC5); `NB_STATUS`; `NB_RTCCTL`; `NB_MAP` (its AP8, read only after
-    `NB_ID` reads `$D2` or more, to say what bank 8 is); `VIDEO_MEMSIZE`; `USB_DEVICES`; the SD card's ID and `SD_STATUS`;
+  - **Reads:** each card's ID byte (twice, CC5); `NB_STATUS`; `NB_RTCCTL`; `NB_MAP` (its AP8, to say what bank 8
+    is); `VIDEO_MEMSIZE`; `USB_DEVICES`; the SD card's ID and `SD_STATUS`;
     the console card's SWR and PANEL; `NB_SEC` polled for the clock (how that meets the bridge's own I²C reads on
     real hardware is unknown, as `hwclock.s` says).
   - **The VIA's timer 2** (EE5): `T2CL` and `T2CH` written and read, for `HW_CLOCK`'s count. That changes only

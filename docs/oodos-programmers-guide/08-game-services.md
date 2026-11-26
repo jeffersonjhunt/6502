@@ -64,8 +64,7 @@ Two counters, 32 bits each, low byte first, from the cold boot on:
 Both run whatever the program does, in a BDOS call or out of one: the BDOS runs with interrupts on. The rate is
 fixed, so a millisecond is always one count. **Timer 1 of the VIA is the program's** since OODOS 0.16 (interface 17:
 `FT_INFO`'s `FC_T1`), polled: its counter, its latches, ACR's bits 7–6 (keep the rest of ACR as you read it) and its
-IFR flag, never its IER bit, which stays OODOS's; a timed call goes through the tick hook instead. A program that
-may run on an older OODOS checks `FC_T1` first: there timer 1 is OODOS's tick.
+IFR flag, never its IER bit, which stays OODOS's; a timed call goes through the tick hook instead.
 
 **The time of day to the millisecond.** `FT_CLOCK` (interface 17) fills a block with the date and time as
 [function 105](07-function-reference.md#bdos-105) gives them, the seconds, and the milliseconds into that second,
@@ -820,8 +819,8 @@ SPRCTL says; OOUI's pointer is doubled.
 
 ### The library
 
-`GX_INIT` first, with the event area's address (or 0): it checks OODOS's interface (8 at least, with `OA_DMA`, and a
-revision 2 card; `GE_VERSION` otherwise), reads the W1 map and the card's room (`DM_INFO`), and marks the program's
+`GX_INIT` first, with the event area's address (or 0): it checks for DMA (`OA_DMA`) and the video card
+(`GE_VERSION` without them), reads the W1 map and the card's room (`DM_INFO`), and marks the program's
 card memory all free. Then:
 
 - **`GX_BANK8`** (`gxmem.s`, since OODOS 0.11, interface version 12), after `GX_INIT`: asks for function 83's
@@ -829,8 +828,8 @@ card memory all free. Then:
   - With the video card: carry clear; bank 8, `$80000–$8FFFF`, is the program's RAM until the warm boot, slot 1
     is mapped by WIN1H `$0E` with block 1, and blocks 32–39 join the W1 map.
   - With no video card: carry clear; bank 8 is RAM, and there is no window (`GX_INIT` had said `GE_VERSION`).
-  - `GE_VERSION`, with nothing changed and the old mode kept (block 33, WIN1H never written): OODOS's interface
-    below 12, no DMA or a ROM BIOS older than 0.17.
+  - `GE_VERSION`, with nothing changed and the old mode kept (block 33, WIN1H never written): no DMA, or
+    `DM_BANK8` refused.
   - `GX_INIT` always takes the old mode, so a `GX_INIT` after `GX_BANK8` needs `GX_BANK8` again.
 - **Layers and memory** (`gxmode.s`, `gxmem.s`): `GX_LAYER` a layer's type (X, its CONFIG), its map's card page
   (`GX_V`) and its tiles' or font's (`GX_R`), its scrolls and PALOFS 0; `GX_PALOFS` (since OODOS 0.9) a layer's palette
@@ -848,8 +847,8 @@ card memory all free. Then:
   its card page, bit 15 set for 8 bits a pixel), `GX_SPRATTR`,
   `GX_SPRSHOW` (refused with no event area, as `GX_PALSHOW` and `GX_FADE` are); `GX_COLL` the groups that collided, from the card's STATUS and ISR.
   Since OODOS 0.13 (interface version 14; `gxsctl.s` and `gxsprf.s`, modules of their own, so a program that doesn't
-  call them links what it did): `GX_SPRFULL` (A = 1 full-resolution sprites on, the card's SPRCTL; A = 0 off; `GE_VERSION` below
-  interface 14, SPRCTL untouched) and `GX_SPRFPOS` (A a sprite: X and Y from `GX_X` and `GX_Y` in the screen's
+  call them links what it did): `GX_SPRFULL` (A = 1 full-resolution sprites on, the card's SPRCTL; A = 0 off; carry
+  clear) and `GX_SPRFPOS` (A a sprite: X and Y from `GX_X` and `GX_Y` in the screen's
   640 × 480, the entry's byte 3 bit 7 set). `GX_SPRPOS` writes the bit clear, so the position call chooses the size:
   a sprite moved by `GX_SPRFPOS` is full resolution, by `GX_SPRPOS` doubled. The groups and `GX_COLL` work at both
   sizes, in screen pixels. The warm boot sets SPRCTL to 0 again.
@@ -862,9 +861,7 @@ card memory all free. Then:
   its high, `$0RGB` as a palette entry is (`$8000` transparent, `$0000` black; bits 12–14 written 0), and
   `GX_POINT` returns A/X; on the other bitmaps X isn't read; a program sets the high bytes it uses (`GX_FGH`,
   `GX_BGH` included: OODOS doesn't clear a program's BSS). `GX_BMP` refuses a type past `GB_DIRECT` (carry set,
-  `GE_FORMAT`, the bitmap as it was; before interface version 13 it took any A), and `GB_DIRECT` under an OODOS
-  whose interface is below 13 (`GE_VERSION`: its fills need function 83's `DM_VFILLW`); `GB_640` needs nothing
-  new. `GX_FRECT` says a fill function 83 refused (carry set, `GE_DMA`), carry clear otherwise. `GX_PLOT`, `GX_POINT`,
+  `GE_FORMAT`, the bitmap as it was). `GX_FRECT` says a fill function 83 refused (carry set, `GE_DMA`), carry clear otherwise. `GX_PLOT`, `GX_POINT`,
   `GX_LINE`, `GX_RECT`, `GX_FRECT`, `GX_CIRCLE`, `GX_FLOOD` (a fill of a region, by spans: GW-BASIC's PAINT) and
   `GX_BCOPY`. Draws are clipped to the bitmap (one wholly off it draws nothing); a copy whose rectangle leaves it is
   refused (`GE_BOUNDS`, as is a copy on a mono bitmap or at an odd x or width at 4 bits), and one of no width or

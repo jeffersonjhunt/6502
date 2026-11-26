@@ -3510,19 +3510,15 @@ TEST(after_dm_bank8_oodos_itself_never_reaches_bank_8)
     CHECK_EQ(r.bridge().map(), 1); // the warm boot's WINH0: the video card
 }
 
-TEST(after_dm_bank8_break_sets_ap8_again_before_the_rom_and_leaves_bank_8_ram_alone)
+TEST(after_dm_bank8_break_sets_ap8_again_and_leaves_bank_8_ram_alone)
 {
-    // D7. W1HTEST's L: DM_BANK8, then a spin; Break. OODOS's NMI sets AP8 again (common.s's WINH0) before its
-    // trampoline at TRAMP ($0A00) leaves for the ROM's BREAK, as an older ROM's BREAK needs, and the monitor
+    // D7. W1HTEST's L: DM_BANK8, then a spin; Break. The ROM's BREAK sets AP8 again (its NBSET), and the monitor
     // draws its screen on the card (at $E00000) while bank 8's RAM keeps its pattern.
     Booted r;
     REQUIRE(r.ok);
     const std::vector<uint8_t> ram = pattern(0x10000, 8);
     put_bank8_ram(r, ram);
     const uint16_t bspin = labels(SYS + "/w1htest.lbl").at("BSPIN");
-    constexpr uint16_t TRAMP = 0x0A00;
-    bool at_tramp = false;
-    uint8_t map = 0xEE, winh1 = 0xEE;
     const size_t from = start(r, "w1htest.com", " L");
     bool spun = false;
     for (int i = 0; i < 400 && !spun; ++i)
@@ -3535,23 +3531,12 @@ TEST(after_dm_bank8_break_sets_ap8_again_before_the_rom_and_leaves_bank_8_ram_al
     for (unsigned n = 0; n < 30; ++n)
         REQUIRE(r.row(n).rfind("\\", 0) != 0);
     REQUIRE(r.bridge().map() == 0);
-    r.watch = [&](uint16_t pc) {
-        if (!at_tramp && pc == TRAMP)
-        {
-            at_tramp = true;
-            map = r.bridge().map();
-            winh1 = r.bridge().winh(1);
-        }
-    };
     UsbCard *usb = r.machine->usb_card();
     usb->key(UsbCard::PAUSE, true);
     r.run(ms(20));
     usb->key(UsbCard::PAUSE, false);
     CHECK(r.until("\\\r", ms(1000), from));
-    r.watch = nullptr;
-    CHECK(at_tramp);
-    CHECK_EQ(map, 1); // before the ROM: AP8 set again (the video card)
-    CHECK_EQ(winh1, 0);
+    CHECK_EQ(r.bridge().winh(1), 0);
     CHECK_EQ(r.bridge().map(), 1);
     CHECK(bank8_ram(r) == ram);
     // The monitor's prompt on the card's screen (slot 0 at $E00000), where its cursor was: a row that starts

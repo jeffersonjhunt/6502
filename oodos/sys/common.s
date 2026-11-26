@@ -169,11 +169,8 @@ STUB:           CPY     #59            ; P_LOAD: the loader, not the BDOS
                 LDA     NB_WIN1
                 STA     ST_W1
                 LDY     NB_WIN1H       ; its WIN1H (B7) into ST_W1H, and 0 for the BDOS: written
-                BEQ     @w1h           ; only when it isn't 0 already, and never on a revision 1
-                BMI     @nowin1h       ; bridge, whose $FF (no register) is kept as 0
+                BEQ     @w1h           ; only when it isn't 0 already
                 STZ     NB_WIN1H
-                BPL     @w1h           ; (N still LDY's)
-@nowin1h:       LDY     #0
 @w1h:           STY     ST_W1H
                 LDA     ST_W0
                 STA     NB_WIN1        ; the program's stack page at $4100 (WIN1H 0)
@@ -248,10 +245,8 @@ WARM:           SEI
                 LDA     #RES_BLOCK
                 STA     NB_WIN3        ; this code goes on, in the hole
                 STA     NB_VEC
-                LDA     NB_WIN0H       ; (B7) WIN0H 0 before W0 moves, inline: no stack
-                BMI     @w0            ; yet (a $D1 bridge reads $FF there: nothing written)
-                STZ     NB_WIN0H
-@w0:            LDA     #SYS_BLOCK
+                STZ     NB_WIN0H       ; (B7) WIN0H 0 before W0 moves, inline: no stack yet
+                LDA     #SYS_BLOCK
                 STA     NB_WIN0
                 JSR     WINH0          ; on the system's stack: WIN1H-WIN3H and VECH 0, MAP as the card says
                 STZ     DMABANK        ; BANK_SYS: .assert below
@@ -389,7 +384,6 @@ NMI:            SEI
                 STZ     NB_WIN0H       ; (B7) WIN0H 0 before W0 moves, inline: the program's stack may be nowhere
                 LDA     #SYS_BLOCK
                 STA     NB_WIN0
-                JSR     WINH0          ; (B7) on the system's stack, for an older ROM's BREAK too
                 LDA     D2WRIT
                 BEQ     @copy0
                 STZ     D2WRIT
@@ -444,9 +438,10 @@ APPLEEND:
 ; video card's aperture, as old programs know it) with a revision 2 video
 ; card, clear (bank 8 RAM) without one (B7; hw/design.md, "The video aperture
 ; moved out of RAM"). For ROMAPPLE, and for
-; WARM and NMI once W0 is on the system block (they clear WIN0H inline
-; first, since a JSR through a WIN0H left set, or a read-only W0, would lose
-; its return address: diag.inc's NBSET is inline for the same reason).
+; WARM once W0 is on the system block (it clears WIN0H inline first, since a
+; JSR through a WIN0H left set, or a read-only W0, would lose its return
+; address: diag.inc's NBSET is inline for the same reason). NMI clears only
+; WIN0H: the ROM's BREAK does the rest (its NBSET).
 ; Uses A and X. After ROMAPPLE, so that
 ; FARCALL keeps its cycles (no branch of its across a page).
 WINH0:          STZ     NB_WIN0H

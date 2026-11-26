@@ -14,15 +14,13 @@
  *     reset vector. The ROM here is a stand-in made by the test, not Apple's:
  *     the byte the ROM BIOS checks ($FBB3 = $06) and a reset vector to a loop;
  *     in image 0, or only in image 2 (B5: function 75 looks where the running
- *     ROM BIOS's $C806 does, ROM A's images from 0.16 on, the cartridge before:
- *     its version gate, by the major then the minor);
+ *     ROM BIOS's $C806 does, ROM A's images);
  *   - APPLE2 n (B5: function 75 with A = 3, X = n, interface 11, through the
  *     ROM's dispatching entry $C818): Apple II mode with image n even with
- *     another good image before it; image n not a IIe ROM, it says so (or,
- *     under a ROM BIOS before 0.16, that it needs 0.16), the return code a
- *     failure, and OODOS goes on; any other tail is the command and '?';
- *     a program's 75 with A = 3 gives $FF $FF for no IIe ROM or X of 4 or
- *     more, $FF $FB under an older ROM BIOS, $FE and $FD as A = 1 does;
+ *     another good image before it; image n not a IIe ROM, it says so, the
+ *     return code a failure, and OODOS goes on; any other tail is the command
+ *     and '?'; a program's 75 with A = 3 gives $FF $FF for no IIe ROM or X of
+ *     4 or more, $FE and $FD as A = 1 does;
  *   - with the IIe ROM but no DMA controller (backplane.machine less its
  *     `dma` line): APPLE2 says so and OODOS goes on, and a program's
  *     function 75 comes back with A = $FF, X = $FE, where with no IIe ROM
@@ -278,7 +276,7 @@ TEST(apple2_without_a_video_card_says_so_and_oodos_goes_on)
     CHECK(r.cmd("APPLE2").find("needs the video card") != std::string::npos); // and again: OODOS goes on
 }
 
-// --- B5: the IIe ROM in ROM A's images, behind the ROM BIOS's version --------------------------------------
+// --- B5: the IIe ROM in ROM A's images ---------------------------------------------------------------------
 
 namespace
 {
@@ -326,35 +324,6 @@ TEST(apple2_finds_a_iie_rom_in_image_2_alone)
     REQUIRE(r.phys(romver_at()) == 0 && r.phys(romver_at() + 1) == 21);
     CHECK(apple2_reaches_the_loop(r));
     CHECK(r.out.find("No IIe ROM") == std::string::npos);
-}
-
-TEST(function_75_under_a_rom_bios_before_0_16_looks_in_the_cartridge_not_rom_a)
-{
-    // Such a ROM's $C806 reads the cartridge: a IIe ROM in ROM A's image 0 isn't one it would take, so 75 says
-    // no IIe ROM rather than jump to a $C806 that refuses with OODOS gone.
-    const auto iie = stand_in_rom();
-    RomRig r({iie->path});
-    REQUIRE(r.ok);
-    r.poke(romver_at() + 1, 15);                           // the ROM BIOS 0.15, to OODOS
-    r.poke_com(romtest());
-    CHECK_EQ(r.cmd("GO"), std::string("GO\r\nFFFF\r\nA>"));
-    CHECK(!r.bridge().apple());
-    CHECK_EQ(r.nb(2), 61);                                 // the BIOS's block back in W2 after the look
-    r.poke(romver_at() + 1, 0xFF);                         // $FF $FF, not found: old too
-    r.poke(romver_at(), 0xFF);
-    r.poke_com(romtest());
-    CHECK_EQ(r.cmd("GO"), std::string("GO\r\nFFFF\r\nA>"));
-}
-
-TEST(function_75_under_a_rom_bios_1_0_looks_in_rom_a)
-{
-    // The gate compares the major first: 1.0 is past 0.16 though its minor is below 16.
-    const auto iie = stand_in_rom();
-    RomRig r({}, {}, {"", "", iie->path, ""});
-    REQUIRE(r.ok);
-    r.poke(romver_at(), 1);
-    r.poke(romver_at() + 1, 0);
-    CHECK(apple2_reaches_the_loop(r));
 }
 
 // --- B5: APPLE2 n, function 75 with A = 3 and X the image (interface 11), through the ROM's $C818 ---------
@@ -435,55 +404,6 @@ TEST(function_75_with_a_3_and_x_4_or_more_gives_ff_ff)
     }
     CHECK(!r.bridge().apple());
     CHECK(r.cmd("DIR").find("No File") == std::string::npos); // OODOS still answers
-}
-
-TEST(function_75_with_a_3_under_a_rom_bios_before_0_16_gives_ff_fb)
-{
-    // Case 29: such a ROM has no $C818 (it is its START there): image 2 good, but 75 refuses before anything,
-    // and APPLE2 2 says what it needs.
-    const auto iie = stand_in_rom();
-    RomRig r({}, {}, {"", "", iie->path, ""});
-    REQUIRE(r.ok);
-    r.poke(romver_at() + 1, 15);                           // the ROM BIOS 0.15, to OODOS
-    r.poke_com(romtest(3, 2));
-    CHECK_EQ(r.cmd("GO"), std::string("GO\r\nFFFB\r\nA>"));
-    CHECK(!r.bridge().apple());
-    const std::string o = r.cmd("APPLE2 2");
-    CHECK(o.find("\r\nAPPLE2 2 needs ROM BIOS 0.16 or later\r\nA>") != std::string::npos);
-    CHECK(r.cmd(":APPLE2 2").find("needs") == std::string::npos); // the return code: a failure
-    CHECK(!r.bridge().apple());
-    r.poke(romver_at(), 0xFF);                             // $FF $FF, not found: old too
-    r.poke(romver_at() + 1, 0xFF);
-    r.poke_com(romtest(3, 2));
-    CHECK_EQ(r.cmd("GO"), std::string("GO\r\nFFFB\r\nA>"));
-}
-
-TEST(apple2_n_under_a_rom_bios_1_0_takes_image_n)
-{
-    // Case 29a: the gate compares the major first, for A = 3 too: 1.0 is past 0.16.
-    const auto iie0 = stand_in_rom();
-    const auto iie2 = stand_in_rom(LOOP2);
-    RomRig r({}, {}, {iie0->path, "", iie2->path, ""});
-    REQUIRE(r.ok);
-    r.poke(romver_at(), 1);
-    r.poke(romver_at() + 1, 0);
-    CHECK(apple2_reaches_the_loop(r, "APPLE2 2", LOOP2));
-}
-
-TEST(apple2_under_a_rom_bios_before_0_16_says_it_looks_in_the_cartridge)
-{
-    // Case 29b (Q17): A = 1 under an older ROM looks in the cartridge, where there is none (the stand-in is in
-    // ROM A's image 0): the message says where that ROM looks, and what to do.
-    const auto iie = stand_in_rom();
-    RomRig r({iie->path});
-    REQUIRE(r.ok);
-    r.poke(romver_at() + 1, 15);
-    const std::string o = r.cmd("APPLE2");
-    CHECK(o.find("\r\nNo IIe ROM: this ROM BIOS looks in the cartridge (Settings: Use built-in)\r\nA>") !=
-          std::string::npos);
-    CHECK(!r.bridge().apple());
-    r.poke(romver_at() + 1, 16);                           // and 0.16 again: the flash's message
-    CHECK(r.cmd("APPLE2 1").find("No IIe ROM in flash image 1") != std::string::npos);
 }
 
 TEST(function_75_with_a_3_without_dma_or_the_video_card_gives_fe_or_fd)
@@ -652,7 +572,7 @@ TEST(diag_without_diagnostics_in_the_flash_says_so_and_75_gives_ff_fc)
     REQUIRE(r.ok);
     r.to("DIAG", "(Y/N)?");
     const std::string o = r.cmd("Y");
-    CHECK(o.find("Y\r\nNo diagnostics for this BIOS in the flash (BIOS 0.14 or later)\r\nA>") != std::string::npos);
+    CHECK(o.find("Y\r\nNo diagnostics for this BIOS in the flash\r\nA>") != std::string::npos);
     CHECK(r.out.find(TITLE) == std::string::npos);
     CHECK(r.cmd(":CLEAR").find(CLEARED) == std::string::npos); // the return code: a failure
     r.poke_com(romtest(2));
@@ -673,7 +593,7 @@ TEST(diag_under_a_rom_bios_version_other_than_block_23s_linked_one_says_so_and_7
     r.to("DIAG", "(Y/N)?");
     const size_t from = r.out.size();
     const std::string o = r.cmd("Y");
-    CHECK(o.find("Y\r\nNo diagnostics for this BIOS in the flash (BIOS 0.14 or later)\r\nA>") != std::string::npos);
+    CHECK(o.find("Y\r\nNo diagnostics for this BIOS in the flash\r\nA>") != std::string::npos);
     CHECK(r.out.find(TITLE, from) == std::string::npos);
     CHECK(r.cmd(":CLEAR").find(CLEARED) == std::string::npos); // the return code: a failure
     r.poke_com(romtest(2));

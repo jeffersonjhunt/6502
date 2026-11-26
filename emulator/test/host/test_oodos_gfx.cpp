@@ -666,27 +666,6 @@ TEST(plot_line_rectangles_circle_and_flood_at_8_4_and_1_bits)
     CHECK_EQ(r.phys(at("GXCUR")), 1);
 }
 
-TEST(the_library_refuses_to_map_below_interface_8)
-{
-    CcpRig r;
-    REQUIRE(r.ok);
-    // FT_INFO's answer made 7 in OODOS's block 60, as an OODOS for revision 1's card gives it: its LDA #17
-    // (interface 17 since function 78, FC_T1 and FT_CLOCK), LDX #$2F.
-    const uint32_t base = 60u * BLOCK - 0x4000u + sym("FT_INFOX");
-    uint32_t p = base;
-    while (p < base + 64 && !(r.phys(p) == 0xA9 && r.phys(p + 1) == 18 && r.phys(p + 2) == 0xA2 && r.phys(p + 3) == 0x2F))
-        ++p;
-    REQUIRE(p < base + 64);
-    r.poke(p + 1, 7);
-    start_gx(r);
-    const std::string i = gx(r, 'I');
-    CHECK_EQ(i.substr(0, 2) + i.substr(5), std::string("01 01")); // GE_VERSION, carry set
-    CHECK_EQ(gx(r, 'b', 33).substr(6), std::string("01"));
-    const unsigned slot1 = vreg2(r, 0x32);
-    CHECK_EQ(gx(r, 'm', 0x00, 0x05).substr(6), std::string("01")); // nor the slot
-    CHECK_EQ(vreg2(r, 0x32), slot1);
-}
-
 TEST(tiles_maps_scrolling_sprites_and_collisions)
 {
     CcpRig r;
@@ -1445,27 +1424,9 @@ TEST(a_layer_s_palette_group)
 
 namespace
 {
-    constexpr uint16_t NB_WINH = 0xC6A0, NB_MAPREG = 0xC6A5; ///< WIN0H to MAP: $C6A0-$C6A5
     constexpr uint8_t B_RAM = 0x5B, B_CARD = 0xC5;           ///< $4000 in RAM block 1, and on the card
     constexpr uint32_t SLOT1_AT = 0x054000; ///< card page $0541's bank (21) at W1's $4000
 
-    /// The CPU's writes to $C6A0-$C6A5 (the DMA's aren't the library's); with `program`, only those made while the
-    /// program's code ($0300-$3FFF: GXTEST and the library linked in it) runs, not OODOS's own (the console's
-    /// WIN1H), told by the rig's watch.
-    struct NewRegWrites : CycleObserver
-    {
-        unsigned writes = 0;
-        bool program = false, in_program = false;
-        void on_cycle(const BusCycle &c) override
-        {
-            if (!c.dma && c.write && c.addr >= NB_WINH && c.addr <= NB_MAPREG && (!program || in_program))
-                ++writes;
-        }
-        void watch(CcpRig &r)
-        {
-            r.watch = [this](uint16_t pc) { in_program = pc >= 0x0300 && pc < 0x4000; };
-        }
-    };
     /// Run until the CPU is back in GXTEST (its wait, after a command's line): W1 and WIN1H are then its own.
     void settle(CcpRig &r)
     {
@@ -1493,16 +1454,6 @@ namespace
     {
         r.poke(0x4000, B_RAM);
         vid(r).card_poke(SLOT1_AT, B_CARD);
-    }
-    /// FT_INFO's answer, in OODOS's block 60, made `v` (its LDA #17, LDX #$2F).
-    void ft_info_as(CcpRig &r, uint8_t v)
-    {
-        const uint32_t base = 60u * BLOCK - 0x4000u + sym("FT_INFOX");
-        uint32_t p = base;
-        while (p < base + 64 && !(r.phys(p) == 0xA9 && r.phys(p + 1) == 18 && r.phys(p + 2) == 0xA2 && r.phys(p + 3) == 0x2F))
-            ++p;
-        REQUIRE(p < base + 64);
-        r.poke(p + 1, v);
     }
     std::string ac(const std::string &s) { return s.substr(0, 2) + s.substr(5); } ///< A and the carry
 } // namespace
@@ -1582,50 +1533,10 @@ TEST(gx_block_refuses_a_block_past_63)
     CHECK_EQ(gx(r, 'b', 0x3F).substr(6), std::string("01")); // not in the map: refused as before
 }
 
-TEST(gx_bank8_under_a_rom_before_0_17_keeps_the_old_mode)
+TEST(gx_bank8_with_no_video_card_succeeds_with_no_window)
 {
-    // L4. ROMVER (OODOS's record of the ROM BIOS) made 0.16: DM_BANK8 is refused, so GX_BANK8 gives GE_VERSION;
-    // the library stays in the old mode: GX_BLOCK(32) refused (the old map), GX_VMAP on block 33, MAP still 1, and
-    // no write to WIN1H (nor $C6A0-$C6A5) all the while.
-    CcpRig r;
-    REQUIRE(r.ok);
-    start_gx(r);
-    gx(r, 'I');
-    r.poke(SYS_BLOCK_PHYS + sym("ROMVER"), 0);
-    r.poke(SYS_BLOCK_PHYS + sym("ROMVER") + 1, 16);
-    NewRegWrites seen;
-    seen.program = true;
-    seen.watch(r);
-    r.cpu->set_observer(&seen);
-    CHECK_EQ(ac(gx(r, '8')), std::string("01 01")); // GE_VERSION
-    CHECK_EQ(gx(r, 'b', 32).substr(6), std::string("01"));
-    CHECK_EQ(gx(r, 'm', 0x41, 0x05), std::string("00 41 00"));
-    CHECK_EQ(w1(r), 33);
-    gx(r, 'w');
-    settle(r);
-    r.cpu->set_observer(nullptr);
-    r.watch = nullptr;
-    CHECK_EQ(seen.writes, 0u);
-    CHECK_EQ(r.bridge().map(), 1);
-    CHECK_EQ(w1h(r), 0);
-    CHECK_EQ(r.phys(at("GXAPH")), 0);
-    CHECK_EQ(r.phys(at("GXAPB")), 33);
-}
-
-TEST(gx_bank8_needs_interface_12)
-{
-    // L5. FT_INFO's interface made 11 (an OODOS before DM_BANK8): GX_INIT still takes it (8 at least), GX_BANK8
-    // gives GE_VERSION without asking function 83, and MAP stays 1.
-    CcpRig r;
-    REQUIRE(r.ok);
-    ft_info_as(r, 11);
-    start_gx(r);
-    CHECK_EQ(gx(r, 'I').substr(6), std::string("00"));
-    CHECK_EQ(ac(gx(r, '8')), std::string("01 01"));
-    CHECK_EQ(r.bridge().map(), 1);
-    CHECK_EQ(r.phys(at("GXAPH")), 0);
-    // And with no video card, GX_INIT's GE_VERSION as before, while GX_BANK8 succeeds: bank 8 is
-    // RAM, with no window to map (b7-plan.md §2.4, step 4).
+    // L5's second half. With no video card, GX_INIT gives GE_VERSION, while GX_BANK8 succeeds: bank 8 is RAM, with
+    // no window to map (b7-plan.md §2.4, step 4).
     CcpRig n({}, no_video_machine());
     REQUIRE(n.ok);
     start_gx(n);
@@ -1635,25 +1546,18 @@ TEST(gx_bank8_needs_interface_12)
     CHECK_EQ(n.phys(at("GX_OK")), 0);
 }
 
-TEST(gx_bmp_s_direct_640_needs_interface_13_and_frect_says_a_refused_fill)
+TEST(gx_frect_says_a_refused_fill)
 {
-    // Review round 1, F1: under an OODOS of interface 12 (FT_INFO patched as above), GX_BMP refuses GB_DIRECT
-    // (GE_VERSION: its fills need function 83's DM_VFILLW), the bitmap kept; GB_640 is taken. And GX_FRECT gives
-    // function 83's refusal: a bitmap 640 named where its rows run past the program's part, filled whole.
+    // Review round 1, F1: GX_FRECT gives function 83's refusal: a bitmap 640 named where its rows run past the
+    // program's part, filled whole.
     CcpRig r;
     REQUIRE(r.ok);
-    ft_info_as(r, 12);
     start_gx(r);
     CHECK_EQ(gx(r, 'I').substr(6), std::string("00"));
     const unsigned page = alloc(r, 1920, 64);
     bmp_at(r, 3, page);
     CHECK_EQ(gx(r, 'B', 3).substr(6), std::string("00")); // GB_640 taken
     word(r, "GX_V", page);
-    const std::string d = gx(r, 'B', 4);
-    CHECK_EQ(d.substr(0, 2) + d.substr(5), std::string("01 01")); // GE_VERSION
-    xy(r, 5, 5);
-    gx(r, 'P', 0x77);
-    CHECK_EQ(card(r, page * 256u + 5 * 1024 + 5), 0x77); // still bitmap 640, at its page
     xy(r, 0, 0, 1023, 479);
     CHECK_EQ(gx(r, 'F', 0x11, 0, 0, ms(20000)).substr(6), std::string("00")); // a fill done: carry clear
     word(r, "GX_V", 0x1B00); // 1,920 pages from $1B00 run past $1C00: function 83 refuses
@@ -1833,15 +1737,3 @@ TEST(full_sprites_through_oolib)
     CHECK_EQ(frame_is(false, "SPRCTL 0's"), 0u);
 }
 
-TEST(gx_sprfull_needs_interface_14)
-{
-    // Under an OODOS of interface 13 (FT_INFO patched, as above), whose warm boot doesn't clear SPRCTL, GX_SPRFULL
-    // gives GE_VERSION and leaves SPRCTL 0, so no program leaves it set for the next.
-    CcpRig r;
-    REQUIRE(r.ok);
-    ft_info_as(r, 13);
-    start_gx(r);
-    CHECK_EQ(gx(r, 'I').substr(6), std::string("00"));
-    CHECK_EQ(ac(gx(r, 'e', 1)), std::string("01 01"));
-    CHECK_EQ(vreg(r, 0x0E), 0x00);
-}

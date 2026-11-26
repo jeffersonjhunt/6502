@@ -1487,8 +1487,8 @@ and more in L5:
   AP8 set, so every program runs as before.
   - **Function 83's `DM_BANK8`** (operation 11, `DM_OPS` 12): clears AP8 for the running program, so blocks 32–47
     are its RAM until the warm boot, and gives slot 1's window in its block's +1 and +2 (`$0E` and 1, or 0 and 0
-    with no revision 2 card, where it succeeds too). Refused (`$FF`, nothing changed) on a `$D1` bridge, under a
-    ROM BIOS before 0.17, or with no block. `DM_INFO` stays 16 bytes; its W1 map takes in 32–39 after it.
+    with no revision 2 card, where it succeeds too). Refused (`$FF`, nothing changed) with no block (the `$D1`
+    bridge's and the ROM BIOS's refusals went in the cleanup, 2026-11-25). `DM_INFO` stays 16 bytes; its W1 map takes in 32–39 after it.
   - **The W1 contract gains WIN1H:** after the program's `GX_BANK8`, OOLIB may write `NB_WIN1H` (`$0E` for slot 1,
     else 0) as it writes `NB_WIN1`, WIN1H first. A map is then two writes; the dispatcher, the BDOS entry and the
     hooks save WIN1H, run OODOS with it 0 and put it back, so a split does no harm.

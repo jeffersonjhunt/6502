@@ -1348,19 +1348,15 @@ console's palette entry 0, black.
 Since OODOS 0.13, a sprite table made with `mkasset.py sprites --table --full` shows its sprites at full resolution,
 one screen pixel for each of a sprite's pixels, at places across the whole 640×480
 ([hw/sprites640.md](../../hw/sprites640.md)); a table made without `--full` shows as before, each sprite pixel 2×2.
-An OODOS older than 0.13 reads a `--full` table's places as the doubled sprites' own: its sprites show 2×2 at twice
-their places, and those placed in the screen's right or bottom half (`mkasset.py` puts a long sheet's later frames
-there) don't show at all.
 
 #### Errors
 
 - `VIEW filespec`: no file named. `Invalid file specification.`: a name OODOS can't take. `No File`: no such file, or
   one that can't be read.
 - `Not an asset file.`: the file isn't an asset file of format 4 (since OODOS 0.9; an older file, of format 3, needs
-  making again with `mkasset.py`). A VIEW.COM from before OODOS 0.12 says this for a part larger than 128 KB, as
-  bitmap 640's and direct 640's are.
+  making again with `mkasset.py`).
 - `Not enough video memory.`: the file's parts need more of the card's memory than there is.
-- `Needs OODOS's interface 8.`: an older OODOS, or no video card. `Video memory W1 can't reach.` and
+- `Needs the video card and DMA.`: no video card, or no DMA controller. `Video memory W1 can't reach.` and
   `The asset wasn't loaded.`: a part OODOS refused.
 
 Each sets the return code to `$FF00`.

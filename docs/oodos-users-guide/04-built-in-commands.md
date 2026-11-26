@@ -622,7 +622,7 @@ APPLE2 n
 #### Options
 
 - None: the first of images 0–3 that holds a IIe ROM, as the ROM BIOS's `C806` takes it.
-- `n`, one digit 0–3 (since OODOS 0.11): image *n*. It needs ROM BIOS 0.16 or later.
+- `n`, one digit 0–3 (since OODOS 0.11): image *n*.
 
 Any other tail (`APPLE2 4`, `APPLE2 X`, `APPLE2 1 2`) is the command as typed and `?`, with nothing done. Before
 OODOS 0.11 a tail was ignored.
@@ -640,11 +640,6 @@ The Apple IIe's start.
 - `No IIe ROM in the flash (the emulator: Settings, ROMs)`: none of images 0–3 holds a IIe ROM. OODOS goes on.
 - `No IIe ROM in flash image n (the emulator: Settings, ROMs)`: `APPLE2 n`, and image *n* holds no IIe ROM. OODOS
   goes on.
-- `No IIe ROM: this ROM BIOS looks in the cartridge (Settings: Use built-in)`: the ROM BIOS is older than 0.16, which
-  takes its IIe ROM from the cartridge, and there is none there. In the emulator, Settings' **Use built-in** puts
-  back the current ROM BIOS, which takes it from the flash. OODOS goes on.
-- `APPLE2 n needs ROM BIOS 0.16 or later`: `APPLE2 n` under an older ROM BIOS, which can't choose an image. Nothing
-  is written to the card, and OODOS goes on.
 - `APPLE2 tail?`, the command as typed: a tail that isn't one digit 0–3.
 
 Every one of these gives the return code `$FF00`.
@@ -720,13 +715,13 @@ the Woz Monitor instead.
 
 #### Errors
 
-- `No diagnostics for this BIOS in the flash (BIOS 0.14 or later)`: the flash has no diagnostics, or not the ones
+- `No diagnostics for this BIOS in the flash`: the flash has no diagnostics, or not the ones
   built with the BIOS that is running. Nothing is written to the card, OODOS goes on, and the return code is `$FF00`.
 - `DIAG [option]?`, the command as typed: an option that is neither FULL nor ASK, or a file name.
 
 #### Since
 
-OODOS 0.10 (interface version 10), from hw/diag.md's D3c; needs BIOS 0.14.
+OODOS 0.10 (interface version 10), from hw/diag.md's D3c.
 
 #### Status
 

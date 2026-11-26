@@ -151,9 +151,7 @@ The registers are in WDC's order: the ports and their directions at `$0–$3`, t
 ([AGENTS.md](../../AGENTS.md)). **Since OODOS 0.16 timer 1 is the program's, polled:** its counter, its latches,
 ACR's bits 7–6 (the rest of ACR kept as read) and its IFR flag, never its IER bit; OODOS's tick is the north
 bridge's ([chapter 11](11-north-bridge-and-rtc.md#the-timebase)), and its cold boot and warm boot turn every VIA
-interrupt off and put ACR to 0. A program that may run on an older OODOS, whose tick was timer 1 (free-running at
-1 kHz, ACR `$40`, a latch of 7,157, from OOLIB's L1 to OODOS 0.15), checks function 80's `FT_INFO` for `FC_T1`
-first ([the Programmer's Guide, chapter 8](../oodos-programmers-guide/08-game-services.md#the-clocks)). Timer 2, the ports and the shift register are to be the program's,
+interrupt off and put ACR to 0 ([the Programmer's Guide, chapter 8](../oodos-programmers-guide/08-game-services.md#the-clocks)). Timer 2, the ports and the shift register are to be the program's,
 through OODOS: [hw/oolib.md, "The VIA is shared"](../../hw/oolib.md#the-via-is-shared). Since L2, while a program
 has an event area of layout 2 open, OODOS reads the joysticks at every tick: port A by its no-handshake register
 (`$C34F`), port B by IORB, which clears CB1's and CB2's flags as any read of it does.
@@ -239,8 +237,7 @@ every VIA interrupt off; `$C0` turns on timer 1's.
 
 **The BIOS touches only IER.** Since BIOS 0.11 Break writes `$7F` to VIA_IER, so an interrupt a program left on
 can't follow it into the monitor or the next program ([chapter 4](04-interrupts.md#irq-and-nmi)). The rest it
-leaves: the timers run on and IFR keeps its flags. Under BIOS 0.10 Break left IER too, so a program still turns the
-VIA's interrupts off before it leaves, for a machine with the older BIOS.
+leaves: the timers run on and IFR keeps its flags.
 
 ### Reset
 
@@ -960,8 +957,8 @@ Reads `$80`: every interrupt off.
 
 #### Notes
 
-The BIOS's Break writes `$7F` here, since BIOS 0.11 ([chapter 4](04-interrupts.md#irq-and-nmi)); a program still
-writes `$7F` before it leaves, for an older BIOS. Under OODOS, IER is OODOS's.
+The BIOS's Break writes `$7F` here, since BIOS 0.11 ([chapter 4](04-interrupts.md#irq-and-nmi)). Under OODOS, IER
+is OODOS's.
 
 <a id="reg-c34f"></a>
 ### $C34F VIA_ORA_NH: port A, without handshake

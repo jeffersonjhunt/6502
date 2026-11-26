@@ -195,7 +195,7 @@ Revision 3 gives the machine its 1 kHz tick and a millisecond counter of its own
 - **Resets:** any reset clears MSF, OVR and MSIE, so no tick interrupts until software turns MSIE on. In Apple II
   mode the registers are hidden and the counter runs on. The BIOS's Break writes `$C0` to TBCTL (both flags
   cleared, MSIE off).
-- **Under OODOS 0.16** the timebase is OODOS's (AGENTS.md): its tick is MSF's interrupt, acknowledged with the flags it saw (`$A0`, or `$E0` after OVR),
+- **Under OODOS** the timebase is OODOS's (AGENTS.md): its tick is MSF's interrupt, acknowledged with the flags it saw (`$A0`, or `$E0` after OVR),
   and its millisecond counter is the bridge's. A program reads it through function 80
   ([the Programmer's Guide, chapter 8](../oodos-programmers-guide/08-game-services.md#the-clocks)).
 
@@ -212,7 +212,7 @@ is emptied it draws the next 32 (about 26 ms), trying three times before it repo
   (a draw under way). Writing DRAW clears FAULT and starts a fresh draw.
 - [RNGCNT](#reg-c69a) is the bytes left; a read of [RNGDATA](#reg-c69b) takes the next, `$00` when the pool is
   empty. Read RNGDATA with a load only.
-- **Under OODOS 0.16** the registers are OODOS's: a program asks
+- **Under OODOS** the registers are OODOS's: a program asks
   [function 78](../oodos-programmers-guide/07-function-reference.md#bdos-78).
 - **The emulated chip** gives a fixed stream by default, the same bytes every run, for tests; the apps take the
   host's random device. The machine file's `rng_chip=locked|unlocked|none` sets what the bridge finds
@@ -231,7 +231,7 @@ copy that every block W3 maps shows.
 - HOLE is `$00` at every reset, so the ROM and its vectors are never behind it. DMA and the Console card use
   physical addresses and reach the same RAM at the block's `$3800–$3FFF`. Apple II mode's map ignores it.
 - **The ROM never runs with the hole on:** an ordinary `JMP ($FFFA)` would read the hole's bytes, not the ROM's.
-  OODOS 0.16 writes `$BE` (EN, block 62, where its common memory is) at its cold boot and 0 on every way it hands
+  OODOS writes `$BE` (EN, block 62, where its common memory is) at its cold boot and 0 on every way it hands
   the machine to the ROM (Break, Apple II mode, the diagnostics).
 - The ROM's diagnostics test it as NB12 ([chapter 15](15-diagnostics.md)).
 
@@ -1426,7 +1426,7 @@ Emulated as unit N15 of north bridge revision 3.
 
 With EN set, W3's ROM bit, its RO bit and WIN3H don't reach `$F800–$FFFF`, and a vector pull reads the hole whatever
 VEC holds; `$C800–$F7FF` is still W3's. The I/O hole is decoded first, and Apple II mode's map ignores it. DMA and
-the Console card use physical addresses, so they reach the same RAM at the block's `$3800–$3FFF`. OODOS 0.16 writes
+the Console card use physical addresses, so they reach the same RAM at the block's `$3800–$3FFF`. OODOS writes
 `$BE` (EN, block 62, where common memory is) at its cold boot and writes 0 on every way it hands the machine to the
 ROM, since an ordinary `JMP ($FFFA)` would read OODOS's bytes through the hole: the ROM never runs with it on. The
 bits' equates are `NB_HOLE_EN` and `NB_HOLE_RO`. The design is in hw/design.md, "The common hole".
@@ -1470,7 +1470,7 @@ it.
 
 The tick is 1 kHz from the master oscillator: the k-th comes 157,500 k / 11 oscillator clocks (rounded down) after
 the counter starts, so a period is 7,159 native cycles, or 7,160 twice in every 11 ms. SYNC clears when no edge
-has come from the chip for 1.1 s. Under OODOS 0.16 the timebase is OODOS's: its tick acknowledges with the flags it saw, `$A0` (MSF), or `$E0` when it read OVR set. The bits' equates are `NB_TB_MSF`,
+has come from the chip for 1.1 s. Under OODOS the timebase is OODOS's: its tick acknowledges with the flags it saw, `$A0` (MSF), or `$E0` when it read OVR set. The bits' equates are `NB_TB_MSF`,
 `NB_TB_OVR`, `NB_TB_MSIE` and `NB_TB_SYNC`.
 
 <a id="reg-c6a9"></a>

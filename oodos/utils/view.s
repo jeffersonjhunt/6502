@@ -11,15 +11,13 @@
 ; bitmap or a tile map (with its tiles) is layer 0 as its CONFIG says, and
 ; a sprite table is SPRBASE with the sprites on, and full-resolution
 ; sprites allowed (GX_SPRFULL 1, so a table made with mkasset's --full shows
-; as made; one without it shows as before; under an OODOS older than
-; interface 14 the call is refused and the table shows doubled, as it did:
-; hw/sprites640.md). The warm boot clears SPRCTL again. It says "Press a key to
-; stop." (into the console's text, unseen while the asset shows: question
-; 10), waits for a key at the console (function 6), puts the console's
+; as made; one without it shows doubled: hw/sprites640.md). The warm boot
+; clears SPRCTL again. It says "Press a key to stop." (into the console's
+; text, unseen while the asset shows: question 10), waits for a key at the console (function 6), puts the console's
 ; screen back and ends. The warm boot would put it back anyway.
 ;
 ; Errors: "Invalid file specification.", "No File", "Not an asset file.",
-; "Not enough video memory.", "Needs OODOS's interface 8.", "The asset
+; "Not enough video memory.", "Needs the video card and DMA.", "The asset
 ; wasn't loaded." The return code $FF00 after any of them.
 
         .setcpu "65C02"
@@ -141,7 +139,7 @@ start:  jsr     UT_INIT
         ldx     unit + 1
         jsr     GX_SPRBASE
         lda     #1                      ; full-resolution sprites allowed: byte 3 bit 7 counts
-        jsr     GX_SPRFULL              ;   (refused below interface 14: doubled, as before)
+        jsr     GX_SPRFULL
         lda     #$08
         tsb     ctrl
 @next:  jsr     nextp
@@ -192,7 +190,7 @@ susage: .byte   "VIEW filespec$"
 sinv:   .byte   "Invalid file specification.$"
 skey:   .byte   "Press a key to stop.$"
 errs:   .word   e1, e2, e3, e4, e5, e6
-e1:     .byte   "Needs OODOS's interface 8.$"
+e1:     .byte   "Needs the video card and DMA.$"
 e2:     .byte   "Video memory W1 can't reach.$"
 e3:     .byte   "Not enough video memory.$"
 e4:     .byte   "The asset wasn't loaded.$"

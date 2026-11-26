@@ -28,8 +28,6 @@ VID_SPRX_FULL   = $80                  ; a sprite entry's byte 3 (X's high byte)
 WIN1            = $C681                ; the north bridge's W1 (the W1 contract)
 WIN1H           = $C6A1                ; and its WIN1H, A20-A23 for W1 (B7):
                                        ;   written only after GX_BANK8 gave a window
-GX_IFACE        = 8                    ; the interface version the library needs (video card revision 2)
-GX_IFACE_B8     = 12                   ; and GX_BANK8 (function 83's DM_BANK8, B7)
 
 ; gxmem.s's, which every module takes
 .globalzp GXP, GXQ, GXT

@@ -23,6 +23,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
+#include <cstring>
 #include <string>
 #include <vector>
 
@@ -1212,6 +1213,75 @@ TEST(each_source_s_output_is_the_same_at_rate_0_and_48000)
     CHECK(std::equal(a.begin(), a.begin() + static_cast<std::ptrdiff_t>(n), b.begin()));
     CHECK(std::equal(a.begin(), a.begin() + static_cast<std::ptrdiff_t>(n), c.begin()));
     CHECK(rms(a, 0) > 100);
+}
+
+namespace
+{
+    /// Every source at once through the mix, the EQ and the volume, and the host's resampling to 44.1 kHz: a tune
+    /// sweeping SID A's voice 1, the boot sound (the ES5503), a beep, a raw stream, the tunes' and the streams'
+    /// levels down, ten bands of the EQ and its pre-gain set. FNV-1a over the bits of every float take_audio() gives
+    /// in the card's first second.
+    uint64_t mixed_hash()
+    {
+        Dev d;
+        d.card.set_audio_rate(44'100);
+        d.load(0, psid(SAW + std::vector<uint8_t>{0x60, 0xEE, 0x01, 0xD4, 0x60}, 21)); // play: INC $D401
+        CHECK_EQ(d.play(0, 0), 0);
+        CHECK_EQ(d.ask(SoundFw::MIX, {SoundFw::SRC_TUNES, 200})[1], 0);
+        CHECK_EQ(d.ask(SoundFw::MIX, {SoundFw::SRC_STREAMS, 150})[1], 0);
+        CHECK_EQ(d.ask(SoundFw::EQ_ALL, {static_cast<uint8_t>(-4), 6, static_cast<uint8_t>(-6), 4, 0, 8,
+                                         static_cast<uint8_t>(-12), 3, 0, static_cast<uint8_t>(-2), 5})[1], 0);
+        CHECK_EQ(d.ask(SoundFw::EQ_ON, {1})[1], 0);
+        CHECK_EQ(d.ask(SoundFw::VOLUME, {0xE0, 0xC0})[1], 0); // left and right a little down
+        CHECK_EQ(d.ask(SoundFw::BOOTSOUND)[1], 0);
+        CHECK_EQ(d.ask(SoundFw::BEEP, {0xE8, 0x03, 0xF4, 0x01, 0})[1], 0); // 1,000 Hz, 500 ms
+        // Half a second of 22,050 Hz 8-bit mono, given whole.
+        CHECK_EQ(d.ask(SoundFw::STREAM_OPEN, {0, 0, 0x22, 0x56, 0, 0, 0, 0, 0, 0})[1], 0);
+        CHECK_EQ(d.ask(SoundFw::STREAM_DATA, {0, 0x11, 0x2B, 0x00})[1], 0); // 11,025 bytes
+        for (const uint8_t b : noise(11025, 31))
+            d.card.write(SoundCard3::DATA, b);
+        CHECK_EQ(d.ask(SoundFw::STREAM_END, {0})[1], 0);
+        uint64_t h = 1469598103934665603ull;
+        size_t frames = 0;
+        float peak = 0;
+        std::vector<float> host(2 * 4096);
+        for (uint64_t t = 0; t < SoundCard::PAL_HZ; t += 1000)
+        {
+            d.card.tick(1000);
+            while (const size_t n = d.card.take_audio(host.data(), 4096))
+            {
+                frames += n;
+                for (size_t i = 0; i < 2 * n; ++i)
+                {
+                    uint32_t b;
+                    std::memcpy(&b, &host[i], 4);
+                    peak = std::max(peak, std::fabs(host[i]));
+                    for (int k = 0; k < 4; ++k)
+                    {
+                        h ^= (b >> (8 * k)) & 0xFF;
+                        h *= 1099511628211ull;
+                    }
+                }
+            }
+        }
+        std::printf("  %zu frames at 44.1 kHz, the peak %.3f\n", frames, static_cast<double>(peak));
+        CHECK(frames > 44'000u);
+        CHECK(peak > 0.05f); // something heard, not a hash of silence
+        return h;
+    }
+} // namespace
+
+TEST(the_mixed_output_is_the_same_bits_natively_and_in_webassembly)
+{
+    // One hash both builds check: sid.cpp (whose samples the ADC takes), sound_card3.cpp, sound_dsp.cpp and
+    // sound_fw.cpp are built with -ffp-contract=off (components/devices/CMakeLists.txt), so no target fuses
+    // multiply-adds, and glibc's and Emscripten's libm agree on what the SIDs and the EQ's design use; another libm
+    // could give another hash. A change to any source's samples, the mix's levels, the EQ, the volume or the host's
+    // resampling changes it. To pin it again after a change meant to move the output, print it from both builds
+    // (this case, native and under tools/web_build.sh) and take it only when the two agree.
+    const uint64_t h = mixed_hash();
+    std::printf("  %016llx\n", static_cast<unsigned long long>(h));
+    CHECK(h == 0xe6ec768305852cf0ull);
 }
 
 TEST(the_boot_sound_plays_from_the_card_s_flash)

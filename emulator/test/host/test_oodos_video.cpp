@@ -681,18 +681,23 @@ TEST(the_frame_costs_and_the_latest_a_slot_ends)
     CcpRig r;
     REQUIRE(r.ok);
     put_b(r, "PICTURE BIN", noise(65536, 2));
-    // No area, at the prompt: the frame and the tick L3's.
+    // No area, at the prompt: the frame and the tick L3's. The figures are printed as a record and checked as
+    // ceilings, today's plus 4 (a page crossing or two), since code moving in common memory moves them a cycle (the
+    // owner, 2026-11-26).
     Costs none;
     time_interrupts(r, none, ms(300));
     Costs::print("no area, a frame", none.frame);
     Costs::print("no area, a tick", none.tick);
-    CHECK_EQ(Costs::mode(none.tick), 142u); // the bridge's tick (N10; 162 with timer 1's)
-    CHECK_EQ(Costs::mode(none.frame), 231u); // 215 before N9: the long way's test of IRQH bit 5 (the tick) added
+    // The bridge's tick: 143 (142 at N10; 162 with timer 1's). The frame: 231 (215 before N9: the long way's test of
+    // IRQH bit 5, the tick, added).
+    CHECK(!none.tick.empty() && Costs::mode(none.tick) <= 143u + 4);
+    CHECK(!none.frame.empty() && Costs::mode(none.frame) <= 231u + 4);
     open(r, "2");
     Costs area2;
     time_interrupts(r, area2, ms(200));
     Costs::print("layout 2, no slot, a frame", area2.frame);
-    CHECK_EQ(Costs::mode(area2.frame), 447u); // 412 before N9: the tick's test on the long way and IRQOTH's (N9, N10)
+    // 447 (412 before N9: the tick's test on the long way and IRQOTH's, N9 and N10)
+    CHECK(!area2.frame.empty() && Costs::mode(area2.frame) <= 447u + 4);
     const std::vector<uint8_t> src = noise(512, 4);
     r.poke(0x10000, src);
     CHECK_EQ(f83(r, vbset(0, 0x10000, 0x90000, 512)), std::string("00 00"));
@@ -1126,11 +1131,6 @@ namespace
         for (size_t i = 0; i < b.size(); ++i)
             r.machine->bus().write_bus(at + static_cast<uint32_t>(i), b[i]);
     }
-    void romver(Rig &r, uint8_t major, uint8_t minor)
-    {
-        r.poke(SYS_BLOCK_PHYS + sym("ROMVER"), major);
-        r.poke(SYS_BLOCK_PHYS + sym("ROMVER") + 1, minor);
-    }
 }
 
 TEST(dm_bank8_makes_bank_8_the_programs_ram_and_gives_slot_1_at_e04000)
@@ -1172,26 +1172,6 @@ TEST(dm_bank8_with_no_video_card_succeeds_with_no_window)
     REQUIRE(r.bridge().map() == 0);
     CHECK_EQ(bank8(r), std::string("00 00"));
     CHECK_EQ(bank8_block(r), std::string("0000"));
-    CHECK_EQ(r.bridge().map(), 0);
-}
-
-TEST(dm_bank8_is_refused_under_a_rom_before_0_17)
-{
-    // D3. A ROM BIOS older than 0.17 (OODOS's record of it, cold.s's ROMVER, made 0.16) would draw the monitor's
-    // screen through bank 8 on a Break: $FF $FF, MAP still 1. One of 1.0 is newer (the major first), and $FF $FF
-    // (not found) is refused.
-    CcpRig r;
-    REQUIRE(r.ok);
-    open(r, "X");
-    romver(r, 0, 16);
-    CHECK_EQ(bank8(r), std::string("FF FF"));
-    CHECK_EQ(bank8_block(r), std::string("EEEE"));
-    CHECK_EQ(r.bridge().map(), 1);
-    romver(r, 0xFF, 0xFF);
-    CHECK_EQ(bank8(r), std::string("FF FF"));
-    CHECK_EQ(r.bridge().map(), 1);
-    romver(r, 1, 0);
-    CHECK_EQ(bank8(r), std::string("00 00"));
     CHECK_EQ(r.bridge().map(), 0);
 }
 

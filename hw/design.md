@@ -3650,7 +3650,7 @@ machine at revision 2 (U4), OODOS's console and WIN1H (U5), `DM_BANK8` and inter
     `FT_OPENX` (Q11).
   - **`DM_BANK8`**, function 83's operation 11 (`DM_OPS` 12), as [above](#the-video-aperture-moved-out-of-ram), in
     block 61: refused with nothing changed on `$D1`, under a ROM BIOS before 0.17 (function 77's version, the major
-    first) and with no block; otherwise AP8 cleared with a revision 2 card, `BANK8` set, +1/+2 `$0E`/1 or 0/0 with
+    first) and with no block (the first two went in the cleanup, 2026-11-25: only the block's is left); otherwise AP8 cleared with a revision 2 card, `BANK8` set, +1/+2 `$0E`/1 or 0/0 with
     no card. `DM_INFO` stays 16 bytes; its W1 map takes in blocks 32–39 while `BANK8` is set. OSWIN lets bank 8
     through only while `BANK8` is set; `FT_OPENX` still refuses an event area there (C4).
   - SYSINFO reads MAP (under its exception, AGENTS.md) for its RAM line, with no new text (Q13, C18).

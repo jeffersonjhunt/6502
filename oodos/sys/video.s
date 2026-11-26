@@ -79,7 +79,6 @@
 .import EVON, EVBLK, CLOCKS
 .import MXS, MYS                       ; input.s's
 .import CRTREGS, CVA                   ; crt.s's
-.importzp ROMVER                       ; cold.s's: the ROM BIOS's version, for DM_BANK8
 .import LOADGO                         ; bdosfile.s's: DM_LOAD's file work
 .export F_DMAOP, VBWORK, VBQUIET, VBON, DMAWARM, BANK8
 .import DMACTL                         ; irq.s's: DEAFEN's, a scratch byte here
@@ -622,20 +621,9 @@ DM_CONSOLEX:    JSR     CRTREGS
 ; for OSWIN and DM_INFO's map, until the warm boot (common.s's WARM), whose
 ; WINH0 sets AP8 again where the video card is fitted. +1 and +2
 ; get slot 1's window for W1: WIN1H $0E and block 1, or 0 and 0 with no
-; revision 2 video card (AP8 was clear already: bank 8 RAM from the boot).
-; Refused, nothing changed, under a ROM BIOS older than 0.17 (cold.s's
-; ROMVER, as bdos.s's NEWROM compares it; $FF $FF not found), whose Break
-; would draw the monitor's screen through bank 8.
+; video card (AP8 was clear already: bank 8 RAM from the boot).
 DM_BANK8X:      BLOCK
-                LDA     ROMVER
-                CMP     #$FF
-                BEQ     @no            ; not found
-                CMP     #1
-                BCS     @rom           ; 1.0 and on
-                LDA     ROMVER + 1
-                CMP     #17
-                BCC     @no            ; before 0.17
-@rom:           STZ     NB_MAP         ; AP8 clear: bank 8 the RAM card's
+                STZ     NB_MAP         ; AP8 clear: bank 8 the RAM card's
                 LDA     #$80
                 STA     BANK8
                 LDA     VIDEO_ID
@@ -649,7 +637,6 @@ DM_BANK8X:      BLOCK
                 JSR     PPUT           ; (keeps A)
 @last:          JSR     PPUT
                 JMP     DM00
-@no:            JMP     RETFF
 .assert NB_MAP_AP8 = 1, error, "DM_BANK8 clears AP8 by writing MAP 0"
 
 ; +1-3 the source (physical), +4-6 the destination (card), +7-8 the length.

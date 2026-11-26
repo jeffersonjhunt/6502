@@ -811,7 +811,9 @@ TEST(a_layout_1_or_2_program_that_claims_nothing_is_unaffected)
     time_interrupts(r, costs, [&] { return r.cpu->cycles() >= until; }, ms(400));
     Costs::print("a frame, layout 2, nothing claimed", costs.frame);
     Costs::print("a tick", costs.tick);
-    CHECK_EQ(Costs::mode(costs.tick), 241u); // the bridge's tick, a layout-2 area (N16, code placement)
+    // The bridge's tick, a layout-2 area: 241 (N16), checked as a ceiling, that plus 4 (a page crossing or two: code
+    // moving in common memory moves it a cycle; the owner, 2026-11-26).
+    CHECK(!costs.tick.empty() && Costs::mode(costs.tick) <= 241u + 4);
     for (unsigned i = 96; i < 128; ++i)
         CHECK_EQ(area(r, i), 0); // the sound part: 0, as L2 reserved it
     CHECK_EQ(reg(r, SoundCard3::IEN), SoundCard3::INT_EVT); // the card's events: on whenever OODOS drives it
@@ -1217,7 +1219,9 @@ TEST(acceptance_44_1_khz_16_bit_stereo_raw_pcm_from_b_with_no_underrun)
     Costs::print("a tick", costs.tick);
     REQUIRE(!costs.dma.empty());
     CHECK(costs.dma.begin()->first < 1000);
-    CHECK_EQ(Costs::mode(costs.tick), 241u); // a layout-2 area's tick: the stream costs it nothing
+    // A layout-2 area's tick, the stream costing it nothing: 241 with or without it, checked as a ceiling, that plus 4
+    // (a page crossing or two, as above).
+    CHECK(!costs.tick.empty() && Costs::mode(costs.tick) <= 241u + 4);
 }
 
 TEST(acceptance_an_mp3_from_b_plays_as_minimp3_decodes_it)

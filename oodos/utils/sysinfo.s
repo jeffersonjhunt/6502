@@ -17,7 +17,7 @@
 ;   SYSTEM   the CPU (the design's W65C02S: no opcode test, review CC1) and
 ;            its clock, measured by oohw's HW_CLOCK against the DS3231's
 ;            second and against 60 frames of the event area's counter
-;            (function 80); the ROM BIOS's version (77, interface 9);
+;            (function 80); the ROM BIOS's version (77);
 ;            OODOS's and its BIOS's (72), OOLIB's interface
 ;            (80's FT_INFO); A:OOUI.BNK's header; the memory (72, 83's
 ;            DM_INFO, 53 and 57 for what is free, $0204 for the TPA; on
@@ -457,24 +457,12 @@ mhz:    sta     p
         ldx     #>smhz
         jmp     puts
 
-; "  ROM BIOS   0.13": function 77 (O_ROMVER, interface 9, hw/diag.md's D1-1). An OODOS before
-; interface 9 hasn't it (and would answer it A = X = $FF anyway): FT_INFO says which.
+; "  ROM BIOS   0.13": function 77 (O_ROMVER, hw/diag.md's D1-1); A = X = $FF if OODOS found none at its boot.
 rombios:
         lda     #<sbios
         ldx     #>sbios
         jsr     puts
-        lda     #FT_INFO
-        ldx     #0
-        ldy     #O_FRAME
-        jsr     BDOS
-        cmp     #9
-        bcc     @old                    ; $FF (no function 80) is past 9: looked at next
-        cmp     #$FF
-        bne     @ask
-@old:   lda     #<sbiosold
-        ldx     #>sbiosold
-        jmp     puts
-@ask:   ldy     #O_ROMVER
+        ldy     #O_ROMVER
         jsr     BDOS
         cmp     #$FF
         bne     @ver
@@ -1673,7 +1661,6 @@ sbyfrm: .byte   " Hz by the video frame$"
 snortc: .byte   "the clock chip didn't tick$"
 snofrm: .byte   "no video frame to measure by$"
 sbios:  .byte   "  ROM BIOS   $"
-sbiosold: .byte "not given by this OODOS (before interface 9)$"
 sbiosnone: .byte "not found by OODOS at its boot$"
 soodos: .byte   "  OODOS      $"
 sitsbios: .byte ", its BIOS $"

@@ -2929,13 +2929,12 @@ OODOS's own: CP/M 3 has no function 74. It does what the loader does for each li
   run, bit 1 the interactive tests; the other bits 0. The front panel's switches don't count.
 - A = 3 (since OODOS 0.11, interface version 11): Apple II mode with ROM A's image X, 0–3, through the ROM's
   dispatching entry `$C818`, function `$A1` ([the Technical Reference, chapter 3](../oo1-technical-reference/03-boot.md#the-bioss-entry-points)).
-  It needs ROM BIOS 0.16 or later. A = 1 takes the first good image of the four, as the ROM's `$C806` does.
+  A = 1 takes the first good image of the four, as the ROM's `$C806` does.
 
 #### Exit
 
 - A = 0, A = 1 with the video card, the DMA controller and a IIe ROM in the flash, A = 2 with the
-  diagnostics in the flash, and A = 3 with the card, the controller, ROM BIOS 0.16 or later and a IIe ROM in image
-  X: it doesn't return. For A = 2 that holds even if the ROM's `$C815` refuses them after
+  diagnostics in the flash, and A = 3 with the card, the controller and a IIe ROM in image X: it doesn't return. For A = 2 that holds even if the ROM's `$C815` refuses them after
   all (their own build version, which OODOS can't check, isn't the running BIOS's): OODOS has gone by then, and the
   machine restarts at `$C800`, as `C800R` does, and boots OODOS from the card.
 - A = 1 or 3 without the video card (its ID register, `VIDEO_ID` at `$C4FF`, doesn't read `$92`): A = `$FF`,
@@ -2943,23 +2942,17 @@ OODOS's own: CP/M 3 has no function 74. It does what the loader does for each li
 - A = 1 or 3 without the DMA controller (its ID register, `DMA_ID` at `$C47F`, doesn't read `$82`, revision 2's ID):
   A = `$FF`, X = `$FE`, and OODOS goes on. Apple II mode clears the Apple's memory by DMA, so the ROM won't start it
   without one.
-- A = 1 with no IIe ROM where the running ROM BIOS's `$C806` looks for one: under ROM BIOS 0.16 or later, none of ROM
-  A's images 0–3 (flash blocks 0–3; an image's `$FBB3` isn't `$06`); under an older one ([function 77](#bdos-77)'s
-  version, `$FF $FF` counting as older), the cartridge, flash block 32, as before OODOS 0.11. A = X = `$FF`, and
-  OODOS goes on.
+- A = 1 with no IIe ROM where the ROM's `$C806` looks for one, none of ROM A's images 0–3 (flash blocks 0–3; an
+  image's `$FBB3` isn't `$06`): A = X = `$FF`, and OODOS goes on.
 - A = 3 with image X not a IIe ROM: A = X = `$FF`, and OODOS goes on.
-- A = 3 with X of 4 or more: A = X = `$FF`, with nothing written back. A = 3 under a ROM BIOS before 0.16, which has
-  no `$C818` (there it is the first byte after its table of entries, so a jump there would restart the machine):
-  A = `$FF`, X = `$FB`, with nothing written back.
-- Any other A (4 or more): A = X = `$FF`, and OODOS goes on. An OODOS before interface version 11 answers A = 3 as
-  any other A.
+- A = 3 with X of 4 or more: A = X = `$FF`, with nothing written back.
+- Any other A (4 or more): A = X = `$FF`, and OODOS goes on.
 - A = 2 without the diagnostics in the flash: A = `$FF`, X = `$FC`, and OODOS goes on. OODOS looks at flash block 23
   through W2 for their signature and the ROM BIOS version they were linked with, which must be the one the cold
-  boot read from the ROM's greeting ([function 77](#bdos-77)): a flash with a BIOS before 0.14, with block 23
-  erased, or with another build's diagnostics has none. An OODOS before interface version 10 answers A = 2 as any
-  other A, A = X = `$FF`, so a program can tell the two apart; or it asks [function 80's](#bdos-80) `FT_INFO` first.
+  boot read from the ROM's greeting ([function 77](#bdos-77)): a flash with block 23 erased, or with another build's
+  diagnostics, has none.
 - Every return is a failure, A = `$FF`; X tells the cases apart. For A = 1 and 3 they are looked at in the ROM's
-  order: the video card first, then the DMA controller, then (for A = 3) the ROM BIOS's version, then the IIe ROM.
+  order: the video card first, then the DMA controller, then the IIe ROM.
   A = 3's X is looked at before all of them.
 - Y is not kept. The flags come back as they were before the call, the decimal flag clear.
 
@@ -2973,7 +2966,7 @@ As in Exit.
   go to. Without video card revision 2 or the DMA controller nothing is written back: OODOS looks for them
   before anything else (the card since OODOS 0.9), and OODOS's own card transfers need the DMA controller too.
   Without the diagnostics nothing is written back either: OODOS looks for them first; nor for A = 3 with X of 4 or
-  more, or under a ROM BIOS before 0.16. A file left open isn't closed: a program closes its files first. On O: and P: the disk is checked
+  more. A file left open isn't closed: a program closes its files first. On O: and P: the disk is checked
   before anything is written back, and a changed disk gets none of it
   ([removable drives](03-file-system.md#removable-drives-o-and-p)).
 - OODOS doesn't come back: the ROM's monitor, or a reset, is what follows. For A = 2 and 3, OODOS also stops the Disk II
@@ -3091,9 +3084,6 @@ Not measured.
 
 OODOS 0.10 (interface version 9, function 80's `FT_INFO`).
 
-An OODOS before it hasn't function 77 and answers it as any function it hasn't, A = X = `$FF`, the same as an unknown
-version: a program that must tell the two apart asks [function 80's](#bdos-80) `FT_INFO` first, as SYSINFO does.
-
 #### Status
 
 **built**
@@ -3150,9 +3140,6 @@ About 600 for the call and 20 a byte while the pool lasts; a refill about 26 ms.
 #### Since
 
 OODOS 0.16 (interface version 17, function 80's `FT_INFO`).
-
-An OODOS before it hasn't function 78 and answers it as any function it hasn't, A = X = `$FF`: a program checks
-[function 80's](#bdos-80) `FT_INFO` for interface 17 first.
 
 #### Status
 
@@ -3323,9 +3310,6 @@ memory that isn't the program's (the I/O hole, flash), and:
 - `FT_FRAMEHOOK`, `FT_TICKHOOK`: an address in the I/O hole or common memory (`$C000–$C7FF`, `$F800` up), or a
   call made with W0 on the system's block; a tick hook every 0 ms. The old hook is off either way.
 
-An OODOS before L1 answers 80 as a function it doesn't have: A = X = `$FF`. So `FT_INFO`'s A of `$FF` means no
-OOLIB services at all.
-
 #### Side effects
 
 - `FT_OPEN` writes the whole area first: +0 the layout, +1 the clocks (`FC_*`), +2 the size, +4–7 and +8–11
@@ -3403,8 +3387,8 @@ isn't the program's (the I/O hole, flash), and:
 - `IN_MOUSE`: a mode past 1. `IN_MOUSE`, `IN_LEDS`, `IN_REPEAT`: no USB card.
 - `IN_NEXT`: no event area of layout 2 open.
 
-`IN_FLUSH` with no layout-2 area open does nothing, A = 0. An OODOS before L2 answers 81 as a function it doesn't
-have, A = X = `$FF`: [function 80's](#bdos-80) `FT_INFO` says whether there is input (`OA_INPUT`).
+`IN_FLUSH` with no layout-2 area open does nothing, A = 0. [Function 80's](#bdos-80) `FT_INFO` says whether there is
+input (`OA_INPUT`).
 
 #### Side effects
 
@@ -3673,7 +3657,7 @@ OODOS's own: CP/M 3 has no function 82 (OODOS's range, 72 on). It is OOLIB's thi
 
 #### Errors
 
-A = X = `$FF`, and nothing done, for an operation past 12 (past 11 below interface version 13, past 10 below 12), one that needs a
+A = X = `$FF`, and nothing done, for an operation past 12, one that needs a
 block given none (`DM_BANK8` among them), a block in memory that
 isn't the program's (the I/O hole, flash), and:
 
@@ -3691,18 +3675,12 @@ isn't the program's (the I/O hole, flash), and:
   45](#bdos-45)): 3 (an extent that can't be closed) and 6 (past 32 MB) returned in A, a physical error said. An FCB
   that was never opened has no blocks: A = 1, no records.
 - `DM_VBSET`: a slot past 3; a length past 1,024, or that takes the four slots' past 1,024.
-- `DM_POINTER`: a +1 of 128–254 (before OODOS 0.13, interface version 14: past 63); no layout-2 event area open ([chapter 8](08-game-services.md#the-mouse)); no video
-  card of revision 2 or no DMA controller. `$FF` (off) is always taken.
-- `DM_BANK8`: a ROM BIOS before 0.17
-  ([function 77](#bdos-77)), the first that knows AP8: Break into an older ROM's monitor would write its screen into
-  bank 8's RAM. Nothing is changed: bank 8 stays as it was, the aperture with the video card and RAM
-  without one.
+- `DM_POINTER`: a +1 of 128–254; no layout-2 event area open ([chapter 8](08-game-services.md#the-mouse)); no video
+  card or no DMA controller. `$FF` (off) is always taken.
 - `DM_VWRITE`, `DM_VREAD`, `DM_VFILL`, `DM_VFILLW`: a piece through the port that didn't end (no DMA controller answering, or one
   starved): A = X = `$FF`, the pieces before it done and none after.
 
-An OODOS before L4 answers 83 as a function it doesn't have, A = X = `$FF`: [function 80's](#bdos-80) `FT_INFO` says
-whether there is DMA and loading (`OA_DMA`, interface version 4). Below interface version 8 there are no operations
-7–10.
+[Function 80's](#bdos-80) `FT_INFO` says whether there is DMA and loading (`OA_DMA`).
 
 #### Side effects
 
@@ -3805,9 +3783,8 @@ OODOS's own: CP/M 3 has no function 83 (OODOS's range, 72 on). It is OOLIB's fou
 
 #### Errors
 
-A = X = `$FF`, and nothing done, for an operation past 2 or a port that isn't there (any but 0). An OODOS before
-0.15 (interface version 16) answers 85 as a function it doesn't have, the same: [function 80's](#bdos-80) `FT_INFO`
-says whether there is a receive buffer (`OA_SERIAL`, `$20`).
+A = X = `$FF`, and nothing done, for an operation past 2 or a port that isn't there (any but 0).
+[Function 80's](#bdos-80) `FT_INFO` says whether there is a receive buffer (`OA_SERIAL`, `$20`).
 
 #### Side effects
 

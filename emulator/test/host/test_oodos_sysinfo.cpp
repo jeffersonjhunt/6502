@@ -21,8 +21,7 @@
  *     block that answers each read with the last byte the CPU fetched, as
  *     an empty slot might: HW_PROBE's two reads disagree, so no Disk II is
  *     found;
- *   - function 77 (interface 9): the ROM BIOS's version, $FF $FF with no greeting found, and SYSINFO on an
- *     OODOS that reports interface 8; function 72 as it was (VERTEST);
+ *   - function 77: the ROM BIOS's version, $FF $FF with no greeting found; function 72 as it was (VERTEST);
  *   - A:'s free space, exact, worked out from the card's directory (the golden files hold "#K free");
  *   - one section alone, and the usage line for a word that isn't one.
  *
@@ -260,19 +259,6 @@ namespace
             s += (i && (d.size() - i) % 3 == 0 ? "," : "") + std::string(1, d[i]);
         return s;
     }
-
-    /// FT_INFOX's LDA #18 in OODOS's block 60 made LDA #`v`: an OODOS that reports interface `v`.
-    void report_interface(CcpRig &r, uint8_t v)
-    {
-        const uint32_t base = 60u * BLOCK - 0x4000u + sym("FT_INFOX");
-        uint32_t p = base;
-        while (p < base + 64 && !(r.phys(p) == 0xA9 && r.phys(p + 1) == 18 && r.phys(p + 2) == 0xA2 && r.phys(p + 3) == 0x2F))
-            ++p;
-        REQUIRE(p < base + 64);
-        r.poke(p + 1, v);
-    }
-    /// As before function 77.
-    void report_interface_8(CcpRig &r) { report_interface(r, 8); }
 
     std::string full_golden() { return read_text(std::string(EMU_GOLDEN_DIR) + "/sysinfo.txt"); }
 } // namespace
@@ -562,18 +548,6 @@ TEST(function_77_says_ff_ff_when_the_cold_boot_found_no_greeting)
     if (o.find("ROMV FF FF") == std::string::npos)
         std::printf("  %s\n", vis(o).c_str());
     CHECK(run(r, "m:sysinfo system /all").find("  ROM BIOS   not found by OODOS at its boot\n") != std::string::npos);
-}
-
-TEST(sysinfo_on_an_oodos_of_interface_8_says_it_has_no_function_77)
-{
-    InfoRig r;
-    REQUIRE(r.ok);
-    report_interface_8(r);
-    const std::string o = run(r, "m:sysinfo system /all");
-    CHECK(o.find("  ROM BIOS   not given by this OODOS (before interface 9)\n") != std::string::npos);
-    CHECK(o.find("OOLIB interface 8") != std::string::npos);
-    if (o.find("before interface 9") == std::string::npos)
-        std::printf("  %s\n", vis(o).c_str());
 }
 
 TEST(one_section_alone_and_a_wrong_word)

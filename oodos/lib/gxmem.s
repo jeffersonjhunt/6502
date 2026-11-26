@@ -1,21 +1,20 @@
 ; OOLIB's card memory and W1 (include/oolib.inc, "Graphics"; vmem.inc;
-; hw/oolib.md, "Video card revision 2"): the check of OODOS's interface,
+; hw/oolib.md, "Video card revision 2"): the check for DMA and a card,
 ; the W1 map, W1 and aperture slot 1 under the W1 contract, the program's
 ; card memory handed out, its copies through function 83, and what every
 ; graphics module shares (gx.inc).
 ;
-; The W1 contract (interface version 8): OOLIB may write W1 with any block
+; The W1 contract: OOLIB may write W1 with any block
 ; DM_INFO's W1 map allows, and SLOT1 with any of the program's card banks
 ; (16-111), and OODOS keeps both across a BDOS call, an interrupt and a
 ; hook, and puts block 1 back in W1 and the program's first card bank, 16
 ; (VM_PROG_BANK), in slot 1 at the warm boot. The W1 map is block 1, the
 ; allocated blocks, 33 and 36-47; OODOS's OSWIN refuses $80000-$83FFF and
 ; $88000-$8FFFF as a physical destination.
-; GX_INIT checks the version, so an older OODOS is never mapped under. The
-; window in W1 (GXCURH:GXCUR, WIN1H and the block) and the bank in slot 1
+; The window in W1 (GXCURH:GXCUR, WIN1H and the block) and the bank in slot 1
 ; (GXBANK) are kept, so a draw maps only when it moves to another.
 ;
-; Bank 8 (interface version 12, B7): GX_INIT leaves the north
+; Bank 8 (B7): GX_INIT leaves the north
 ; bridge's MAP as it is, so slot 1's window stays block 33 ($84000) and a
 ; program linked with this library runs as one linked before it. Only a
 ; program that calls GX_BANK8 (function 83's DM_BANK8) gets bank 8 as its
@@ -51,7 +50,7 @@ GX_W1MAP: .res  8                      ; DM_INFO's: bit n & 7 of byte n / 8, blo
 GX_UNITS: .res  VM_UNITS / 8           ; the program's card memory's units taken: bit u & 7 of byte u / 8
 GX_VUNITS: .res 2                      ; the units the card has room for (1,536 on 2 MB)
 GX_AREA: .res   2                      ; the program's event area (0: none)
-GX_OK:  .res    1                      ; 1: GX_INIT found interface 8 and a card: W1 may be written
+GX_OK:  .res    1                      ; 1: GX_INIT found DMA and a card: W1 may be written
 GXCUR:  .res    1                      ; the block W1 has (as the library put it), GXCURH its WIN1H
 GXBANK: .res    2                      ; the bank slot 1 shows (as the library put it; $FFFF not known)
 GXB:    .res    20                     ; function 83's block
@@ -103,11 +102,7 @@ GX_INIT:
         ldx     #0
         ldy     #O_FRAME
         jsr     BDOS
-        cmp     #$FF                    ; no function 80: A = X = $FF
-        beq     @old
-        cmp     #GX_IFACE
-        bcc     @old
-        txa
+        txa                             ; X the attributes
         and     #OA_DMA
         beq     @old
         jsr     GX_REMAP                ; the W1 map, and the card's room
@@ -174,22 +169,17 @@ GX_REMAP:
         clc
         rts
 
-; Bank 8 the program's RAM, by function 83's DM_BANK8 (interface version
-; 12): slot 1's window is then WIN1H $0E and block 1, and blocks 32-39 join
-; the W1 map. After GX_INIT. GE_VERSION, nothing changed, for an older
-; OODOS, no DMA or a ROM BIOS older than 0.17:
-; the library stays in the old mode. With no video card, carry clear:
+; Bank 8 the program's RAM, by function 83's DM_BANK8: slot 1's window is
+; then WIN1H $0E and block 1, and blocks 32-39 join the W1 map. After
+; GX_INIT. GE_VERSION, nothing changed, with no DMA controller or if
+; DM_BANK8 is refused: the library stays in the old mode. With no video card, carry clear:
 ; bank 8 is the program's RAM, and there is no window.
 GX_BANK8:
         lda     #FT_INFO
         ldx     #0
         ldy     #O_FRAME
         jsr     BDOS
-        cmp     #$FF                    ; no function 80: A = X = $FF
-        beq     @old
-        cmp     #GX_IFACE_B8
-        bcc     @old
-        txa
+        txa                             ; X the attributes
         and     #OA_DMA
         beq     @old
         lda     #DM_BANK8

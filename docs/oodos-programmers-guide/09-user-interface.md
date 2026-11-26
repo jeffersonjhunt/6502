@@ -44,5 +44,5 @@ What U0 settled, in short ([hw/ooui.md, "Open Questions"](../../hw/ooui.md#open-
   the first picture is a finished one and a console on layer 0 stays as it was until then. A program polls once
   before it expects OOUI's screen to be seen.
 
-OOUI takes its card memory from OOLIB, under OODOS's interface version 8 with the video card ([chapter 8,
+OOUI takes its card memory from OOLIB, with the video card ([chapter 8,
 "Video memory"](08-game-services.md#video-memory)), and leaves the console's card memory and Apple II mode alone.

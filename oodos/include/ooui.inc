@@ -225,7 +225,7 @@ UB_TEXT         = 0
 UB_BITMAP       = 1
 
 ; The errors (A, carry set)
-UX_VERSION      = 1                    ; OODOS's interface below 8, or no input or DMA
+UX_VERSION      = 1                    ; ui_open: no input or DMA; ui_load: a bank this program can't take
 UX_AREA         = 2                    ; no event area, or not layout 2
 UX_MEMORY       = 3                    ; no card memory
 UX_TABLE        = 4                    ; an unknown type, a parent after its child, a menu's or an item's parent

@@ -4,9 +4,9 @@
 ; back after, whatever happens). Call it after GX_INIT, before ui_open.
 ; Carry clear, or set and A: UX_STATE (UISTATE not on a page: checked first),
 ; UX_BUSY (loaded already), UX_LOAD (no file, a short read, not an OOUI.BNK),
-; UX_VERSION (a file older than this program's interface, or one needing
-; more UISTATE or imports than it gives: checked before a block is taken), UX_MEMORY (no block free), UX_GX
-; (OOLIB refused a block in W1: GX_INIT not called first, or it refused). On
+; UX_VERSION (a file needing more UISTATE or imports than this program
+; gives, or without a call it has: checked before a block is taken),
+; UX_MEMORY (no block free), UX_GX (OOLIB refused a block in W1: GX_INIT not called first, or it refused). On
 ; a refusal after the first block is taken, every block taken is freed
 ; (function 57), the W1 map read again (GX_REMAP) and block 1 put back in
 ; W1; the file is closed and the user put back.
@@ -214,9 +214,6 @@ ui_load:
         lda     HDR + 5
         cmp     #UB_BLOCKS
         bne     @short
-        lda     HDR + 4                 ; an interface as new as this program's
-        cmp     #UI_IFACE
-        bcc     @old
         lda     #<UI_STATE_LEN          ; its UISTATE within this program's
         cmp     HDR + 6
         lda     #>UI_STATE_LEN

@@ -26,9 +26,8 @@
 ;                   Woz Monitor (as Break goes there: common.s's NMI); A = 1
 ;                   Apple II mode (the ROM's C806), if the video
 ;                   card and the DMA controller are there and ROM A's images
-;                   0-3 hold a IIe ROM (the cartridge under a ROM BIOS before
-;                   0.16, as its C806 looks), else A = $FF and X = $FD (no
-;                   video card), $FE (no DMA controller) or $FF (no IIe
+;                   0-3 hold a IIe ROM (as the ROM's C806 looks), else A =
+;                   $FF and X = $FD (no video card), $FE (no DMA controller) or $FF (no IIe
 ;                   ROM), and OODOS goes on; A = 2 the ROM's diagnostics (its $C815,
 ;                   with no question: the program has asked), X the options
 ;                   (bit 0 full, bit 1 interactive), if flash block 23 holds
@@ -37,9 +36,8 @@
 ;                   Apple II mode with ROM A's image X, 0-3 (the ROM's
 ;                   dispatching entry, $C818, function $A1), with A = 1's
 ;                   card and DMA checks, if image X holds a IIe ROM, else
-;                   A = X = $FF; under a ROM BIOS before 0.16 (no $C818)
-;                   A = $FF, X = $FB, and X of 4 or more A = X = $FF, both
-;                   with nothing written back (interface 11); any
+;                   A = X = $FF; X of 4 or more A = X = $FF, with nothing
+;                   written back (interface 11); any
 ;                   other A, A = X = $FF. The changed buffers are written
 ;                   back first (as 48), but a file left open isn't closed:
 ;                   close it first
@@ -276,8 +274,7 @@ F_VERSION:      LDA     #$31
 
 ; 77: the ROM BIOS's version as the cold boot found it after "BACKPLANE BIOS "
 ; in the ROM's greeting (cold.s's ROMVER): A the major, X the minor; $FF $FF
-; if it found none. An OODOS before interface 9 answers 77 as a function it
-; hasn't, A = X = $FF too.
+; if it found none.
 F_ROMVER:       LDA     ROMVER
                 LDX     ROMVER + 1
                 RTS
@@ -287,8 +284,8 @@ F_ROMVER:       LDA     ROMVER
 ; 48 does (a swapped unit's dropped; a failure is not a reason to stay: the
 ; program asked to leave).
 ; The IIe ROM is looked for through W2, put back on the BIOS after, where the
-; running ROM BIOS's $C806 looks for it (NEWROM): ROM A's images 0-3 from
-; 0.16 on (the first good one), the cartridge (ROM B's first block) before.
+; running ROM BIOS's $C806 looks for it: ROM A's images 0-3 (the first good
+; one).
 ; Apple II mode needs the video card and the DMA controller too (ID
 ; $82 exactly; the ROM's APPLE checks both, the card first, and goes to its monitor
 ; without either): looked at first, in APPLE's order, before anything is
@@ -300,12 +297,10 @@ F_ROMVER:       LDA     ROMVER
 ; back, and OODOS has gone by then. Looked at first, through W2, before
 ; anything is written back: without them A = $FF, X = $FC.
 ; Apple II mode with image X (A = 3, interface 11; B5) goes through the ROM's
-; dispatching entry, $C818, which a ROM BIOS before 0.16 doesn't have (there
-; $C818 is its START: the machine would restart with OODOS gone), so NEWROM
-; looks first: an older ROM gives A = $FF, X = $FB. X of 4 or more is no
-; image (block 4 is the character sets'): A = X = $FF. Both before anything
-; is written back, after the card and DMA checks as A = 1 has them; image X
-; itself is looked at after the write-back, as A = 1's images are.
+; dispatching entry, $C818. X of 4 or more is no image (block 4 is the
+; character sets'): A = X = $FF, before anything is written back, as are the
+; card and DMA checks A = 1 has; image X itself is looked at after the
+; write-back, as A = 1's images are.
 F_ROM:          CMP     #4
                 BCS     @no
                 TAX
@@ -322,12 +317,10 @@ F_ROM:          CMP     #4
                 BNE     @nocard
                 LDA     DMA_ID
                 CMP     #DMA_ID_V2
-                BNE     @nodma
-                CPX     #3
-                BNE     @leave1
-                JSR     NEWROM         ; $C818 there?
-                BCC     @oldrom
-                BRA     @leave1
+                BEQ     @leave1
+                LDA     #$FF           ; no DMA controller
+                LDX     #$FE
+                RTS
 @diag:          JSR     DIAGIN
                 BCS     @nodiag
 @leave1:        TXA
@@ -346,11 +339,7 @@ F_ROM:          CMP     #4
                 JMP     ROMENTRY       ; the diagnostics, at the ROM's $C815
 @apple:         CMP     #3
                 BEQ     @appn
-                JSR     NEWROM         ; where the running ROM BIOS's $C806 looks:
-                LDY     #NB_ROM | NB_RO | CART_BLOCK ; before 0.16, the cartridge alone
-                LDX     #1
-                BCC     @look
-                LDY     #NB_ROM | NB_RO ; 0.16 on, ROM A's images 0-3 (blocks 0-3)
+                LDY     #NB_ROM | NB_RO ; where the ROM's $C806 looks: ROM A's images 0-3 (blocks 0-3)
                 LDX     #IIE_IMAGES
 @look:          STY     NB_WIN2
                 LDA     $8000 + IIE_ID_AT
@@ -368,12 +357,6 @@ F_ROM:          CMP     #4
 @nodiag:        LDA     #$FF
                 LDX     #$FC
                 RTS
-@oldrom:        LDA     #$FF
-                LDX     #$FB
-                RTS
-@nodma:         LDA     #$FF
-                LDX     #$FE
-                RTS
 @nocard:        LDA     #$FF
                 LDX     #$FD
                 RTS
@@ -389,23 +372,6 @@ F_ROM:          CMP     #4
                 LDX     #$A0 + 1       ; the token: function $A1, Apple II mode with image A
                 LDY     #<$C818
                 JMP     ROMENTRY       ; at the ROM's dispatching entry, $C818
-
-; Carry set if the ROM BIOS that is running is 0.16 or later (cold.s's ROMVER,
-; from its greeting): its $C806 takes ROM A's first good IIe image and its
-; dispatching entry is at $C818; carry clear for an older one, or $FF $FF
-; (not found). The major first: above 0 passes, whatever the minor. A kept.
-NEWROM:         PHA
-                LDA     ROMVER
-                CMP     #$FF
-                BEQ     @old           ; not found
-                CMP     #1
-                BCS     @new           ; 1.0 and on
-                LDA     ROMVER + 1
-                CMP     #16            ; 0.16 and on: carry set
-                BRA     @new
-@old:           CLC
-@new:           PLA
-                RTS
 
 ; Carry clear if flash block 23 holds the ROM's diagnostics, linked with the
 ; ROM BIOS that is running: their signature at $8000 and, at $801C, the

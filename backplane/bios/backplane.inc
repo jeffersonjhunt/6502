@@ -74,8 +74,7 @@ NB_IRQ_SOUND    = $04                  ; IRQH bit 2, ID A: the sound card (the m
 NB_IRQ_NB       = $20                  ; IRQH bit 5, ID D: the north bridge (revision 3: TBCTL's MSF; 2: TICK)
 NB_ROM          = $80                  ; window bit: flash, not RAM
 NB_RO           = $40                  ; window bit: read-only
-CART_BLOCK      = 32                   ; flash block: ROM B's first 16 KB, the game cartridge's (a ROM BIOS
-                                       ; before 0.16 looked there for the IIe ROM, and OODOS's 75 does under one)
+CART_BLOCK      = 32                   ; flash block: ROM B's first 16 KB, the game cartridge's
 IIE_IMAGES      = 4                    ; ROM A blocks 0-3: the IIe ROM images, each 16 KB as at $C000-$FFFF
 IIE_CHARS_BLOCK = 4                    ; and their character sets, 8 KB each: set n at $10000 + n x $2000
 IIE_ID_AT       = $3BB3                ; in an image ($FBB3): IIE_ID if it is a IIe's (apple.s, OODOS's 75)

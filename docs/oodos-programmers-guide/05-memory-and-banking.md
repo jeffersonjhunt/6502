@@ -107,8 +107,7 @@ The block needs no common memory of its own. FARCALL itself, the BDOS's entry an
 `$F800–$FFFF`, and since OODOS 0.16 (interface 17) that is the north bridge's common hole: OODOS's 2 KB whatever block
 W3 holds ([the Technical Reference, chapter 11](../oo1-technical-reference/11-north-bridge-and-rtc.md#the-common-hole)).
 So a block from 53–56 can be far called as it is, and W3 shows a block's `$C800–$F7FF` only, its own top 2 KB being
-plain RAM reached through W0–W2 or DMA. A program for an older OODOS copied common memory into the block itself; a
-program that relies on the hole checks function 80's `FT_INFO` for interface 17.
+plain RAM reached through W0–W2 or DMA.
 
 FARCALL is the far call table's one entry so far. FARPEEK, FARPOKE and FARMOVE, for bytes at physical addresses, are
 proposed ([hw/oodos.md, "Far calls"](../../hw/oodos.md#far-calls)), not built: a program reaches physical memory by
@@ -211,8 +210,8 @@ A program that doesn't use OOLIB keeps the old rule: the windows are OODOS's.
 
 Since OODOS 0.9, OODOS and OOLIB are built for revision 2 of the video card (its ID `$92`), from interface version 8:
 the card draws from 2 MB of its own memory instead of banks 8–B
-([the Technical Reference, chapter 6](../oo1-technical-reference/06-video.md#revision-2-card-memory)). On an older
-card, or none, OODOS has no console screen and the card operations are refused. For a program:
+([the Technical Reference, chapter 6](../oo1-technical-reference/06-video.md#revision-2-card-memory)). With no video
+card, OODOS has no console screen and the card operations are refused. For a program:
 
 - **Banks 8–B.** While the north bridge's AP8 is set, as OODOS leaves it, bank 8, blocks 32–35, is the card's
   aperture: four 16 KB slots, each showing a 16 KB card bank that its slot register chooses. Slot 0 (block 32)
