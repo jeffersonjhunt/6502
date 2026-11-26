@@ -3,7 +3,7 @@
 /**
  * @file sound_card3.h
  * @author Jefferson J. Hunt (jefferson@oneoffendeavors.com)
- * @brief The sound card, revision 3: the device's registers over its firmware (hw/future/sound-device.md).
+ * @brief The sound card, revision 3: the device's registers over its firmware (hw/design.md, "Sound card revision 3").
  * @version 0.1.0
  * @date 2026-11-23
  *

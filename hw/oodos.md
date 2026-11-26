@@ -6122,8 +6122,25 @@ from the spike's measured ratios: math 1.16, interpreter 1.27, text scanning 1.3
       block (T5); each mutant seen failing on its own case. Changed results: E1-E6 and E8 as approved, E5
       also the COM case's table end (answer 24, item 5). N21 can't force TIMER's .999 cap (the
       rig's clock didn't hold); N24 checks TIME$ to the minute after a set.
-  - **As built, on the sound device (branch C)** (Proposed, 2026-11-24; feat/gwbasic-sound3 off main `64e6cb91`,
-    [the sound device's build plan](future/sound-device-build.md), units S26-S28, with the owner's 8 answers to
+  - **The design on the sound device** (moved from the card's spec, hw/future/sound-device.md, removed in the cleanup
+    pass). SOUND and PLAY were recorded in 7f as "on the current card, to be reworked on the sound device"; this is
+    that rework. GW-BASIC's voice is a tone generator, "as long as it doesn't add complexity" (the owner). What keeps
+    it simple:
+    - **The tone generator exists anyway:** it is the beep's (BEEP, BELL), so GW-BASIC adds no part to the card; a
+      note block's instrument may name it.
+    - **One voice, one queue, as the PC has:** SOUND and PLAY share one speaker and one background queue on the PC.
+      Here both go to the one tone-generator voice, so GW-BASIC needs no voice allocation, no instruments, no SID
+      envelope settings and no clamping: every frequency SOUND allows plays at its pitch, and PLAY's highest octave
+      plays too. PLAY's MN, ML and MS are a gate time within the note's length, which the block has already.
+    - **Less code than 7f's:** no driver image in block P7, no `MU_INSTR` set-up, no count of events for PLAY(n). SID
+      instruments for PLAY are not planned; if ever wanted, they are an OO-1 extension.
+    - **PLAY** parses its string into one note block and sends it with `SN_MUSIC`: MF waits for the music to end, MB
+      queues it. **PLAY(n)** is the card's count of notes waiting; **ON PLAY(n)** sets the card's threshold and traps
+      on `MUSIC_COUNT`. The 32-note background limit stays as the manual's behaviour, kept by GW-BASIC, not by a
+      queue's size.
+    - **BEEP** and ^G: `SN_BEEP`, 800 Hz for a quarter second (the PC's beep); the BDOS's BEL sends the card's BELL.
+  - **As built, on the sound device (branch C)** (built, 2026-11-24, merged `b33f38c7`; feat/gwbasic-sound3 off main `64e6cb91`,
+    the sound device's build, units S26-S28 ([as built](#sound-card-revision-3-as-built)), with the owner's 8 answers to
     branch C's plan, "recommendations as listed"; expectation block F as approved).
     - **The voice:** SOUND and PLAY play on the card's tone generator (a note block's instrument source 2), one
       voice as the PC's one speaker, at the beep's volume (128: answer 3), so every frequency SOUND allows plays at
@@ -6962,14 +6979,14 @@ emulator gives the bridge and the DS3231 one crystal; independent crystals are a
 
 ## OODOS 0.17: sound card revision 3 ##
 
-Status: **built** (2026-11-24, feat/sound-device-sys, branch B of [the sound device's build
-plan](future/sound-device-build.md), units S12-S25). OODOS 0.17 drives sound card revision 3, the card as a device
+Status: **built** (2026-11-24, feat/sound-device-sys, branch B of the sound device's build, units S12-S25:
+[as built](#sound-card-revision-3-as-built)). OODOS 0.17 drives sound card revision 3, the card as a device
 ([design.md, "Sound card revision 3"](design.md#sound-card-revision-3)), and no other. **Versions:** OODOS 0.17
 (`SYS_MINOR`), OOLIB interface 18, ROM BIOS 0.21; sound card `$A3`.
 
 - **Function 82** is one table of 34 operations grouped by job (the device, tunes, streams, the sound bank, music,
-  the beep, the mix and what it shows), numbered afresh before 1.0 on the owner's word; interface 18 is the guard, and
-  every rebuilt caller checks it. Refusals: A = X = `$FF` (OODOS's), `SN_REFUSED` with the card's error, `SN_BUSY`.
+  the beep, the mix and what it shows), numbered afresh before 1.0 on the owner's word; interface 18 is reported, and no
+  caller checks it (the pre-1.0 rule). Refusals: A = X = `$FF` (OODOS's), `SN_REFUSED` with the card's error, `SN_BUSY`.
   The Programmer's Guide has it ([function 82](../docs/oodos-programmers-guide/07-function-reference.md#bdos-82),
   [chapter 8](../docs/oodos-programmers-guide/08-game-services.md#sound)).
 - **The driver** (`oodos/sys/sound.s`, all of it in block 61 but the rarely used operations, in block 60): the record
@@ -6979,17 +6996,237 @@ plan](future/sound-device-build.md), units S12-S25). OODOS 0.17 drives sound car
   console's bell (crt.s's BEL), and the cold and warm boots' parts. Block 62 keeps only IRQOTH's branch, DEAFEN's care
   of the card and the boots' calls; SYSBSS has the claims, the card's IEN as OODOS keeps it, and the records' and the stream's working state.
 - **The event area:** +96-107 the stream's, as before; +108-115 reserved, 0 (the mailbox stamp and `EV_SFLAGS`
-  went); +116-119 the tune's state and ms played; +120-123 music's state, blocks queued and notes waiting.
+  went; since 2026-11-25 +108-112 hold the stream's last NEED: [the table](#function-82-one-clean-table)); +116-119 the tune's state and ms played; +120-123 music's state, blocks queued and notes waiting.
   `EK_SOUND` is the card's event, its kind in the code.
 - **OOLIB:** `sid.s` on `SN_TUNE`/`SN_PLAY` (RSIDs play), `pb*.s` and `sid*.s` on function 82's status, EQ, vis,
   levels and registers, `mu*.s` on note blocks (`MU_BLOCK`, `MU_THRESH`); the 6510 music driver (`mudrv/`) removed.
 - **The utilities:** PLAYSID on the card's tune player; SYSINFO's SOUND from `SN_IDENTIFY` (it reads no sound
-  register); SNDFW, new, for the card's firmware. Each needs interface 18.
+  register); SNDFW, new, for the card's firmware.
 - **The ROM (BIOS 0.21):** QUIET's CTRL RESET; the splash's BOOTSOUND; `$C818`'s `$A2` BEEP and `$A3` STOPALL; stage 10
   of the diagnostics on the card's records ([diag.md](diag.md#plan2-card-tests)); the splash's two 6510 players, the
   WAVE image and `card6510.s` removed.
 - **Removed, named for the owner under AGENTS.md's rule:** [design.md's list](design.md#sound-card-revision-3).
   Revision 2's record is [sound-rev2.md](sound-rev2.md).
+
+### What function 82 became ###
+
+The design, moved here from the card's spec (hw/future/sound-device.md, removed in the cleanup pass, 2026-11-25);
+the card itself is [design.md, "Sound card revision 3"](design.md#sound-card-revision-3).
+
+- **The raw operations were removed** (decided by the owner under AGENTS.md's interface rule, before 1.0): `SN_LOAD`,
+  `SN_START`, `SN_SEND`, `SN_WAVE`, `SN_DOCHOOK`, `SN_HOLD`, `SN_GO` (`SN_NOISE` went before, with the noise seed).
+  The draft kept their numbers refused; the clean table ([below](#function-82-one-clean-table)) numbered every
+  operation afresh instead, the removed numbers reused.
+- **A claim no longer lets a program write the part's registers** (decided, as a consequence of "no raw mode"). On
+  revision 2 a claimed part was the program's to drive itself, its registers written directly (the SIDs while the
+  6510 was stopped, the ES5503's oscillators, the EQ and the vis page). Revision 3 has no such registers, so a claim
+  is only an exclusivity among programs and RSXs, and AGENTS.md's rule says to drive the card through function 82
+  only.
+- **Also gone, as consequences** (decided: [Q6](design.md#the-drafts-questions-decided)): the 6510's mailbox events
+  (`EK_SOUND` with a mailbox byte), the event area's mailbox stamp (`EV_SMBOX`, `EV_SMMS`, `EV_SMCNT`, +108–114) and
+  `ES_NOQUEUE` (+115), all of which only `SN_SEND`'s mailbox fed. Their bytes stayed reserved, 0, until 2026-11-25,
+  when +108–112 took NEED's urgent flag and ms buffered.
+- **Typed operations, not a pass-through** ([Q3](design.md#the-drafts-questions-decided)): OODOS checks every address
+  (as function 51's DMA segment), owns channel 2, keeps the claims and the warm boot's clean-up, and can follow a
+  firmware change without the program seeing it.
+- **Each call waits for its REPLY** with a time-out of 100 ms (`SN_BUSY` past it); a load waits for XFERDONE too.
+- **Asynchronous events** reach the queue as `EK_SOUND` events whose code is the event's kind and whose value is its
+  object: `TUNE_ENDED`, `TUNE_STALL`, `MUSIC_MARK` (the value the marker), `MUSIC_COUNT`, `MUSIC_DONE`, `VOICE_DONE`,
+  `UNDERRUN`, `TRACK`, `BEEP_DONE`. This is the event channel that replaced the mailbox's: `EK_SOUND` keeps its kind
+  number, and its code says which event it is.
+- **The stall rule's new source.** On revision 2 `PB_STATUS` judged a SID tune by the mailbox's stamp (a byte from
+  the stub in the last 2 s, 10 s before the first). The card knows better: TUNE_STATUS gives the ms since the last
+  play call and the state (starting, playing, stalled), and `TUNE_STALL` and `TUNE_STARTED` come as events, with the
+  same 2 s and 10 s as the firmware's rule. OODOS writes the tune's state and ms played into +116–119 once a frame
+  while `SC_TUNE` is claimed, as it writes the stream's.
+- **DMA channel 2 stays the sound card's,** its CARD `$0A` as from reset, so the warm boot's DMAWARM (and `video.s`'s
+  assert that module A is SD + 3) and DEAFEN's care for channel 2 while a buffer moves stay as they were; what
+  changed is the register the channel serves (DATA, not RAMDATA, PCMDATA or DOCDATA) and that DRQSEL is gone.
+- **The warm boot** resets the card (CTRL's RESET: every sound stopped, the volumes 255, every source's MIX 255, the
+  EQ off) and sends FREEALL, aborts channel 2 and releases the claims: nothing a program left plays on, and nothing
+  it loaded stays.
+- **An RSX** may claim parts as a program does; the card's sharing lets an RSX's music play beside a program's
+  effects.
+- **OODOS drives revision 3 only** ([Q12](design.md#the-drafts-questions-decided)): with any other card `SN_INFO`
+  says there is none and every other operation is refused.
+
+### Function 82: one clean table ###
+
+The owner's answer 4+5 (2026-11-23): function 82's operations are numbered afresh, grouped by job, with no gaps and
+nothing kept refused; removed numbers are reused, since nothing has shipped before 1.0. OOLIB's interface is 18, and
+no caller checks it (the owner's rule of 2026-11-24, AGENTS.md: no version gates before 1.0, programs and OODOS ship
+together; the refusals first planned were removed in branch B's review). As before: X = 0 and A the operation, or
+A/X a block whose +0 is the operation; A = X = `$FF` for an operation that isn't, a block needed and not given, a part
+not claimed, or no revision 3 card; A = `$FE` (`SN_BUSY`), X = `$FF` when the card doesn't answer in 100 ms or
+channel 2 is busy with the stream. A = `$FD` (`SN_REFUSED`), X = the card's error (`E_MEMORY`, `E_BUSY` ...) when the
+card refused the command (decided, the owner, 2026-11-23), so a program can tell a full store from a chip in use.
+[part] is the claim an operation needs.
+
+| Op | Name | Block (after +0) | Results; on the card |
+|---|---|---|---|
+| | **The device** | | |
+| 0 | `SN_INFO` | none, or +1-3 to fill | A the revision (3; 0 no card), X FEATURES; a block +1, +2 those, +3 the parts no one has claimed |
+| 1 | `SN_CLAIM` | +1 the parts | all or none |
+| 2 | `SN_RELEASE` | +1 the parts | each stopped and given back |
+| 3 | `SN_IDENTIFY` | +1-32 to fill | IDENTIFY's 32 bytes |
+| 4 | `SN_FIRMWARE` | +1-3 a physical address, +4-6 the length, +7 0 a piece, 1 begin (+8-11 the image's length), 2 commit | FW_BEGIN, the pieces into DATA, FW_COMMIT then FWRESULT awaited; no claim; refused while any part is claimed |
+| | **Tunes** | | |
+| 5 | `SN_TUNE` | +1-3 a physical address, +4-6 the length, +7 a slot (0-3) | TUNE_LOAD, the file by channel 2, XFERDONE awaited [`SC_TUNE`] |
+| 6 | `SN_PLAY` | +1 the slot, +2 the song (0 the file's), +3 flags (bit 0 PAL, bit 1 NTSC), +4-7 a length in ms (0 until stopped), +8-9 a fade in ms | TUNE_PLAY [`SC_TUNE`] |
+| 7 | `SN_STOP` | none | TUNE_STOP [`SC_TUNE`] |
+| 8 | `SN_TPAUSE` | none | TUNE_PAUSE [`SC_TUNE`] |
+| 9 | `SN_TRESUME` | none | TUNE_RESUME [`SC_TUNE`] |
+| 10 | `SN_TSTATUS` | +1-16 to fill | TUNE_STATUS's 16 bytes |
+| 11 | `SN_TINFO` | +1 a slot, +2-105 to fill | TUNE_INFO's 104 bytes |
+| | **Streams** (stream 0, and 1 for SN_NEXT) | | |
+| 12 | `SN_STREAM` | +1 the codec, +2-3 the rate, +4 the format | STREAM_OPEN: a stream started afresh, both buffers free [`SC_STREAM`] |
+| 13 | `SN_BUFFER` | +1-3 a physical address, +4-5 the length (0: 65,536) | A the buffer taken (0 or 1); sent into DATA on NEED [`SC_STREAM`] |
+| 14 | `SN_PAUSE` | none | STREAM_PAUSE [`SC_STREAM`] |
+| 15 | `SN_RESUME` | none | STREAM_RESUME [`SC_STREAM`] |
+| 16 | `SN_SEEK` | none | STREAM_FLUSH, both buffers dropped; a stream `SN_NEXT` queued closed first (STREAM_CLOSE) [`SC_STREAM`] |
+| 17 | `SN_END` | none | STREAM_END [`SC_STREAM`] |
+| 18 | `SN_STATUS` | +1-19 to fill | A the state, X the buffers free; the block's +3-4 the ring's room in 256-byte units, +13-14 the rate, +15 the last NEED's flags (bit 0 urgent), +16-19 its ms buffered [`SC_STREAM`] |
+| 19 | `SN_NEXT` | +1 the codec, +2-3 the rate, +4 the format | stream 1 opened and queued behind stream 0 (STREAM_NEXT); SN_BUFFER feeds the one that wants data [`SC_STREAM`] |
+| | **The sound bank** | | |
+| 20 | `SN_SAMPLE` | +1 a slot, +2-4 a physical address, +5-7 the length, +8 the flags, +9-10 the rate, +11-13 the loop start, +14-16 the loop end | SAMPLE_LOAD, XFERDONE awaited |
+| 21 | `SN_EFFECTS` | +1 the first effect, +2-4 a physical address, +5-7 the length | EFFECT_LOAD, XFERDONE awaited |
+| 22 | `SN_EFFECT` | +1 the effect, +2 the volume, +3 the pan, +4 the priority, +5-6 cents, +7 the chip | PLAY; A the voice handle |
+| 23 | `SN_ESTOP` | +1 a voice handle, 0 every effect voice | VOICE_STOP |
+| | **Music** | | |
+| 24 | `SN_MUSIC` | +1 a slot, +2-4 a physical address, +5-7 the length, +8 MUSIC_PLAY's flags | MUSIC_LOAD, XFERDONE awaited, MUSIC_PLAY [`SC_MUSIC`] |
+| 25 | `SN_MCTL` | +1 0 stop, 1 pause, 2 resume, 3 the threshold (+2 n) | MUSIC_STOP, MUSIC_PAUSE, MUSIC_RESUME, MUSIC_THRESH [`SC_MUSIC`] |
+| 26 | `SN_MSTATUS` | +1-24 to fill | MUSIC_STATUS's 24 bytes |
+| | **The beep** | | |
+| 27 | `SN_BEEP` | +1-2 the pitch in Hz (20-20,000), +3-4 the length in ms | BEEP; returns when BEEP_DONE comes (the owner's answer 6) |
+| | **The mix and what it shows** | | |
+| 28 | `SN_VOLUME` | +1 left, +2 right | VOLUME |
+| 29 | `SN_MIX` | +1 a source, +2 a level | MIX |
+| 30 | `SN_EQ` | +1 a band and +2 a gain; or +1 `$FF` and +2-12 all; or +1 `$FE` and +2 off or on | EQ, EQ_ALL, EQ_ON |
+| 31 | `SN_VIS` | +1-98 to fill | VIS |
+| 32 | `SN_SIDREGS` | +1-50 to fill | SIDREGS |
+| 33 | `SN_LEVELS` | +1-10 to fill | LEVELS |
+| | `SN_OPS` = 34 | | |
+
+- **The parts:** `SC_TUNE` `$01`, `SC_STREAM` `$02`, `SC_MUSIC` `$04` (the bit `SC_DOC` had, as the clean table
+  reuses numbers; the draft had `$08`). Effects and the beep need no claim.
+- **What went** (no number kept): `SN_LOAD`, `SN_START`, `SN_SEND`, `SN_WAVE`, `SN_DOCHOOK`, `SN_HOLD`, `SN_GO`,
+  `SC_6510` and `SC_DOC`. `SN_STOP` keeps its name ([Q5](design.md#the-drafts-questions-decided)) at its new number.
+- **The event area:** +96-107 the stream's, as before; +108 the stream's last NEED's flags (`EV_SNEED`, bit 0
+  `SNF_URGENT`: under 1 s buffered), +109-112 the ms buffered it said (`EV_SBUFMS`); +113-115 reserved, 0 (OODOS
+  keeps each stream's last NEED; the urgent bit is cleared by STREAM_END, both at the stream's start and close and
+  the warm boot); +116 the tune's state (TUNE_STATUS's), +117-119 its ms played (24 bits); +120 music's state, +121
+  the blocks queued, +122-123 the notes waiting; +124-127 reserved, 0. OODOS writes them once a frame while the part
+  is claimed, from the frame's status requests.
+
+### Sound card revision 3, as built ###
+
+The build plan (hw/future/sound-device-build.md, approved by the owner 2026-11-23, removed in the cleanup pass), in
+brief: three branches off main `ee3207f7` (ROM BIOS 0.20, OODOS 0.16, OOLIB interface 17), each unit its own commit
+with the tree green after it, each branch gated by `tools/check.sh changed main` and a review round, merged on the
+owner's word and main gated after; the full tier at each branch's end, since the emulator's C++ changed.
+
+**Branch A, the emulator** (feat/sound-device-emu, merged `2ed7f4f4`; the machine's default stayed revision 2):
+
+| Unit | Commit | What |
+|---|---|---|
+| | `017b0e54` | the build plan, with the owner's answers |
+| S0 | `ee38ef40` | the corpus recorder (`SID_RECORD`) and step 1's measurements, the baseline kept outside the repo |
+| S1 | `76bfb7e6` `64d05050` | the interface details, then approved with `SN_REFUSED` |
+| S2 | `f9674e51` | the firmware's core (`sound_fw`, `SoundFwPort`): the parser, replies, the event FIFO, the store, transfers |
+| S3 | `9f5aebc2` | the front end (`sound_card3`) and the machine file's `memsize=` |
+| S4 | `7227288c` | tunes (`sid_plan` split out), and the corpus's device mode (`SID_DEVICE`, `SID_COMPARE`) |
+| S5 | `e5249828` | the digital path, the beep, the bell and the boot sound (`sound_flash.h`) |
+| S6 | `aff19d70` | streams |
+| S7 | `65f169c6` | the sound bank |
+| S8 | `cccdca32` | music |
+| S9 | `7a73ec2b` | self-test and the firmware update (`tools/mksndfw.py`) |
+| S10 | `ada1f1ce` | the session, the WASM API and the debugger's pane |
+| S11 | `fe7b4f9c` | the corpus gate: the SID fix, the re-base, the read mirror |
+| review | `c656f9d7` `c64dddf7` `31b94b86` `66dc9f3b` `cc66f436` `7c5bdc87` `dc1f20c8` `48a0f02d` | round 1: C1-C20 and T1-T13, all fixed |
+
+**Branch B, the system** (feat/sound-device-sys, merged `64e6cb91`: OODOS 0.17, OOLIB interface 18, ROM BIOS 0.21,
+revision 3 the default):
+
+| Unit | Commit | What |
+|---|---|---|
+| S12 | `bb672e55` | the equates: revision 2's renamed `SOUND2_*`, revision 3's added (every image byte-identical) |
+| S13-S17 | `a6b6b3b5` | OODOS's driver, the stream on NEED, the new operations, the bell, OOLIB |
+| S18-S21 | `67e47660` | the ROM, the diagnostics, revision 3 by default (S20), PLAYSID, SYSINFO and SNDFW; revision 3 only |
+| S22 | `6c5c3c63` | AGENTS.md |
+| S23 | `2a30c25b` | the versions, with every pin; the committed cards rebuilt |
+| S24 | `87871aa0` | the books and the record |
+| review | `4eaab9d8` `0653b862` `7bc03195` `7fd94589` `b7fa69d8` `a1aeb600` `fcc5eaf4` | round 1: C1-C7 and T1-T8, all fixed; the version refusals removed; the measured figures in the books |
+
+**Branch C, GW-BASIC** (feat/gwbasic-sound3, merged `b33f38c7`): C1 `f2ad96fc` (the waits poll the card; ON PLAY's
+two fixes), C2 `a9d71ab4` (SOUND and PLAY on the tone generator, in µs), C3 `aadbd819` (the records and the books),
+review round 1 `79699e7e` (T1-T3, C1). Its record is [GW-BASIC's](#gw-basic), "As built, on the sound device".
+
+**After:** feat/ooamp-prep (merged `2034042b`: function 82's replies put with the program's window mapped once a run,
+`SID_PLAY` at `SID_FLAGS`' clock, the firmware model's read-only test accessors), before OO-Amp's port in its own repo;
+fix/need-urgent (merged `e41c8191`: the card's NEED urgent flag and ms buffered passed on, +108-112 and `SN_STATUS`'s
++15-19); the cleanup pass (2026-11-25), in which the emulator's revision 1 and 2 host interface and their suites
+went, and this record and the decisions came home from hw/future/.
+
+**Free bytes,** measured at each step (`make -C oodos/sys sizes`, the ROM's map, `make -C oodos/gwbasic sizes`):
+
+| Where | `ee3207f7` | S13-S17 | S18-S21 | Branch B's review | Branch C | The plan's estimate |
+|---|---|---|---|---|---|---|
+| Block 60 (BDOS) | 911 | 588 | 588 | 591 | 591 | 911 |
+| Block 61 (BIOS) | 1,396 | 787 | 829 | 697 | 697 | ~1,100 (stop under 512) |
+| Block 62's window | 85 | 85 | 85 | 85 | 85 | 85 |
+| Common memory | 47 | 47 | 47 | 47 | 47 | 47 |
+| SYSBSS | 49 | 55 | 55 | 55 | 55 | ~60 |
+| ROM block 31 | 5,007 | | 8,479 | | | ~8,300 |
+| ROM block 22 (D22ZP) | 682 (67) | | 1,219 (63) | | | ~2,200 |
+| ROM block 21 | 7,891 | | 7,713 | | | ~7,950 |
+| Flash blocks 24-28 | 0 | | 81,920 (erased) | | | 81,920 |
+| GW-BASIC P7 | 6,544 | 6,334 | | | 6,680 | ~5,000 |
+| Free for BASIC | 34,772 | 34,772 | | | 34,772 | 34,772 |
+
+Block 61's room was the plan's first risk: the less used operations (`SN_FIRMWARE`, `SN_SAMPLE`, `SN_EFFECTS`,
+`SN_EQ`) went to block 60 (the owner's answer), reached by the same jump, with no cycles added a call. The utilities
+at S23: SYSINFO.COM 10,818, PLAYSID.COM 5,694, SNDFW.COM 4,637 bytes.
+
+**The figures the build moved** (records, not guards): GW-BASIC's PLAY 8,243 cycles a note before, 3,481 after
+branch C (its bound 1,000-9,000); the stream's terminal count 583 cycles at the fewest, a 4 KB piece 4,679, a 44.1 kHz
+16-bit stereo stream 3.1% of the CPU; a frame's interrupt 447 cycles with nothing claimed, 781 with the stream, 5,285
+with all three parts; DIAG's quick run 60.3 s and full run 171.6 s with BIOS 0.21; the tick's cost unchanged by the
+build (in the cleanup pass, code placement in common memory moved it from 142 to 143 cycles with no area,
+and its exact pins became ceilings). The corpus: 60,610 of 60,610
+tunes alike on the device against revision 2's register path in the owner's sense, the 148 known failures the same.
+
+**What changed in the tests' method, each the owner's** (2026-11-23 to -24):
+
+- *The corpus:* "plays identically" is the 6510's SID writes with their cycles, the play calls and each chip's own
+  output; the final mix's hash re-based once. `Sid::quiet()` made exact (its at-rest shortcut only once the filter's
+  state is exactly 0), so a chip's output no longer depends on how its clocks are split, and S0's baseline re-based
+  once for it (SID A's output changed in 4,059 tunes, SID B's in 4,058, no write). A one-SID tune's reads of
+  `$D420-$D43F` answer SID A (the read mirror). Accepted as built: the firmware update's rule (review C9) and SID B's
+  output moving in 27 one-SID tunes.
+- *OODOS:* `the_stream_s_cost_to_the_host` counts pieces by PIECE's entries; `a_program_s_record_and_the_handler_s_never_mix`
+  counts an interrupt anywhere inside the record write as its premise; test_oodos_clock's sampling case samples
+  only at an instruction boundary with I clear; the cases that only tested a removed interface replaced by card-based
+  ones (the expectation blocks A-E, approved as listed).
+- *The tools and the web:* `tools/test_map.py` needs no suite for a path gone from the work tree; the web tests wait
+  for the card's boot sound instead of "6510 running"; the re-pins that followed SNDFW.COM and the larger SYSINFO.COM
+  on the committed card (test_gwbasic_files' bytes free, two OOUI goldens).
+- *GW-BASIC:* the owner's 8 answers to branch C's plan and its expectation block F.
+- *The version refusals* first built at S23 (each rebuilt caller refusing an OODOS before interface 18) were removed
+  in branch B's review under the pre-1.0 rule, with their cases.
+
+**Risks still open:**
+
+- **Function 20's record path** reads 203 KB/s alone and 189 KB/s with a stream's interrupts, under a 48 kHz stereo
+  stream's 192 KB/s: a program streaming at that rate reads its file by function 83's `DM_LOAD` (L3STRM does). A
+  later OODOS fix.
+- **The release** (the plan's step 7): the site's emulator with revision 3 and every catalog card rebuilt on OODOS
+  0.17 (the owner's answer 15) wait for it; a card from before 0.17 on a revision 3 machine writes registers the card
+  doesn't have and plays no sound.
+- **The boot sound** is re-expressed by the firmware's sequencer: heard the same, not sample-identical.
+- **The firmware update in the emulator** tests only the path: the model can't change its own C++.
+- **Later, not built:** loading from an open file ([Q14](design.md#the-drafts-questions-decided)), the spec's 6510
+  map and fuller C64 support for RSIDs (each with its own corpus baseline), WIDE on the DATA port, a `fwslots=`
+  machine option ([design.md's open questions](design.md#open-questions)).
 
 ## Testing ##
 

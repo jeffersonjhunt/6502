@@ -1,5 +1,5 @@
 ; OODOS's sound (hw/oolib.md, "The plan", L3), on sound card revision 3,
-; the card as a device (hw/future/sound-device.md and its interface details):
+; the card as a device (hw/design.md, "Sound card revision 3"):
 ; function 82, its claims, the card's command records and its events, the
 ; loads by DMA channel 2 into DATA, the stream's buffers sent when the card
 ; asks (NEED), the beep and the console's bell on the card, the event area's

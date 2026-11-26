@@ -7,7 +7,7 @@
 ; plays it from the card's own flash (the samples and the sequence revision 2's
 ; ES5503 player had), begun by one record, BOOTSOUND, at the vertical blank
 ; where the splash starts, so the sound's frame n plays with the picture's
-; frame n (hw/future/sound-device.md, "Boot, reset and Apple II mode").
+; frame n (hw/design.md, "Sound card revision 3", "Boot, reset and Apple II mode").
 ;
 ; CTRL's RESET first, so whatever a program left playing before C800R stops and
 ; a record it left half written is dropped; then READY waited for, 250 ms at

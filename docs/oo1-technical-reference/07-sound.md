@@ -6,7 +6,7 @@ a controller and its firmware. The host never touches the chips: it writes comma
 event records back, and sends data through one port by DMA.
 
 The design record, for the reasons: [hw/design.md, "Sound"](../../hw/design.md#sound), and the card's spec,
-[hw/future/sound-device.md](../../hw/future/sound-device.md).
+[hw/design.md, "Sound card revision 3"](../../hw/design.md#sound-card-revision-3), which has the records' layouts too.
 
 ## The card as a device
 

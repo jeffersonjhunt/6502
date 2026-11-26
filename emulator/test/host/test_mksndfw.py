@@ -1,4 +1,4 @@
-"""tools/mksndfw.py's images: the header the sound card's firmware checks (hw/future/sound-device.md, S1).
+"""tools/mksndfw.py's images: the header the sound card's firmware checks (hw/design.md, "The firmware image").
 
     python3 -I test_mksndfw.py path/to/tools/mksndfw.py
 """

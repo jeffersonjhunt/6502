@@ -1,7 +1,7 @@
 /**
  * @file test_sound_music.cpp
  * @brief The sound card, revision 3: music (note blocks in one transfer, the sequencer, notes waiting, the
- * threshold, markers and MUSIC_DONE; hw/future/sound-device.md, "Music" and its S1 appendix's note block).
+ * threshold, markers and MUSIC_DONE; hw/design.md, "Music" and "The note block").
  * @copyright Copyright (c) 2024-2026 Jefferson J. Hunt (MIT)
  */
 

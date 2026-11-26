@@ -1,6 +1,6 @@
 /**
  * @file test_sound_fw.cpp
- * @brief The sound card's firmware, revision 3, alone (sound_fw.h; hw/future/sound-device.md and its S1 appendix).
+ * @brief The sound card's firmware, revision 3, alone (sound_fw.h; hw/design.md, "Sound card revision 3" and its records' layouts).
  * @copyright Copyright (c) 2024-2026 Jefferson J. Hunt (MIT)
  *
  * The firmware on a fake port (no chips): the host's side is its FIFOs, as the front end's registers would give

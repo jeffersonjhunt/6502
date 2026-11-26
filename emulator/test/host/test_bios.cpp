@@ -712,7 +712,7 @@ namespace
 
 TEST(the_splash_sends_bootsound_at_frame_0_s_blank)
 {
-    // On revision 3 (hw/future/sound-device.md, "Boot, reset and Apple II mode") the splash sends one record,
+    // On revision 3 (hw/design.md, "Boot, reset and Apple II mode") the splash sends one record,
     // BOOTSOUND, on the vertical blank its frame 0 begins on, once the card is READY: the firmware plays the boot
     // sound from its flash (the sequence's start, the engine, heard), the boot doesn't wait for it, and after 5 s
     // the monitor has the screen and the sound is over. Must fail with BOOTSOUND sent before the blank.

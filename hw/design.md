@@ -1582,9 +1582,10 @@ players.
   features, and a caller never knows what is inside it. Data goes in by DMA; everything is played and controlled by
   commands; events come back (done, markers, counts, underruns, requests for data). There is no raw mode and no
   window into card memory.
-- **Revision 3 only** (the owner, 2026-11-23): revisions 1 and 2 never existed as hardware. The ROM, OODOS and
-  OOLIB drive revision 3 alone, and the revision 1 and 2 equates were removed at the end of the system's branch.
-  Revision 2's design is kept as a record in [sound-rev2.md](sound-rev2.md).
+- **Revision 3 only** (the owner, 2026-11-23): revisions 1 and 2 never existed as hardware. The ROM, OODOS, OOLIB and
+  the emulator drive revision 3 alone; the revision 1 and 2 equates were removed at the end of the system's branch,
+  and the emulator's revision 1 and 2 host interface in the cleanup pass (2026-11-25). Revision 2's design is kept
+  as a record in [sound-rev2.md](sound-rev2.md).
 - **Two SIDs and a 6510** stay, hidden: the 6510 runs `.sid` tune code, PSID and RSID, at a C64's speed, with the
   card managing it. An **ES5503** with 128 KB of wave RAM plays samples, and a **stream decoder** raw PCM and MP3.
 - **The SIDs go through the codec's ADC** into the card's digital path, so they are mixed, EQ'd, in the vis page and
@@ -1597,6 +1598,7 @@ players.
 - **The beep is the card's** tone generator, and the console's bell a sound of its own. No card, no sound, not even a
   beep. The USB card's speaker stays for Apple II mode and the diagnostics' U5.
 - **Old software may break:** nothing was placed to keep revision 2's interface working.
+- The rest of what was decided, and when, is [Sound card revision 3's decisions](#sound-card-revision-3s-decisions).
 
 **Why a 6510 on the card.** A `.sid` file is 6502 code (the tune's own player), not data, so playing it needs a CPU
 running at a C64's speed with the SIDs in its own map. The main CPU can't: the I/O hole collides with tunes loaded
@@ -1608,51 +1610,122 @@ free page, the vectors, the port, CIA 1's timer, a frame interrupt, the KERNAL's
 
 **In Apple II mode** the card is idle and its block hidden; entering the mode pulses /RESET.
 
-### Sound card revision 3 ###
+### Sound card revision 3's decisions ###
 
-The card's spec is [future/sound-device.md](future/sound-device.md) (approved, with its interface details, 2026-11-23),
-and its build plan [future/sound-device-build.md](future/sound-device-build.md). The Technical Reference's [chapter
-7](../docs/oo1-technical-reference/07-sound.md) has the registers, the commands, the events and the errors; the
-Programmer's Guide's [function 82](../docs/oodos-programmers-guide/07-function-reference.md#bdos-82) and [chapter
-8](../docs/oodos-programmers-guide/08-game-services.md#sound) what a program sees.
+The owner's decisions on the sound card as a device, moved here from its spec and build plan (hw/future/, removed in
+the cleanup pass, 2026-11-25, once their text was home). The question numbers are kept, since the records cite them.
 
-**The interface (decided).**
+#### Decided on the draft (2026-11-21) ####
 
-- **Registers** at `$C500–$C511`, the ID at `$C57F`, little-endian, after the video card's conventions; the storage
-  card's where it already fronts a controller (commands run on the card, an ERROR code, READY after start-up, a reset
-  strobe, objects that survive /RESET).
-- **Records.** A command is a record written to CMD: the command, a length, a tag of the host's, its parameters. Every
-  command gets exactly one REPLY, in order, with its tag and a status. Every other event is a record read from EVT:
-  its kind, its object, the card's millisecond stamp and a payload. Kinds and commands are grouped by job in the high
-  nibble (the device, tunes, the sound bank, music, streams, the beep, the mix), with transfers and the flash in group
-  1.
-- **Transfers.** A load's data goes through DATA once its command has opened a transfer: by DMA channel 2 in demand
-  mode, the card asking only while the transfer is open and has room (CTRL's DRQ), so revision 2's standing request
-  is gone. XFERDONE says it ended.
-- **The interrupt** is IRQH bit 2, while ISR AND IEN isn't 0: an event waiting, a transfer done, CMD's room back, the
-  firmware up.
-- **Resets.** CTRL's RESET does what /RESET does: every sound stopped, an open transfer abandoned, both FIFOs emptied,
-  IEN cleared, the volumes 255 and the EQ off; the firmware keeps running and the store keeps what it holds. FWRESTART
-  starts the firmware over.
+The owner's answers to the draft's first questions, in the owner's words where given:
 
-**The firmware (decided as the spec has it):** the sequencers (music, effects, the voice manager) step each
-millisecond; every timed thing is on the card's own clock, never the host's; the digital path runs at 48 kHz (the
-ES5503, raw PCM, MP3, the tone generator and the SIDs from the ADC, then the EQ, the vis tap, the volumes and the
-mix). The card shares its chips by holder: a tune takes the SIDs it uses, music takes SID voices and ES5503 voices for
-its blocks, and effects get the voices left, by priority. Streams are gapless: the card asks for each chunk (NEED),
-reports underruns, and plays a second stream queued behind the first with no gap.
+- **No compatibility placement.** "I dont care about old code, there really isnt any, it can break." The registers
+  are laid out from the block's start; nothing is placed to keep old software quiet.
+- **Card memory:** 2, 4 or 8 MB, "like the video card (a size register), 8 MB max."
+- **The part:** not pinned; "possibly an FPGA, like the video card and OO-AP, doing the 6510, the ES5503 and the SIDs
+  all in one package. The spec says what the card does, not the part."
+- **Hardware:** "treat it like the Video Card here as well, its good to know the specs, but assume the hardware can
+  be built to support those specs." So a stream, the ES5503 and the SIDs play at once, and revision 2's mutual
+  exclusion goes.
+- **The SIDs through the codec and ADC:** "yes." So a one-SID tune plays on SID A alone, heard in both ears.
+- **Firmware:** in the card's own flash. "OODOS loads nothing onto the card" only meant OODOS shouldn't have to load
+  firmware at every boot when it can live on the device's own storage; updates through OODOS (`SN_FIRMWARE`,
+  `SNDFW.COM`) are simply a feature, not a rule against OODOS ever sending the card code.
+- **GW-BASIC's voice:** "a tone generator, as long as it doesn't add complexity"
+  ([hw/oodos.md, GW-BASIC](oodos.md#gw-basic)).
+- **No card:** "no sound, not even a beep."
+- **Bare metal:** the card's command records documented as its interface; BIOS entry points for BEEP and STOP-ALL
+  ([Bare metal](#bare-metal)).
+- **RSID:** "played as today at first, fuller C64 support later."
+- **The beep** is done by the sound card (a device command), not the USB card; GW-BASIC's BEEP and the console's
+  bell go there.
+- **The impacts named** (the owner's list): the hardware (a new revision; sound-rev2.md stays revision 2's record),
+  the emulator's card model and the WebUI's Play .sid and audio, the BIOS (the sound diagnostics, the splash's card
+  check), OODOS's function 82 (the raw `SN_LOAD`, `SN_START`, `SN_SEND`, `SN_HOLD`/`SN_GO`, `SN_WAVE` and
+  `SN_DOCHOOK` removed, under AGENTS.md's rule, before 1.0), OOLIB (the music driver and `sid.s`'s stub retired,
+  `PB_*` onto the device's status), PLAYSID, SYSINFO, the books, the tests (the SID corpus must still play
+  identically), GW-BASIC's SOUND, PLAY and BEEP. OO-Amp's port is its own step, in its own repo.
+- **The steps, in order:** the spec (measuring today's driver and the ES5503 first), the emulator's card model,
+  OODOS's and OOLIB's device layer, the BIOS, PLAYSID and the books, GW-BASIC's sound, the site. The build took them
+  as three branches ([the rulings](#the-owners-rulings-on-the-build-2026-11-23), 1).
 
-**The owner's rulings on the build** (2026-11-23, [the build plan's decisions](future/sound-device-build.md#decisions)):
+**The noise seed** (the owner, 2026-11-21), decided on the way: the SID voice-3 noise seed (BIOS 0.18's `$C818`
+`$A2`, OODOS's `SN_NOISE`, OOLIB interface 15's addition, GW-BASIC 7f's RANDOMIZE SOUND) was removed plainly, in a
+small branch of its own before this work: "a feature that never saw the light of day." No withdrawn slots and no
+compatibility notes; the numbers were simply free again, and only the BIOS's version moved. The random number comes
+from hardware instead: the ATECC608 on the north bridge's I²C ([above](#the-random-source)).
+
+#### The draft's questions, decided ####
+
+The owner, 2026-11-21: "recommendations as listed for the sound spec." Each question's recommendation is the
+decision; where the build later changed it, the note says so.
+
+- **Q1.** **The ID:** `$A3`, "revision 3". The owner's 2026-11-07 rule ("`$A3` and up keep what `$48–$63` mean")
+  lapses with "it can break"; the high nibble stays `$A`, the module, which the BIOS and OODOS use to find the card.
+- **Q2.** **One code base for the card's logic and the emulator:** `sound_fw` written as portable C++ with no emulator
+  dependencies (as `es5503` is): if the card's part runs C++, it is the card's code; if it is an FPGA, it is the
+  design's reference model, and the FPGA is tested against it. Either way its arithmetic (the EQ's precision, the
+  resampling, the ADC path's level) is the card's, bit for bit.
+- **Q3.** **Typed operations, not a pass-through:** OODOS checks addresses, owns channel 2, keeps the claims and the
+  warm boot, and the device's command set may change behind them. A pass-through would make the card's commands
+  OODOS's stable interface.
+- **Q4.** **Claims:** `SN_CLAIM` kept for exclusivity between a program and an RSX: `SC_TUNE` (bit 0, `SC_6510`'s,
+  renamed), `SC_STREAM`, `SC_MUSIC`; `SC_DOC` retired. Effects and the beep need no claim. (The clean table put
+  `SC_MUSIC` at `$04`, the bit `SC_DOC` had.)
+- **Q5.** **`SN_STOP`** kept as "stop the tune" (TUNE_STOP), the nearest to stopping the 6510 and silencing the SIDs.
+  (Operation 7 in the clean table.)
+- **Q6.** **The mailbox's leftovers:** `EK_SOUND`'s mailbox meaning, `EV_SMBOX`, `EV_SMMS`, `EV_SMCNT` and
+  `ES_NOQUEUE` retired with `SN_SEND` (their bytes reserved, 0), and the tune's and music's status given new bytes
+  (+116–123), not the old ones. (+108–112 later took the stream's last NEED: [the event
+  area](oodos.md#function-82-one-clean-table).)
+- **Q7.** **The `MU_` calls** kept, rebuilt on note blocks, so programs and tests that use them carry over; the
+  driver itself retired.
+- **Q8.** **The note block's units:** lengths and gate times in µs, 32 bits; frequencies as Hz × 16 in 24 bits, or a
+  note number; up to 8 logical voices a block.
+- **Q9.** **The SID effect format:** our own step table ([below](#the-sound-banks-definitions)), with a Linux
+  converter later; tracker formats wait for codec 2 (MOD), as OOLIB's question 5 said.
+- **Q10.** **A tune's length:** TUNE_PLAY takes an optional length and fade from the program (a `.sid` has no end);
+  the card reports ms played and play calls. A song-length list is the program's, not the card's.
+- **Q11.** **Gapless MP3 trimming:** yes, the encoder delay and padding taken off when the file's gapless header
+  gives them; none otherwise.
+- **Q12.** **Older cards:** OODOS and the BIOS drive revision 3 only (as with video revision 2). (The emulator kept
+  revisions 1 and 2 for their tests at first; they went under the owner's standing rule of 2026-11-24.)
+- **Q13.** **The SIDs' model:** the card sets the chips' model (6581 or 8580) per tune, as the `.sid` header asks,
+  and IDENTIFY says it can; with an FPGA's SIDs that is a setting, with drop-in chips a configuration sequence where
+  the chip takes one.
+- **Q14.** **Loading from a file:** later, an operation that takes an open FCB and a length and sends the records to
+  the card through OODOS's own buffer, so a program needs no memory for a 64 KB tune or a large sample set. Not
+  built.
+- **Q15.** **What /RESET keeps:** the store's objects, as the storage card keeps its mounts; OODOS's cold boot sends
+  FREEALL. Power-on and FWRESTART empty it.
+
+The owner also asked where a microcontroller (an RP2350B, say, with 520 KB of SRAM) gets the 2, 4 or 8 MB store:
+QSPI PSRAM on its second chip-select ([An example build](#an-example-build)).
+
+#### The interface details, decided (2026-11-23) ####
+
+- The owner: "recommendations as listed, with the clean table". The layouts the draft left open
+  ([The records' layouts](#the-records-layouts)) are approved as written, with function 82 laid out afresh as one
+  table of 34 operations (`SN_OPS` 34), removed numbers reused and none kept refused; FWRESULT at `$11`; `SC_MUSIC`
+  `$04`; a rest entry of 5 bytes.
+- Added: `SN_REFUSED`, A = `$FD` and X = the card's error, when the card refuses a command.
+- "Notes waiting" leaves out the note sounding; branch C checked GW-BASIC's PLAY(n) against the IBM manual (the
+  manual is silent; GW-BASIC counts the one sounding itself: [hw/oodos.md](oodos.md#gw-basic)).
+
+#### The owner's rulings on the build (2026-11-23) ####
+
+The owner's answers to the build plan's questions: "recommendations as listed, with the clean table".
 
 1. Three branches: the emulator, the system (the ROM, OODOS, OOLIB, the utilities, the books), GW-BASIC; then the
    release, every catalog card rebuilt on OODOS 0.17.
 2. "Plays identically" means the 6510's SID writes and each chip's own output; the mix's hash was re-based once. The
-   6510's decode is today's for now.
+   6510's decode is today's for now, and the sweep counts the tunes the spec's map would change.
 3. **Function 82 is one clean table, grouped by job** (operations 0–33, `SN_OPS` 34), renumbered before OODOS 1.0 on
-   the owner's word: removed numbers reused, no gaps, nothing kept "refused". The guard is OOLIB interface 18: every
-   rebuilt caller (GW-BASIC's loader, `ui_load`, PLAYSID, SYSINFO, SNDFW, OO-Amp's port) checks it and refuses an
-   older OODOS. `SN_REFUSED` (`$FD`, X the card's error) added. The parts: `SC_TUNE` `$01`, `SC_STREAM` `$02`,
-   `SC_MUSIC` `$04`.
+   the owner's word: removed numbers reused, no gaps, nothing kept "refused". `SN_REFUSED` (`$FD`, X the card's
+   error) added. The parts: `SC_TUNE` `$01`, `SC_STREAM` `$02`, `SC_MUSIC` `$04`. (The ruling had every rebuilt
+   caller check OOLIB interface 18 and refuse an older OODOS; those checks were removed in branch B's review under
+   the owner's pre-1.0 rule of 2026-11-24: there is no older OODOS before 1.0. The version is reported, not
+   checked.)
 4. `SN_BEEP` waits until the beep has ended.
 5. Break's QUIET writes CTRL's RESET (one write, no record, so a record half written by a program is dropped, not
    continued); OODOS's cold boot strobes it first for the same reason; `$C818`'s STOPALL still sends the record.
@@ -1661,17 +1734,680 @@ reports underruns, and plays a second stream queued behind the first with no gap
    stays as a thin call.
 8. The revision 1 and 2 equates are removed at the end of the system's branch.
 9. The boot sound: the same samples and sequence, played by the firmware ([above](#the-splashs-sound)).
-10. The interface details (the event kinds and payloads, the replies' results, the note block, the sound bank's
-    definitions, the firmware image's header) approved as one table, with FWRESULT at `$11`, a rest entry of 5 bytes,
-    and "notes waiting" leaving out the note sounding.
+10. The interface details approved as one table ([above](#the-interface-details-decided-2026-11-23)).
+11. The build's deviations from the spec approved as one block: the separate classes (`sound_card3`, `sound_fw`,
+    `sid_plan`, `sound_flash.h`) and `Machine::sound_device()`, the firmware's port, the reply wait and the handler's
+    tags, the frame's status requests, the sound line's options.
+12. The expectation changes approved as blocks, exactly as listed in their units; OO-Amp's port scheduled right
+    after the system's branch.
 
-**Removed with revision 2's interface** (named for the owner under AGENTS.md's rule, decided): function 82's
-`SN_LOAD`, `SN_START`, `SN_SEND`, `SN_WAVE`, `SN_DOCHOOK`, `SN_HOLD` and `SN_GO`, `SC_6510` and `SC_DOC`; the event
-area's mailbox stamp and `EV_SFLAGS` (+108–115, now reserved); `EK_SOUND`'s mailbox byte (it is now the card's event:
-the kind in its code, the object in its value); OOLIB's music driver for the 6510 (`mudrv/`) and the `.sid` stub;
-the ROM's two splash players, the WAVE image and the diagnostics' 6510 program (`card6510.s`).
+### Sound card revision 3 ###
 
-**Under OODOS (OODOS 0.17, OOLIB interface 18):** OODOS drives the card itself (`oodos/sys/sound.s`, in block 61):
+Status: **built in the emulator** (2026-11-24: OODOS 0.17, OOLIB interface 18, ROM BIOS 0.21, the card's firmware
+1.0; [hw/oodos.md, "Sound card revision 3, as built"](oodos.md#sound-card-revision-3-as-built) has the units); the hardware is
+proposed, as a spec the part meets. This section is the design record, moved here from the card's spec
+(hw/future/sound-device.md, removed in the cleanup pass, 2026-11-25). OODOS's side is [hw/oodos.md, "OODOS
+0.17"](oodos.md#oodos-017-sound-card-revision-3), OOLIB's [hw/oolib.md, "Sound"](oolib.md#sound), the ROM's
+[hw/diag.md](diag.md#the-rom-bios-021-sound-card-revision-3), the tests [hw/testing.md](testing.md#sound-card-revision-3s-tests).
+The Technical Reference's [chapter 7](../docs/oo1-technical-reference/07-sound.md) has the registers, the commands,
+the events and the errors; the Programmer's Guide's [function
+82](../docs/oodos-programmers-guide/07-function-reference.md#bdos-82) and [chapter
+8](../docs/oodos-programmers-guide/08-game-services.md#sound) what a program sees.
+
+#### What revision 3 is ####
+
+| Area | Revision 2 (designed, never built) | Revision 3, the device |
+|---|---|---|
+| What software sees | the SIDs' registers, the 6510's RAM, a mailbox, a PCM FIFO, the ES5503's port, EQ and vis registers | one device: commands in, data in by DMA, events out. Nothing inside is reachable |
+| Who runs the chips | the host, or code the host loads onto the 6510 | the card's own logic, the firmware. The 6510 runs only `.sid` code, PSID and RSID |
+| What implements it | an RP2350 | open: a microcontroller, an FPGA (as the video card's), or both, with the 6510, the ES5503 and the SIDs possibly in one package |
+| Loading code onto the card | OODOS's `SN_LOAD`, `SN_START`; OOLIB's music driver and `.sid` stub | none at boot: the firmware lives in the card's own flash; an update through OODOS is a feature |
+| Window into card memory | RAMADDR/RAMDATA, DOCADDR/DOCDATA | none |
+| Sharing | one part, one owner; PCM and the ES5503 exclude each other | the card shares the chips: a tune on one SID while effects play on the other SID or the ES5503 |
+| Card memory | 64 KB 6510 RAM, 128 KB wave RAM, 128 KB FIFO | 64 KB and 128 KB as before, plus a store of 2, 4 or 8 MB, its size in a register, as the video card's |
+| The SIDs' sound | analog, mixed after the card's digital path | through the codec's ADC into the digital path: mixed, EQ'd, in the vis page, under the master volume |
+| Streams | fed through a 128 KB FIFO: 0.74 s of CD audio | gapless chunked streams, the card asking for the next chunk, underruns reported |
+| Sound bank | none | SID effects and ES5503 samples loaded once, "play effect X", voices managed across both chips |
+| Music | OOLIB's driver on the 6510, a mailbox byte at a time, 16-bit lengths | a block of notes in one transfer, 32-bit lengths, one done signal, note counts |
+| Beep | the USB card's speaker, timed by the CPU | a sound card command; GW-BASIC's BEEP and the console's bell go there. No card, no sound |
+| ID | `$A2` | `$A3` ([Q1](#the-drafts-questions-decided)) |
+| DMA | channel 2, a standing request at DRQSEL 0 and 2 | channel 2, asking only while a transfer is open and the card has room |
+| Interrupt | IRQH bit 2: mailbox byte, ES5503 | IRQH bit 2: events waiting |
+
+#### Goals ####
+
+- The card presents itself as one device with features. The caller never knows what is inside it.
+- Data goes in by DMA. Everything is played and controlled by commands. Events come back: done, markers, counts,
+  underruns, requests for data.
+- No raw mode. OODOS loads nothing onto the card at boot (the firmware lives in the card's own flash), and there is
+  no host window into card memory. Updating that firmware through OODOS is a feature.
+- The 6510 stays, hidden, running `.sid` tune code, RSID as well as PSID, with the card managing it. RSIDs play as
+  revision 2's did at first; fuller C64 support comes later.
+- Songs bigger than card memory play gaplessly, fed in chunks.
+- Every `.sid` tune that played on revision 2's register path plays identically: the 61,201-tune corpus is the
+  acceptance test, in the owner's sense of identical ([ruling 2](#the-owners-rulings-on-the-build-2026-11-23)).
+- The interface follows the video card's conventions: registers from the start of the card's block, the ID at `$7F`,
+  little-endian multi-byte fields, a data port served by DMA, ISR/IEN interrupts on the card's IRQH bit, a size
+  register for card memory, sizes in 24 or 32 bits. It follows the storage card where the storage card already
+  fronts a controller: commands run on the card, an ERROR code, READY after start-up, a reset strobe, and objects
+  that survive /RESET.
+- One program's view: function 82's `SN_` operations, OOLIB's `MU_`, `PB_` and `SID_` calls, and GW-BASIC's SOUND,
+  PLAY and BEEP all sit on the same device commands. Bare-metal code (WOZMON, the ROM) uses the command records
+  directly: they are the card's documented interface.
+- Results don't depend on the host's speed or the emulator's audio rate.
+
+**Out of scope:** the real card's schematic and the part that implements it, OO-Amp's port (its own repo), a MOD
+player (codec 2 stays reserved), Apple II mode sound, and the random-number source that replaced the noise seed.
+
+#### The card's logic ####
+
+The spec says what the card does, not the part (the owner, 2026-11-21: "treat it like the Video Card here as well,
+its good to know the specs, but assume the hardware can be built to support those specs"). The part is open: a
+microcontroller, an FPGA as the video card and OO-AP have, or both, doing the 6510, the ES5503 and the SIDs possibly
+all in one package. Here **"the firmware"** means the card's logic, whatever implements it, and a **firmware update**
+replaces it.
+
+What the card does, as specs the hardware meets:
+
+- **The backplane:** the registers below, answered within the bus's read budget, with /WAIT where a card may pull it
+  ([wait states](#wait-states-and-the-read-budget)); the DATA port taking a byte a cycle (or a word with WIDE) for as
+  long as a transfer lasts.
+- **The 6510:** cycle-exact at the SID clock (PAL 985,248 Hz or NTSC 1,022,727 Hz) with its C64-like map.
+- **The SIDs:** two (6581 or 8580 behaviour), each register write reaching the chip on the 6510's cycle.
+- **The ES5503:** 32 oscillators and 128 KB of wave RAM.
+- **The digital path at 48 kHz:** the ES5503's output, raw PCM, MP3 decoding, the tone generator, the SIDs from the
+  ADC, then the EQ, the vis tap, the volumes and the mix, all at once, out through the codec.
+- **The sequencers:** music, effects and the voice manager, stepped each millisecond.
+- **Time:** every timed thing on the card's own clock, never the host's.
+
+##### An example build #####
+
+*One way to meet the spec, not a choice: the part stays open. Part names, PSRAM bandwidth and latency are from memory,
+to be checked when a card is built.*
+
+- **A microcontroller build.** An RP2350B-class MCU runs the firmware straight from the card's QSPI flash
+  (execute-in-place through its cache) and keeps its working state (the FIFOs, the voice and queue tables, the
+  decoder's state, the output buffers) in its own on-chip SRAM, about 520 KB.
+- **Where an MCU gets the store.** One QSPI PSRAM part on the RP2350's second QMI chip-select, memory-mapped through
+  the same cache: 2, 4 or 8 MB parts exist, and the interface addresses up to 16 MB. The part fitted sets MEMSIZE. The
+  host's DMA lands in the store through the card's DATA port.
+- **Why PSRAM is fast enough for the store.** CD-quality PCM is about 176 KB/s and the host bus's DMA a few MB/s at
+  most; a QSPI PSRAM moves tens of MB/s, far above both.
+- **Why the 6510's RAM and the wave RAM aren't in it.** The 6510 (64 KB) and the ES5503 (128 KB wave RAM) read their
+  memory at their own clock, cycle by cycle, with no room for PSRAM's latency. Each has its own fast SRAM (or an
+  FPGA's block RAM or SRAM). The store feeds them: a tune is copied into the 6510's RAM at play, a sample into wave
+  RAM when an effect needs it.
+- **An FPGA build** (the owner's alternative, as the video card and OO-AP have): the FPGA carries the 6510, the SIDs
+  and the ES5503, with the store in SRAM or PSRAM beside it, as the video card carries its 2 MB; a small MCU or a soft
+  core may run the command parser, the sequencers and the MP3 decoder.
+
+##### The SIDs and the codec #####
+
+- Two SIDs on the card, driven only by the card (for the 6510's writes and the card's own voices).
+- A stereo **codec with an ADC** instead of revision 2's DAC alone (the owner: "SIDs through the codec and ADC:
+  yes"): the DAC plays the digital path, and the ADC takes the two SIDs' outputs back in, so the SIDs go through the
+  same mix, EQ, vis tap and master volume as everything else. So the vis page shows the SIDs too, a mono tune is
+  heard in both ears without writing SID B, and the master volume no longer scales `$D418`'s nibble (which changed a
+  6581's samples). The path's delay is the same for every SID sound, so tunes stay in time with themselves.
+
+##### Flash and the update #####
+
+- The firmware is in the card's own flash: two images (A and B), a settings page, and the built-in sounds (the boot
+  sound's samples, which left the system flash with BIOS 0.21, the console's bell, and a small default sound bank).
+- **The update** is a command set: `FW_BEGIN` opens a transfer of the image through DATA and `FW_COMMIT` ends it. The
+  card writes the image into the slot it isn't running from, checks its CRC-32 and its header (the card type and a
+  version), and only then marks it the one to boot; the next power-on or `FWRESTART` boots it. A bad image leaves
+  the old one booting. `SNDFW.COM` sends the file through function 82 (`SN_FIRMWARE`).
+- A recovery path for a card whose images are both bad is the hardware's own (a programming header), not
+  software's.
+- **The firmware's version** is in IDENTIFY's reply and in FWVER, so the BIOS, SYSINFO and the diagnostics show it.
+
+#### Card memory ####
+
+##### What the card holds #####
+
+| Memory | Size | Holds |
+|---|---|---|
+| The 6510's RAM | 64 KB | the running tune |
+| Wave RAM | 128 KB | the ES5503's samples in use (the chip's bank bit allows 128 KB) |
+| Working memory | the card's own | DMA's landing buffer, the decoder's state, the output buffers, the voice and queue tables, the FIFOs |
+| **The store** | **2, 4 or 8 MB** (as the video card, a size register; 8 MB the most) | loaded tunes (the files themselves), the sound bank's samples and effect tables, music blocks, and each stream's ring of chunks |
+
+MEMSIZE says what is fitted, in 64 KB units (32, 64 or 128), as the video card's does; software reads it and never
+assumes a size. Wave RAM is a cache of the store: a sample in the bank is copied into wave RAM when an effect needs it,
+so the bank can be bigger than 128 KB. A tune's file stays in the store, and its image is put into the 6510's RAM at
+each play, so a tune can be restarted or a song changed without the host sending it again.
+
+##### The streaming arithmetic #####
+
+| Stream | Bytes a second | 128 KB (rev 2's FIFO) | 2 MB | 4 MB | 8 MB |
+|---|---|---|---|---|---|
+| PCM 44.1 kHz, 16-bit, stereo | 176,400 | 0.74 s | 11.9 s | 23.8 s | 47.6 s |
+| PCM 48 kHz, 16-bit, stereo | 192,000 | 0.68 s | 10.9 s | 21.8 s | 43.7 s |
+| PCM 22.05 kHz, 8-bit, mono | 22,050 | 5.9 s | 95 s | 3.2 min | 6.3 min |
+| MP3 128 kbit/s | 16,000 | 8.2 s | 2.2 min | 4.4 min | 8.7 min |
+| MP3 320 kbit/s | 40,000 | 3.3 s | 52 s | 1.7 min | 3.5 min |
+
+(The store isn't all the stream's: the bank and the tunes share it. The table is the stream alone.)
+
+On the bus a chunk goes in at a byte a cycle by demand DMA: 176,400 bytes a second is about 2.5% of the 7.16 MHz
+bus. Under OODOS a chunk goes in pieces of 4 KB with the CPU free between them, so that no millisecond tick is lost
+([chapter 5](../docs/oo1-technical-reference/05-dma.md#under-oodos)): 43 pieces a second for CD audio. Even 2 MB
+holds 12 s of CD audio, sixteen times revision 2's FIFO, so a program that reads its file in 32 KB chunks has
+seconds in hand at any size.
+
+#### The host interface ####
+
+##### The registers #####
+
+The card keeps module A and its block, `$C500–$C57F`, laid out from the block's start as the video card's are;
+nothing of revisions 1 and 2 is kept. Every offset not named reads 0 and ignores writes.
+
+| Offset | Address | Name | Access | What it is |
+|---|---|---|---|---|
+| `$00` | `$C500` | CTRL | R/W | bit 0 DRQ: DATA asks for DMA while a transfer is open and there is room. Bit 6 FWRESTART, a strobe: the firmware starts again (READY clear until it is up). Bit 7 RESET, a strobe: see [Boot, reset and Apple II mode](#boot-reset-and-apple-ii-mode). The rest read 0 |
+| `$01` | `$C501` | STATUS | R | bit 0 READY: the firmware is up. Bit 1 CMDRDY: the command FIFO has room for a whole record (256 bytes). Bit 2 EVT: an event record is waiting. Bit 3 XFER: a transfer is open. Bit 4 DATA: DATA can take a byte now. Bit 5 EVLOST: events were lost since the last LOSTCLR command. Bit 6 ERR: the last record was refused before it ran (ERROR says why). Bit 7: the card is interrupting (ISR AND IEN) |
+| `$02` | `$C502` | ERROR | R | why the last record was refused at the door: 0 none, or a code from [Errors](#errors) |
+| `$03` | `$C503` | CMD | W | a command record's bytes, in order. A record runs once its last byte is in |
+| `$04` | `$C504` | CMDFREE | R | the command FIFO's room in bytes, 255 meaning 255 or more |
+| `$05` | `$C505` | EVT | R | the event FIFO's next byte, which a read takes. With none waiting it reads 0 (kind 0, "none") |
+| `$06` | `$C506` | EVTLEN | R | the bytes waiting in the event FIFO, 255 meaning 255 or more |
+| `$07` | `$C507` | DATA | W | the open transfer's bytes. DMA channel 2 serves it. A byte with no transfer open, or no room, is dropped |
+| `$08–$0A` | `$C508` | XLEFT | R | the bytes the open transfer still wants, 24 bits, low byte first; reading `$08` latches all three |
+| `$0B` | `$C50B` | XTAG | R | the tag of the command that opened the transfer |
+| `$0C` | `$C50C` | IEN | R/W | the interrupts on, the same bits as ISR |
+| `$0D` | `$C50D` | ISR | R; write 1 to clear | bit 0 EVT, a level: set while an event waits (writing it does nothing). Bit 1 XDONE: a transfer took its last byte. Bit 2 CMDROOM: the command FIFO had been full and has room again. Bit 3 READY: the firmware came up. Bits 1–3 are set whether IEN has them or not, and cleared by writing 1 |
+| `$0E` | `$C50E` | MEMSIZE | R | the store, in 64 KB units: 32, 64 or 128 |
+| `$0F` | `$C50F` | FEATURES | R | bit 0 two SIDs, bit 1 the 6510 (tunes), bit 2 the ES5503, bit 3 raw PCM, bit 4 MP3, bit 5 EQ, bit 6 the vis page, bit 7 more in IDENTIFY |
+| `$10–$11` | `$C510` | FWVER | R | the firmware's version, major then minor |
+| `$7F` | `$C57F` | ID | R | `$A3` |
+
+- **Why EVT is a level** when the video card's bits are edges: a handler drains the FIFO and an event can arrive
+  between its last read and its write to ISR. A level can't be lost that way; it is the same rule a UART's receive
+  flag keeps.
+- **Reads are answered at once:** STATUS, EVTLEN and EVT's next byte are always ready, so a polling loop or a handler
+  draining events never waits on the card.
+
+##### Records #####
+
+**Command records** (host to card, through CMD):
+
+| Byte | What |
+|---|---|
+| +0 | the command |
+| +1 | n, the parameter bytes after +2 (0–253) |
+| +2 | a tag, the host's own, given back in the reply |
+| +3… | n bytes of parameters, little-endian |
+
+**Event records** (card to host, through EVT): +0 the kind (0 none, 1 REPLY, `$10` up the events), +1 n (the bytes
+after +1), then for a REPLY the tag, a status (0, or an [error](#errors)) and the command's results; for an event its
+object (a stream, a voice, a music slot), the card's ms stamp and its payload ([the layouts](#event-kinds-and-their-records)).
+
+- **Every command gets exactly one REPLY,** in the order the commands were given. The firmware keeps room in the
+  event FIFO for the replies of the commands it has taken, so a reply is never lost; a command waits in the command
+  FIFO until there is room for its reply.
+- **Results come in the reply,** up to 250 bytes (the vis page, 98, and the SIDs' registers, 50, fit), so DATA is a
+  way in only and there is no reading of card memory.
+- **Asynchronous events** are coalesced where a repeat says nothing new (one NEED outstanding a stream, one
+  COUNT a threshold), and counts in the status replies are exact, so an event lost to a full FIFO (EVLOST) is found
+  by asking.
+- **The FIFOs:** 1 KB for commands, 2 KB for events.
+
+##### Transfers and DMA #####
+
+A command that takes data (a tune, a sample, an effect table, a music block, a stream chunk, a firmware image)
+names a length, and its REPLY says whether the card took it. If it did, the transfer is open: XFER is set, XLEFT is
+the length, and DATA takes exactly that many bytes, by the CPU or by DMA. When the last arrives ISR's XDONE is set,
+and once the card has checked what came (a `.sid`'s header, a block's layout) an event `XFERDONE` carries the result.
+One transfer is open at a time; a second command that wants one is refused with `E_XFER`. `XFERABORT` closes one
+early, dropping what came.
+
+- **DMA:** channel 2, its CARD `$0A` from reset, in demand mode, memory to card. With CTRL's DRQ set the card pulls
+  /DREQ only while a transfer is open and the landing buffer has room, so the controller's demand transfer stops by
+  itself when the card is full and nothing asks between transfers. Revision 2's standing request (always asking at
+  DRQSEL 0 and 2, so /DREQ was almost never high) is gone.
+- **Words:** DATA takes a word grant (channel 2's CARD with WIDE, `$1A`) as two bytes in order, as the video card's
+  port does, halving a load's cycles. Nothing sets WIDE yet.
+- **The landing buffer** takes a byte a cycle for as long as a transfer lasts (a spec the hardware meets). The card
+  may still let go of /DREQ for a moment, which demand mode allows, so software never assumes a transfer's time.
+
+##### Events and the interrupt #####
+
+The card pulls /IRQ while ISR AND IEN is nonzero, which reads 0 in IRQH's bit 2
+([chapter 4](../docs/oo1-technical-reference/04-interrupts.md#finding-the-source-irql-and-irqh)). Under OODOS the
+handler reads EVT until EVTLEN is 0 and turns each event into the program's event area; a function 82 call reads its
+own REPLY ([Under OODOS](#under-oodos-oodos-017-oolib-interface-18)). An event record is 7–16 bytes, a REPLY 4
+and its results.
+
+##### Errors #####
+
+ERROR (at the door: a record malformed) and each REPLY's status (when it ran) use one list:
+
+| Code | Name | Meaning |
+|---|---|---|
+| 0 | | done |
+| 1 | `E_UNKNOWN` | not a command the firmware knows |
+| 2 | `E_PARAM` | a parameter out of range, or n wrong for the command |
+| 3 | `E_SLOT` | no such object, or the slot is empty |
+| 4 | `E_MEMORY` | not enough room in the store |
+| 5 | `E_BUSY` | what it needs is in use: a chip a tune holds, every voice taken by higher priorities |
+| 6 | `E_DATA` | the data isn't what it should be: not a `.sid`, a block that doesn't parse, no MP3 sync |
+| 7 | `E_XFER` | a transfer is open already, or none is open |
+| 8 | `E_STATE` | not in the state the command needs (resume of what isn't paused) |
+| 9 | `E_NOTREADY` | the firmware isn't up |
+| 10 | `E_JAM` | the 6510 met a JAM opcode; the tune is stopped |
+| 11 | `E_FIRMWARE` | an update's image is bad (its CRC, its header) |
+
+#### The command set ####
+
+Numbers are grouped by feature in the high nibble. Objects are named by the host: a kind and a slot, so the host can
+send a load and the play after it without waiting for a reply.
+
+##### The device (`$0x`) #####
+
+| Cmd | Name | Parameters | Reply's results |
+|---|---|---|---|
+| `$00` | NOP | none | none: a fence (every command before it has run) |
+| `$01` | IDENTIFY | none | 32 bytes ([below](#the-replies-results)): the firmware's version and build, MEMSIZE, FEATURES, the store free, the slots of each kind, the SIDs' models |
+| `$02` | STOPALL | none | none. Every sound stops: tunes, music, effects, streams (each flushed), the beep |
+| `$03` | FREEALL | none | none. STOPALL, then every object freed: the store empty |
+| `$04` | EVENTS | +3 a mask of the event groups wanted | none. The rest are not sent (their counts still kept) |
+| `$05` | LOSTCLR | none | the events lost since the last, 2 bytes; EVLOST cleared |
+| `$06` | TIME | none | the card's millisecond count, 4 bytes, the one events are stamped with |
+| `$07` | SELFTEST | +3 what: bit 0 the store, bit 1 wave RAM, bit 2 the SIDs, bit 3 the codec's loop | a result bit each, for the BIOS's diagnostics |
+| `$08` | CHECKSUM | +3 a kind, +4 a slot | the CRC-32 of what the card holds there, so a test sees that DMA delivered |
+| `$09` | BOOTSOUND | none | none: the boot sound plays from the card's flash; its end sends nothing |
+| `$0D` | FW_BEGIN | +3–6 the image's length | none; a transfer opens |
+| `$0E` | FW_COMMIT | none | none; FWRESULT follows |
+| `$0F` | XFERABORT | none | the bytes that had come |
+
+##### Tunes (`$2x`) #####
+
+| Cmd | Name | Parameters | Reply's results |
+|---|---|---|---|
+| `$20` | TUNE_LOAD | +3 a slot (0–3), +4–6 the file's length | none; a transfer opens for the `.sid` file, whole. XFERDONE then carries its header's songs, start song, clock, chips, and PSID or RSID |
+| `$21` | TUNE_PLAY | +3 the slot, +4 the song (0: the file's start song), +5 flags (bit 0 PAL, bit 1 NTSC, neither: the file's), +6–9 a length in ms (0: until stopped), +10–11 a fade at the end in ms | none. The tune's chips are taken ([sharing](#how-the-firmware-shares-the-chips)); `E_BUSY` if music holds them |
+| `$22` | TUNE_STOP | none | none. The tune's chips silenced and given back |
+| `$23` | TUNE_PAUSE | none | none. The 6510 held where it is, its chips at volume 0 |
+| `$24` | TUNE_RESUME | none | none |
+| `$25` | TUNE_STATUS | none | 16 bytes: the state (stopped, starting, playing, paused, stalled, jammed, ended), the slot, the song, ms played (paused time out), play calls, the 6510's cycles last frame |
+| `$26` | TUNE_INFO | +3 a slot | 104 bytes: the header's songs, start song, clock, chips and their addresses, and the name, author and released fields, 32 bytes each, as the file has them |
+| `$27` | TUNE_FREE | +3 a slot | none |
+
+- **The player is the firmware's.** It does what the emulator's `.sid` stub did on revision 2, inside the card: the
+  free page, the vectors, the port, CIA 1's timer, the frame interrupt, the imitated KERNAL paths, the song in A, the
+  second SID's address. It is that stub, unchanged (`sid_plan.h`), so the corpus plays identically. Later firmware
+  may imitate more of a C64 for RSIDs (the VIC-II's raster interrupt, CIA 2, NMI samples), each such step with a new
+  corpus baseline.
+- **Events:** `TUNE_STARTED` (init returned and the first play call came), `TUNE_STALL` (no play call for 2 s when
+  one was due; 10 s before the first), `TUNE_JAM`, `TUNE_ENDED` (its length ran out, after the fade).
+
+##### The sound bank (`$3x`) #####
+
+| Cmd | Name | Parameters | Reply's results |
+|---|---|---|---|
+| `$30` | SAMPLE_LOAD | +3 a slot (0–255), +4–6 the length, +7 flags (bit 0 8-bit signed, else unsigned as the ES5503 wants; `$00` bytes made `$01` unless bit 1 keeps them as stop markers), +8–9 the rate it was recorded at, +10–12 a loop start, +13–15 a loop end (0: none) | none; a transfer opens |
+| `$31` | EFFECT_DEF | +3 an effect (0–255), +4 its kind (0 a SID effect, 1 a sample), +5… its definition ([below](#the-sound-banks-definitions)) | none |
+| `$32` | EFFECT_LOAD | +3 the first effect, +4–6 the length | none; a transfer opens for a table of definitions, many at once |
+| `$33` | PLAY | +3 the effect, +4 the volume (0–255), +5 the pan (0 left, 128 centre, 255 right), +6 the priority (0–3), +7–8 a pitch offset in cents (signed), +9 the chip: 0 any, 1 a SID, 2 the ES5503 | a voice handle (1–255) |
+| `$34` | VOICE_STOP | +3 a voice handle, or 0 for every effect voice | none |
+| `$35` | BANK_FREE | +3 what: 0 every effect, 1 every sample, 2 both | none |
+
+- **A SID effect** is a short table of steps: each step a length in ms, the waveform's bits, a frequency, a pulse
+  width, AD and SR, a gate, and optional linear sweeps of the frequency and the pulse width over the step. It is our
+  own format (OOLIB's [question 5](oolib.md#open-questions) answered so; [Q9](#the-drafts-questions-decided)).
+- **A sample effect** names a sample slot, its pitch (a rate or a note), its loop, an envelope (attack, hold, release
+  in ms) and its oscillator mode.
+- **Voices** are given by the voice manager ([below](#how-the-firmware-shares-the-chips)). Events: `VOICE_DONE`
+  (handle, effect), `VOICE_STOLEN` (handle, by a higher priority).
+
+##### Music (`$4x`) #####
+
+| Cmd | Name | Parameters | Reply's results |
+|---|---|---|---|
+| `$40` | MUSIC_LOAD | +3 a slot (0–31), +4–6 the length | none; a transfer opens for a block |
+| `$41` | MUSIC_PLAY | +3 the slot, +4 flags: bit 0 queue it after what plays (PLAY's MB), bit 1 free the slot when done | none |
+| `$42` | MUSIC_STOP | none | none: every queued block dropped, the voices released |
+| `$43` | MUSIC_PAUSE, `$44` MUSIC_RESUME | none | none |
+| `$45` | MUSIC_STATUS | none | 24 bytes: the state, the notes waiting on each voice (8 × 2 bytes), the blocks queued, ms played |
+| `$46` | MUSIC_THRESH | +3 n (0 off) | none. A `MUSIC_COUNT` event when the notes waiting fall below n (GW-BASIC's ON PLAY(n)) |
+
+- **A note block** ([its layout](#the-note-block)): a header (a version, the voices used, up to 8), an instrument a
+  voice (a SID waveform with AD, SR and pulse width; a sample slot; or the tone generator, with its volume and pan),
+  then the entries: a note (0–127) or a frequency (Hz × 16, 24 bits) or a rest, each with a **length in µs, 32
+  bits** and a gate time; an instrument change, a volume change, a marker (0–254).
+- **One transfer, no splitting:** a whole PLAY statement, or a whole tune of a game's, is one block, however many
+  notes; the store holds it.
+- **32-bit lengths in µs** reach 71 minutes, so SOUND's longest (65,535 PC ticks, about 3,600 s) is one entry, and
+  the 2 min 44 s limit of 7f went. A µs is fine enough for a PC tick (54,925 µs) and for any tempo.
+- **Events:** `MUSIC_MARK` (voice, marker), `MUSIC_COUNT` (notes waiting), `MUSIC_DONE` (one, when the last entry of
+  the last queued block has finished, not one a note).
+- The card has 32 music slots (8 at first: raised in branch B's review so that 32 one-note MB statements all queue).
+
+##### Streams (`$5x`) #####
+
+| Cmd | Name | Parameters | Reply's results |
+|---|---|---|---|
+| `$50` | STREAM_OPEN | +3 a stream (0–1), +4 the codec (0 raw PCM, 1 MP3), +5–6 the rate, +7 the format (bit 0 stereo, bit 1 16-bit), +8–10 the chunk size the host will send (default 32 KB), +11–12 the prebuffer in ms (default 500) | none |
+| `$51` | STREAM_DATA | +3 the stream, +4–6 the chunk's length | none; a transfer opens, into the stream's ring. `E_MEMORY` if the ring hasn't room |
+| `$52` | STREAM_END | +3 the stream | none: no more data; what is in plays out |
+| `$53` | STREAM_NEXT | +3 the stream, +4 the next stream | none: when the first ends, the next starts with no gap |
+| `$54` | STREAM_PAUSE, `$55` STREAM_RESUME | +3 the stream | none |
+| `$56` | STREAM_FLUSH | +3 the stream | none: a seek. The ring and the decoder emptied; it buffers again |
+| `$57` | STREAM_STATUS | +3 the stream | 21 bytes: the state (idle, buffering, playing, paused, underrun, ended, an error), the bytes buffered, the ms buffered, frames played, kbit/s, underruns, the rate and format |
+| `$58` | STREAM_CLOSE | +3 the stream | none: stopped and its ring freed |
+
+[Gapless streaming](#gapless-streaming) has the rules. Two streams let a player queue the next track. A stream, the
+ES5503 and the SIDs all play at once: revision 2's mutual exclusion (STATE `$82`) is gone.
+
+##### The beep (`$6x`) #####
+
+| Cmd | Name | Parameters | Reply's results |
+|---|---|---|---|
+| `$60` | BEEP | +3–4 the pitch in Hz (20–20,000), +5–6 the length in ms, +7 the volume (0: the default) | none; `BEEP_DONE` when it ends |
+| `$61` | BELL | none | none: the console's bell, a sound in the card's flash |
+
+The beep is the firmware's **tone generator** on the digital path, a band-limited square wave, so it takes no SID
+voice or oscillator, plays whatever else is playing, and is exact at any pitch. A second BEEP replaces the first.
+
+##### Mixing, EQ and the vis page (`$7x`) #####
+
+| Cmd | Name | Parameters | Reply's results |
+|---|---|---|---|
+| `$70` | VOLUME | +3 left, +4 right (0–255, 255 unity) | none: the master volumes (`SN_VOLUME`'s) |
+| `$71` | MIX | +3 a source (0 tunes, 1 music, 2 effects, 3 streams, 4 the beep), +4 its level (255 unity) | none |
+| `$72` | EQ | +3 a band (0 the preamp, 1–10), +4 a gain in signed half-dB (±24) | none |
+| `$73` | EQ_ALL | +3–13 the preamp's gain and the ten bands' | none; each checked before any is set |
+| `$74` | EQ_ON | +3 0 off, 1 on | none |
+| `$75` | VIS | none | the vis page, 98 bytes, revision 2's layout, taken at this moment |
+| `$76` | SIDREGS | none | both SIDs' 25 registers as last written, 50 bytes, `SID_VOICES`'s layout |
+| `$77` | LEVELS | none | ten bytes: eight bands and the VU pair, `PB_LEVELS`'s layout, for every source |
+
+The EQ's bands, the vis page's layout and the volume's meaning are revision 2's ([sound-rev2.md](sound-rev2.md)).
+With the SIDs in the digital path the EQ, the vis page and the volumes cover them too.
+
+#### The records' layouts ####
+
+The layouts the draft left open, approved on 2026-11-23 ([the decision](#the-interface-details-decided-2026-11-23)).
+Every multi-byte field is little-endian. "ms" is the card's own millisecond count (TIME's); "µs" lengths are 32 bits.
+
+##### Event kinds and their records #####
+
+Every event record is the kind (+0), n (+1: the bytes after +1), the object (+2), the card's ms stamp when it
+happened (+3-6, 4 bytes), then the payload (+7 on). A REPLY has no object or stamp: +2 the tag, +3 the status (0 or
+an [error](#errors)), +4 on the results. The kind's high nibble is the group, as the commands' is; group 1 is the
+transfers and the flash, which no one command group owns.
+
+| Kind | Name | Object (+2) | Payload (+7 on) | n |
+|---|---|---|---|---|
+| `$00` | none | | (EVT reads 0 with nothing waiting) | |
+| `$01` | REPLY | the tag | +3 status, +4 on the command's results | 2 + results |
+| `$10` | XFERDONE | the tag of the command that opened the transfer | +7 that command, +8 the status (0, `E_DATA`, `E_MEMORY`), +9 on its results (below) | 7 + results |
+| `$11` | FWRESULT | 0 | +7 the status (0: written and marked to boot; `E_FIRMWARE`), +8-9 the image's version (major, minor) | 8 |
+| `$20` | TUNE_STARTED | the tune slot | +7-8 the song (1-based) | 7 |
+| `$21` | TUNE_STALL | the tune slot | +7-10 ms since the last play call | 9 |
+| `$22` | TUNE_JAM | the tune slot | +7-8 the 6510's address of the JAM opcode | 7 |
+| `$23` | TUNE_ENDED | the tune slot | +7-10 ms played (its length and fade ran out) | 9 |
+| `$30` | VOICE_DONE | the voice handle | +7 the effect | 6 |
+| `$31` | VOICE_STOLEN | the voice handle | +7 the effect, +8 the priority that took it | 7 |
+| `$40` | MUSIC_MARK | the logical voice (0-7) | +7 the marker (0-254), +8 the music slot | 7 |
+| `$41` | MUSIC_COUNT | 0 | +7-8 the notes waiting (all voices), +9 the threshold | 8 |
+| `$42` | MUSIC_DONE | the last block's slot | +7-10 ms played since MUSIC_PLAY began the queue | 9 |
+| `$50` | NEED | the stream | +7-10 the room in bytes, +11-14 ms buffered, +15 bit 0 urgent (under 1 s buffered) | 14 |
+| `$51` | UNDERRUN | the stream | +7-10 the frame position, +11-12 the underruns so far | 11 |
+| `$52` | UNDERRUN_END | the stream | +7-10 the frame position sound came back at, +11-14 the frames missed in that underrun | 13 |
+| `$53` | TRACK | the stream now playing | +7 the stream that ended (now closed) | 6 |
+| `$54` | STREAM_ENDED | the stream | +7-10 the frames played | 9 |
+| `$60` | BEEP_DONE | 0 | none (BEEP's or BELL's sound ended, or a second BEEP replaced it) | 5 |
+
+- **XFERDONE's results** by the command that opened the transfer: TUNE_LOAD +9-10 the songs, +11-12 the start song,
+  +13 the clock (0 unknown, 1 PAL, 2 NTSC, 3 either), +14 the SIDs (1 or 2), +15 bit 0 RSID, bit 1 the start song
+  CIA-timed; SAMPLE_LOAD none; EFFECT_LOAD +9 the definitions taken; MUSIC_LOAD +9-12 the entries; STREAM_DATA and
+  FW_BEGIN none.
+- **EVENTS' mask** (+3) is by group: bit n wants kinds `$n0-$nF` (bit 1 the transfers and the flash, 2 tunes, 3
+  voices, 4 music, 5 streams, 6 the beep). REPLY is always sent. After power-on, FWRESTART, CTRL's RESET and
+  /RESET the mask is `$FF`.
+
+##### The replies' results #####
+
+| Command | Results (after the reply's +3 status), by offset from the first |
+|---|---|
+| IDENTIFY (32) | +0 the card type (`$A3`), +1-2 the firmware version (major, minor), +3-4 its build, +5 MEMSIZE, +6 FEATURES, +7 FEATURES2 (bit 0 the tone generator, bit 1 the SIDs' model set per tune, bit 2 the firmware update), +8-11 the store free, +12-15 the store's size (bytes), +16 tune slots (4), +17 music slots (32), +18 streams (2), +19 sample slots less 1 (255), +20 effects less 1 (255), +21 the SID voices, +22 the oscillators, +23 SID A's model, +24 SID B's (0 not known, 1 6581, 2 8580), +25 the image running (0 A, 1 B), +26-31 reserved, 0 |
+| LOSTCLR | +0-1 the events lost since the last |
+| TIME | +0-3 ms |
+| SELFTEST | +0 the parts tested (the request's bits that the card has), +1 those that failed |
+| CHECKSUM | +0-3 the CRC-32, +4-7 the bytes it covers |
+| XFERABORT | +0-2 the bytes that had come; of a stream's chunk, the bytes kept (those already played: the rest is dropped, and the host resends from there) |
+| TUNE_STATUS (16) | +0 the state (0 stopped, 1 starting, 2 playing, 3 paused, 4 stalled, 5 jammed, 6 ended), +1 the slot, +2-3 the song, +4-7 ms played (paused time out), +8-11 play calls, +12-13 the 6510's cycles in the last frame, +14-15 ms since the last play call (held at 65,535) |
+| TUNE_INFO (104) | +0-1 the songs, +2-3 the start song, +4 the clock (as XFERDONE's), +5 bit 0 RSID, bit 1 two SIDs, bit 2 written for the 8580, bit 3 the start song CIA-timed, +6-7 the second SID's address (0 none), +8-39 the name, +40-71 the author, +72-103 the released field, 32 bytes each as the file has them |
+| PLAY | +0 the voice handle (1-255) |
+| MUSIC_STATUS (24) | +0 the state (0 stopped, 1 playing, 2 paused), +1 the blocks queued, +2-17 the notes waiting on each logical voice (8 × 2), +18-21 ms played, +22-23 the notes waiting on all (held at 65,535) |
+| STREAM_STATUS (21) | +0 the state (revision 2's: 0 idle, 1 buffering, 2 playing, 3 paused, 4 underrun, 5 ended, `$80` up an error), +1 the codec, +2-3 the rate, +4 the format, +5-8 the bytes buffered, +9-12 ms buffered, +13-16 frames played, +17-18 kbit/s, +19-20 underruns |
+| VIS (98), SIDREGS (50), LEVELS (10) | as the command set says |
+
+- **CHECKSUM's kind** (+3) is the command that loaded the object (`$20` a tune, `$30` a sample, `$32` the effect
+  table last loaded, `$40` a music block, `$51` a stream's last chunk, `$0D` the firmware image last received), +4 its
+  slot (the stream, for `$51`; ignored for `$32` and `$0D`). The CRC is of the bytes as they came through DATA,
+  before any conversion (a sample's sign, its `$00` bytes).
+- **The CRC-32** everywhere (CHECKSUM, the firmware image) is the common one: polynomial `$04C11DB7` reflected
+  (`$EDB88320`), starting at `$FFFFFFFF`, the result inverted.
+- **"Notes waiting"** are a block's note, frequency and rest entries not yet begun; the one sounding isn't counted.
+  MUSIC_COUNT comes when the total falls from the threshold n to n − 1.
+
+##### The note block #####
+
+A block is a header, an instrument table and its entries, in one transfer (MUSIC_LOAD).
+
+| Part | Bytes | What |
+|---|---|---|
+| Header | 8 | +0 the version (1), +1 the logical voices used (bit n voice n), +2-3 reserved (0), +4-7 the entries that follow the instruments |
+| Instruments | 8 each | one for each voice in +1's mask, in voice order: the voice's sound until an instrument entry changes it |
+| Entries | 2-12 each | in time order per voice; the voices' entries may be interleaved, and each voice keeps its own time |
+
+**An instrument** (8 bytes): +0 the source (0 a SID voice, 1 an ES5503 sample, 2 the tone generator); for a SID voice
++1 the control register's waveform, ring and sync bits (the gate is the entries'), +2 AD, +3 SR, +4-5 the pulse width
+(12 bits); for a sample +1 the sample slot, +2 the note it plays at its recorded rate, +3 0 one-shot or 1 looped at
+the sample's loop points; +6 the volume (0-255, 255 unity: the sample's or the tone generator's; for a SID voice its
+chip's volume while music holds the chip), +7 the pan (0 left, 128 centre, 255 right; a SID voice takes its chip's
+place in the mix, so it is ignored). Unused bytes are 0.
+
+**An entry:** +0 the kind in the high nibble, the logical voice (0-7) in the low.
+
+| Kind | Bytes | After +0 |
+|---|---|---|
+| 0 note | 10 | +1 the note (0-127, 69 the A at 440 Hz), +2-5 the length in µs, +6-9 the gate in µs (at most the length; equal is legato) |
+| 1 frequency | 12 | +1-3 Hz × 16 (24 bits), +4-7 the length in µs, +8-11 the gate in µs |
+| 2 rest | 5 | +1-4 the length in µs |
+| 3 instrument | 9 | +1-8 an instrument, as the table's, for this voice's notes from here |
+| 4 volume | 2 | +1 the voice's volume (0-255) from here |
+| 5 marker | 2 | +1 the marker (0-254): MUSIC_MARK when the voice reaches it |
+
+A block whose header, counts or entries don't parse is refused at XFERDONE with `E_DATA` (a voice outside the mask,
+an entry past the transfer's end, a gate longer than its length, a kind above 5).
+
+##### The sound bank's definitions #####
+
+**A SID effect** (EFFECT_DEF kind 0): +0 the steps (1-16), +1 the step to loop back to after the last (`$FF` none:
+the effect ends), then 13 bytes a step:
+
+| Step | What |
+|---|---|
+| +0-1 | its length in ms (1-65,535) |
+| +2 | the control register: waveform, ring, sync and gate bits as the chip's (the test bit kept 0) |
+| +3-5 | the frequency, Hz × 16 (24 bits) |
+| +6-7 | the pulse width (12 bits) |
+| +8 | AD |
+| +9 | SR |
+| +10-11 | a frequency sweep, signed Hz × 16 a ms, over the step |
+| +12 | a pulse-width sweep, signed, a ms, over the step |
+
+**A sample effect** (EFFECT_DEF kind 1), 11 bytes: +0 the sample slot, +1-2 the rate to play it at in Hz (0: the rate
+it was recorded at), +3 0 one-shot or 1 looped at the sample's loop points, +4-5 the attack in ms, +6-7 the hold in ms
+(0: to the sample's end, or to VOICE_STOP when looped), +8-9 the release in ms, +10 reserved (0). PLAY's pitch offset
+in cents applies to both kinds.
+
+**EFFECT_LOAD's table** is a run of definitions, each +0 its length (the bytes after it), +1 the kind, +2 on the
+definition, numbered from the command's first effect on.
+
+##### The firmware image #####
+
+A 32-byte header, then the body:
+
+| Bytes | What |
+|---|---|
+| +0-3 | the magic, `OOSD` in ASCII |
+| +4 | the card type, `$A3` |
+| +5 | the header's version, 1 |
+| +6-7 | the image's version (major, minor), as FWVER will read |
+| +8-9 | its build |
+| +10-11 | reserved, 0 |
+| +12-15 | the body's length |
+| +16-19 | the body's CRC-32 |
+| +20-27 | reserved, 0 |
+| +28-31 | the CRC-32 of +0-27 |
+
+FW_BEGIN's length is the header's and the body's. FW_COMMIT's reply comes at once (the image is taken for checking);
+FWRESULT says, once the image is checked and written into the slot not running, whether it will boot. A wrong magic,
+card type, length or either CRC is `E_FIRMWARE`, and the old image stays the one that boots. `tools/mksndfw.py` makes
+images for the tests.
+
+#### How the firmware shares the chips ####
+
+A tune can play while effects run on the other SID or the ES5503 (decided). The rules:
+
+- **The resources:** SID A (three voices, a filter, a volume), SID B (the same), the ES5503 (32 oscillators, in
+  pairs where a mode needs two), and the digital path (streams, the tone generator). A chip's filter and volume are
+  shared by its voices, so **a tune takes whole chips:** a one-SID tune takes SID A, a two-SID tune both. The 6510 is
+  the tune's alone; nothing else runs on it.
+- **The 6510's map** is revision 2's decode for now (the owner's ruling 2): a second SID at `$D420`, or `$D500` when
+  the header names it, and every other `$D400-$D7FF` address SID A; a one-SID tune's reads of `$D420-$D43F` answer
+  SID A, its mirror, as a C64's do. The spec's map (SID A mirrored over `$D400-$D7FF` for a one-SID tune, the second
+  SID where the header says) comes as a later firmware step with its own corpus baseline. The ES5503 isn't in the
+  6510's map.
+- **A one-SID tune** plays on SID A alone, mixed into both ears through the ADC, so SID B is always free for effects
+  and music while it plays. Revision 2's BOTH, writing SID B as well, isn't needed.
+- **Music** takes the voices its block names, given at MUSIC_PLAY: SID voices from the chips no tune holds, sample
+  voices from the ES5503, the tone generator. If they aren't free it is refused with `E_BUSY`; music is never stolen.
+- **Effects** take a free voice of the chip asked for (any: a SID first for a SID effect, the ES5503 for a sample),
+  else the lowest-priority, oldest effect voice at or below their priority, which gets `VOICE_STOLEN`. Never a
+  tune's chip, never music's voice.
+- **The ES5503 is the card's:** its oscillators are voices for effects and music, and its interrupt is the
+  firmware's, never the host's.
+- **The register shadows** of both SIDs are kept for every write, by the 6510 or by the firmware, so SIDREGS answers
+  at any time and nothing reads the chips' write-only registers.
+- **MIX's sources reach every chip by its holder.** Each SID is mixed at its holder's level: a tune's chip at the
+  tunes' (with the tune's fade), else music's while a music voice is on it, else the effects'. The ES5503's music
+  voices play on its channels 2 and 3, mixed at music's level; its effects and the boot sound on channels 0 and 1, at
+  the effects'. So muting one source leaves the others heard, whichever chips they share.
+
+#### Gapless streaming ####
+
+A song that doesn't fit card memory is fed in chunks without skips, the card asking for the next chunk while enough
+is buffered, underruns reported (decided). The rules:
+
+- **The ring.** A stream's chunks go into a ring in the store, as big as the store allows after the bank and the
+  tunes. The decoder reads the ring as one byte stream: chunk boundaries mean nothing to it, so a frame split across
+  two chunks plays.
+- **Who asks.** The card. It sends `NEED` (the stream, the bytes it has room for, the ms buffered) whenever it has room
+  for a whole chunk of the size STREAM_OPEN named, and no NEED is outstanding. A STREAM_DATA answers it; the next NEED
+  comes once there is room again. So the host never polls, and never sends what the card can't hold.
+- **When it plays.** After the prebuffer (500 ms of audio by default, by the stream's byte rate; for MP3 by the first
+  frames' bitrate), or at STREAM_END, whichever comes first.
+- **The low-water mark.** Below 1 s buffered, NEED carries an urgent flag, which OODOS passes on, so a player can put
+  its disk reads ahead of its drawing (the event area's `EV_SNEED` and `EV_SBUFMS`, `SN_STATUS`'s +15 and +16-19:
+  the stream playing's last NEED; [function 82](oodos.md#function-82-one-clean-table)).
+- **Underrun.** The ring empty with no STREAM_END: silence, and an `UNDERRUN` event (the stream, the frame position,
+  the count). Data again plays from the next frame due, with no new prebuffer. An `UNDERRUN_END` event says when
+  sound came back, and the count is in STREAM_STATUS.
+- **Between songs.** STREAM_NEXT queues a second stream behind the first: when the first's data ends, the second's
+  first frame follows the first's last with no gap and no silence, at its own rate (the mix follows the rate). An
+  MP3 with an encoder's gapless header has its leading delay and trailing padding taken off
+  ([Q11](#the-drafts-questions-decided)). A `TRACK` event says the second has started, and the first is then closed;
+  the player opens the third and queues it.
+- **An MP3 stream is read as a file would be:** an ID3v2 tag is skipped by its size; a frame in step with the stream
+  is decoded once its end and the next header have come (or the data has ended); one out of step only once
+  minimp3's own sync rule has decided on it; until a decision can be made, the stream waits for more. So a stream fed
+  as it plays decodes as the whole file would.
+- **STREAM_END waits for the chunk coming.** Sent while the stream's own STREAM_DATA transfer is open, it takes effect
+  when that transfer ends: what is in plays out, the chunk in flight included.
+- **Arithmetic for the rule.** At CD quality with 32 KB chunks the card asks about five times a second; at 128 kbit/s
+  MP3, once every two seconds. With 8 MB a whole CD-quality minute can be buffered, so a host that falls behind by
+  seconds loses nothing.
+
+#### Boot, reset and Apple II mode ####
+
+- **Power-on:** the firmware starts from the card's flash, tests the store briefly, and sets READY and ISR's bit 3,
+  within 100 ms (a spec; the emulator's model takes 20 ms). The BIOS waits up to 250 ms for READY.
+- **The boot sound:** the BIOS's splash sends one command, `BOOTSOUND`, at the vertical blank the splash's frame 0
+  begins on. The sound is in the card's flash and plays in the firmware, so the BIOS loads nothing ([The splash's
+  sound](#the-splashs-sound)). With no READY in time, the splash runs silent.
+- **The ROM's 6510 programs** went: both splash players, the ES5503's 80 KB wave image in flash blocks 24–28, and the
+  diagnostics' own 6510 program; stage 10 drives the card by its records ([hw/diag.md](diag.md#the-rom-bios-021-sound-card-revision-3)).
+- **The USB card's speaker stays** (USB_SPKR): Apple II mode's speaker is it, and the diagnostics' U5 tests it. Only
+  `SN_BEEP` and the bell stopped using it.
+- **/RESET (as the storage card):** abandons an open transfer, empties both FIFOs, stops every sound, sets CTRL, IEN
+  and ISR to 0 and the volumes to 255 and the EQ off. The firmware keeps running (READY stays) and the store keeps
+  what is loaded, as the storage card keeps its mounts. OODOS's cold boot sends FREEALL, so a new session starts
+  empty.
+- **CTRL's RESET** does what /RESET does to the sound and the FIFOs, from software (Break's QUIET writes it: a record
+  half written is dropped, not continued). **FWRESTART** starts the firmware over, READY clear until it is up, the
+  store emptied. A watchdog in the firmware does the same if it stops answering.
+- **Apple II mode:** the card is idle and its block hidden. Entering the mode pulses /RESET, which stops everything;
+  Apple software never addresses the card. Nothing here plans an Apple sound card.
+- **The north bridge's I²C** isn't used by the card: nothing of it is on the bus beside the DS3231 and the ATECC608B.
+
+#### Bare metal ####
+
+The card's command records are its documented interface, and the BIOS has entry points for BEEP and STOP-ALL
+(decided):
+
+- **The Technical Reference's chapter 7** documents the registers, the records, every command, event and error, as
+  chapter 10 documents the storage card's commands: a program with no OODOS (WOZMON, a ROM program, the diagnostics)
+  writes records to CMD and reads EVT as OODOS does.
+- **Two BIOS functions** on `$C818`: X = `$A2` BEEP (800 Hz for A × 10 ms, A = 0 250 ms: any other pitch is the BEEP
+  record itself) and X = `$A3` STOPALL. Each waits for READY and for its REPLY, with a time-out, and returns carry set
+  with no card. QUIET writes CTRL's RESET. The ROM's console has no bell to send (it handles no BEL).
+- **Under OODOS** a program goes through function 82 alone; the bare-metal interface is for code that runs without
+  OODOS.
+
+#### The firmware's port ####
+
+The firmware talks to the chips through one interface (`SoundFwPort`), so the same code can drive the emulator's
+chips, a microcontroller's pins or an FPGA's cores: the 6510 (write its RAM, reset, run, hold, stop; its play-call
+signal, the stub's `$DE00` write, which reaches the firmware and not the host; its JAM; its cycle count); the SIDs (a
+register write by chip, register and value; the model; the ADC's samples); the ES5503 (a register write, wave RAM, its
+output and interrupt); the codec's DAC; and the card's clock, in SID clocks and 48 kHz samples.
+
+What the firmware promises beyond the tables, each a rule of the model the real card keeps:
+
+- **A refused load leaves the slot as it was.** A command that loads (TUNE_LOAD, SAMPLE_LOAD, MUSIC_LOAD,
+  EFFECT_LOAD, FW_BEGIN) checks everything first: a transfer already open (`E_XFER`) and room for its length, counting
+  the slot's own object as free (`E_MEMORY`); refused, it changes nothing. Taken, it frees the slot's old object at
+  once and opens the transfer into the room: a transfer that then fails (XFERABORT, CTRL's RESET, or `E_DATA` at
+  XFERDONE) leaves the slot empty. The card keeps no second copy of the old object.
+- **A sample PLAY checks wave RAM first.** A sample effect needing room in wave RAM that voices playing hold is
+  refused `E_BUSY` before a voice is taken: no voice is stolen for it.
+- **A paused sample note starts again.** MUSIC_PAUSE halts a music voice's ES5503 note; MUSIC_RESUME starts it
+  again, from the sample's start, for the rest of its length (the ES5503 starts a halted oscillator from the top).
+- **An update is written at the end of its flash write.** FW_COMMIT's image is written into the slot not running,
+  and marked to boot, only when the write's 50 ms end, just before FWRESULT. A power-on or FWRESTART before then
+  drops the update: the old image boots, FWVER is unchanged and no FWRESULT comes; the host sends the update again.
+- **XFERABORT runs at once.** A command naming an object whose transfer is still open waits for it, in order, with
+  everything behind it; XFERABORT alone doesn't wait behind such a command: it runs as soon as it is due, ends the
+  transfer, and its reply comes before the waiting command's (which then finds the object gone: `E_SLOT`). So a host
+  can always end a load it can't finish.
+
+#### Removed with revision 2's interface ####
+
+Named for the owner under AGENTS.md's rule, decided: function 82's `SN_LOAD`, `SN_START`, `SN_SEND`, `SN_WAVE`,
+`SN_DOCHOOK`, `SN_HOLD` and `SN_GO`, `SC_6510` and `SC_DOC`; the event area's mailbox stamp and `EV_SFLAGS` (+108–115,
+then reserved); `EK_SOUND`'s mailbox byte (it is now the card's event: the kind in its code, the object in its value);
+OOLIB's music driver for the 6510 (`mudrv/`) and the `.sid` stub; the ROM's two splash players, the WAVE image and
+the diagnostics' 6510 program (`card6510.s`).
+
+#### Under OODOS (OODOS 0.17, OOLIB interface 18) ####
+
+OODOS drives the card itself (`oodos/sys/sound.s`, in block 61; [hw/oodos.md](oodos.md#oodos-017-sound-card-revision-3)):
 
 - **Records** go to CMD whole with interrupts off, so a program's and the interrupt handler's never mix. A function
   82 call waits for its own REPLY (its tag, 1–127) by reading EVT itself, with the card's interrupt off meanwhile,
@@ -1693,6 +2429,49 @@ the ROM's two splash players, the WAVE image and the diagnostics' 6510 program (
 
 **In the ROM (BIOS 0.21):** QUIET's one write, the splash's BOOTSOUND, `$C818`'s BEEP and STOPALL, and stage 10 of
 the diagnostics, which drives the card by its records ([diag.md](diag.md#plan2-card-tests)).
+
+#### Sound card revision 3: in the emulator ####
+
+- **The card** (`sound_card3.{h,cpp}`, the front end; the machine file's sound line, `memsize=2|4|8` in MB, 8 the
+  default, and no `rev=`: revision 3 is the only card): the registers at `$C500-$C57F`, the command and event FIFOs
+  (1 KB and 2 KB), DATA and its landing buffer, channel 2's request, the interrupt (ISR and IEN, EVT a level), CTRL's
+  strobes, /RESET and READY. `Machine::sound_device()` returns it. It implements the firmware's port over the card's
+  parts.
+- **The firmware** (`sound_fw.{h,cpp}`, portable C++ with no knowledge of the bus, [Q2](#the-drafts-questions-decided)):
+  the command parser, the store (a byte array of MEMSIZE × 64 KB, first fit, each object one run), the object slots,
+  the voice manager, the tune player, the music sequencer, the effect players, the stream rings and decoders
+  (minimp3, and our own parser of an encoder's gapless header), the tone generator, the digital path (the ADC
+  input, the mix, `sound_dsp`'s EQ and vis, the volumes) and the event FIFO. Its version is 1.0.
+- **The chips** are revision 2's models used as parts: `sound_card.h`'s `SoundCard` (the 6510, `cpu6502`, with its
+  C64-like map, CIA 1 and the frame interrupt, both SIDs, `sid.h`, and the 64 KB the 6510 sees), the ES5503
+  (`es5503.h`); nothing on the bus reaches them. The `.sid` parser and planner are `sid_plan.{h,cpp}` (split out of
+  `sid_file.cpp` unchanged); `sid_file.h` keeps playing a tune on the chips through their registers, for `sidcheck`
+  and the tests.
+- **The card's flash** (`sound_flash.h`, made by `tools/mksndflash.py` from `tools/sndflash/`): the boot sound's
+  samples and sequence, re-expressed as a built-in bank and note block played by the firmware's own sequencer (heard
+  the same, not sample-identical), and the bell.
+- **Time:** every timed thing derives from the host's cycle count by exact integer ratios: the firmware's 48 kHz
+  sample k falls at the first host cycle at or past k × host Hz / 48,000, and its millisecond steps on exact counts.
+  A command runs at the first 48 kHz sample at least 20 µs after its record's last byte came (the byte's card time,
+  its place within a sample included); the start-up after power-on or FWRESTART takes 20 ms (inside the spec's
+  100 ms). Both are constants with test hooks (`set_latency_us`, `set_startup_ms`). So results are the same at any
+  audio rate and however the card is ticked. The ADC path's float arithmetic is built `-ffp-contract=off`, and a
+  cross-target case holds the mix to the same bits natively and in WebAssembly.
+- **DMA:** DRQ only while CTRL's DRQ is set, a transfer is open and the landing buffer has room; the buffer drains
+  into the store at a rate that is never the limit, so a load runs at a byte a cycle. WIDE is modelled (two bytes a
+  word grant) but nothing sets it.
+- **The firmware's slots** live in the card object, so they last a FWRESTART and a /RESET; a session power cycle that
+  rebuilds the machine starts from the built-in image (a `fwslots=` file option is possible later). The model can't
+  change its own C++, so an update changes FWVER and nothing else: what is tested is the update's path.
+- **Fault hooks for the diagnostics' tests:** a card that never comes READY, a SELFTEST bit, a dropped or corrupted
+  DMA byte, a dead interrupt (`fault_devices.h`).
+- **The WebUI:** Play .sid hands the file to the firmware model's tune player directly, outside the bus, and the
+  tune bar reads TUNE_STATUS; `soundRunning` is "a tune is playing"; `soundCpu` and `soundVoice` read the firmware
+  model's 6510 and the SIDs' shadows, as a debugger may (nothing on the OO-1's bus can). The debugger's sound pane
+  shows the device's registers, its FIFOs and the firmware's objects, voices and streams. `apps/sidcheck` plays on
+  `sid_plan`. The USB card's speaker model stays; the session's mix keeps its audio for Apple II mode.
+  `e2e/sound.spec.ts` tests the bare-metal interface: a BEEP record typed at WOZMON into CMD (`$C503`), the event
+  read back from EVT (`$C505`).
 
 
 ## Storage ##
@@ -3963,3 +4742,9 @@ Each step can be checked against real software, the same way the Ben Eater progr
    driving physical addresses (the ESP32) has no way to reach card registers. The DMA controller doesn't need to
    (cards answer /DACK, or on the new bus their PS match with /DMA low) and the ESP32 reaches the Console card over SPI. If a master ever needs I/O, the simplest
    rule is a physical range the north bridge treats as the I/O hole while BE is low.
+2. **The sound card's later steps** (none scheduled; [Sound card revision 3](#sound-card-revision-3)): the spec's
+   6510 map (SID A mirrored over `$D400-$D7FF` for a one-SID tune, the second SID where the header says) and fuller
+   C64 support for RSIDs (the VIC-II's raster interrupt, CIA 2, NMI samples), each a firmware step with its own corpus
+   baseline; a load from an open file through OODOS's own buffer ([Q14](#the-drafts-questions-decided)); WIDE on the
+   DATA port, which nothing sets; a `fwslots=` machine option so the firmware's slots outlast a session's power
+   cycle.

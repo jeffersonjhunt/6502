@@ -3,7 +3,7 @@
 /**
  * @file sound_fw.h
  * @author Jefferson J. Hunt (jefferson@oneoffendeavors.com)
- * @brief The sound card's firmware, revision 3: the card as a device (hw/future/sound-device.md).
+ * @brief The sound card's firmware, revision 3: the card as a device (hw/design.md, "Sound card revision 3").
  * @version 0.1.0
  * @date 2026-11-23
  *

@@ -1,4 +1,4 @@
-; SNDFW.COM (hw/future/sound-device.md, "Flash and the update" and "The
+; SNDFW.COM (hw/design.md, "Flash and the update" and "The
 ; firmware image"; the User's Guide's SNDFW): SNDFW filespec. A new
 ; firmware image for the sound card (revision 3, the card as a device),
 ; sent through function 82's SN_FIRMWARE: FW_BEGIN with the image's length,

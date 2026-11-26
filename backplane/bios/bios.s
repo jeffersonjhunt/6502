@@ -380,8 +380,8 @@ MOTHER:         .byte   $0D, "THE DIAGNOSTICS IN THE FLASH ARE ANOTHER BUILD'S: 
 MROM:           .byte   $0D, "ROM: F FLASH UPDATE, 0-3 APPLE II MODE, ANY OTHER KEY MONITOR ", 0
 
 ; $C818's $A2 (BEEP: 800 Hz, the PC's beep, for A x 10 ms; A = 0, 250 ms) and
-; $A3 (STOPALL), X the function, on a revision 3 sound card (hw/future/sound-
-; device.md, "Bare metal"): READY waited for (250 ms), then CMD's room for a
+; $A3 (STOPALL), X the function, on a revision 3 sound card (hw/design.md,
+; "Bare metal"): READY waited for (250 ms), then CMD's room for a
 ; whole record (100 ms); the record written whole with interrupts off, tag
 ; RTAG; then its REPLY (100 ms), each other record the card sends meanwhile
 ; read and dropped. Carry clear once the REPLY is in (whatever its status);

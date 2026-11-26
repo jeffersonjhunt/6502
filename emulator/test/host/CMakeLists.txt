@@ -253,7 +253,7 @@ target_compile_definitions(test_video_rev2 PRIVATE EMU_MACHINE_DIR="${PROJECT_SO
 emu_add_test(test_usb)
 emu_add_test(test_sound)
 emu_add_test(test_es5503) # the DOC alone (es5503.h), the chip revision 3's firmware plays
-emu_add_test(test_sound_fw) # revision 3's firmware alone (hw/future/sound-device.md)
+emu_add_test(test_sound_fw) # revision 3's firmware alone (hw/design.md, "Sound card revision 3")
 emu_add_test(test_sound_device) # revision 3 on the bus: registers, FIFOs, DMA, interrupt, resets
 emu_add_test(test_sound_stream3) # revision 3's streams: rings, NEED, underruns, gapless, the MP3 trim
 emu_add_test(test_sound_dsp) # the EQ and the vis page alone (sound_dsp.h), as the firmware runs them

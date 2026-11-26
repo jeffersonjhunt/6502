@@ -1,7 +1,7 @@
 /**
  * @file test_sound_stream3.cpp
  * @brief The sound card, revision 3: streams (rings in the store, NEED, prebuffer, underruns, gapless joins and
- * the MP3 trim; hw/future/sound-device.md, "Gapless streaming").
+ * the MP3 trim; hw/design.md, "Gapless streaming").
  * @copyright Copyright (c) 2024-2026 Jefferson J. Hunt (MIT)
  *
  * The card (sound_card3.h) on its own, ticked at the native clock; a feeder answers each NEED with a chunk

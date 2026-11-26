@@ -1,7 +1,7 @@
 /**
  * @file test_oodos_sound.cpp
  * @brief OOLIB's L3 (hw/oolib.md, "The plan") on sound card revision 3, the card as a device
- * (hw/future/sound-device.md and its interface details; the build plan's S13-S16): function 82's clean table,
+ * (hw/design.md, "Sound card revision 3"; hw/oodos.md, "OODOS 0.17", the build's S13-S16): function 82's clean table,
  * its claims, OODOS's record sender and reply wait, the handler's events, the loads by DMA channel 2 into DATA,
  * the stream fed when the card asks (NEED), the beep and the console's bell on the card, the event area's sound
  * part and the warm and cold boots; and the acceptance items: a file on an SD drive streamed through function 82.
@@ -982,7 +982,7 @@ TEST(pause_resume_seek_end_and_status)
 
 TEST(the_card_s_urgent_need_and_its_ms_buffered_reach_the_area_and_sn_status)
 {
-    // The spec's low-water mark (hw/future/sound-device.md, "The low-water mark"): under 1 s buffered the card's NEED
+    // The spec's low-water mark (hw/design.md, "Gapless streaming", the low-water mark): under 1 s buffered the card's NEED
     // carries an urgent flag, which OODOS passes on with the ms buffered: the area's EV_SNEED and EV_SBUFMS, SN_STATUS's
     // +15 and +16-19, each the stream's last NEED's as the card sent it. A 48 kHz 16-bit stereo stream (192,000 bytes
     // a second) fed 64 KB buffers (341 ms each): urgent at the start, clear once fed past 1 s (and kept so while no

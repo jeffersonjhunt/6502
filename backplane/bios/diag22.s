@@ -2150,7 +2150,7 @@ DMA1GO:
 
 ; --- Stage 10: the sound card ---------------------------------------------------
 
-; The sound card, revision 3, the device (hw/future/sound-device.md): driven
+; The sound card, revision 3, the device (hw/design.md, "Sound card revision 3"): driven
 ; only by its records (diagsnd.inc). S1 the ID and READY; S2 IDENTIFY; S3
 ; SELFTEST; S4 channel 2 into DATA, then CHECKSUM against the host's CRC-32;
 ; S5 the event path and its interrupt line; S6 a raw PCM stream's frames at

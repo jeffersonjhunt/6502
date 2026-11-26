@@ -186,7 +186,29 @@ its tone generator, the volumes, the mix, the EQ and what it shows. There is no 
 and no mailbox, so the music driver, a program's own driver and the SIDs written directly (below) went. Claims are
 per part: the tune player, the stream, music. [design.md, "Sound card revision 3"](design.md#sound-card-revision-3)
 has the decisions; the Programmer's Guide's [chapter 8](../docs/oodos-programmers-guide/08-game-services.md#sound) what
-a program sees. As first proposed:*
+a program sees.*
+
+**OOLIB's sound layer on revision 3** (decided: the music driver, `oodos/lib/mudrv/`, and with it `mu.s`'s loading
+of it, and `sid.s`'s player stub retired; `PB_*` onto the device's status). Moved here from the card's spec
+(hw/future/sound-device.md, removed in the cleanup pass, 2026-11-25), as built in OOLIB interface 18:
+
+| Module | On revision 2 | On revision 3 |
+|---|---|---|
+| `mu.s`, `munote.s` | the 6510 driver, a mailbox byte at a time | the `MU_` calls kept ([Q7](design.md#the-drafts-questions-decided)): `MU_NOTE` and `MU_TONE` send a one-entry note block at once, the card's music slots in turn; `MU_BLOCK` (new) sends a whole block a program built; `MU_THRESH` (new) sets the card's threshold. `MU_INIT` claims `SC_MUSIC` and loads nothing. `MU_COUNT` and `MU_EVENT` read the card's counts and events. No `MU_FLUSH` (nothing gathers) |
+| `mutone.s` | a tone on the driver | arithmetic kept, the send on blocks; GW-BASIC no longer links it (branch C builds its own blocks) |
+| `sid.s` | `SID_PARSE`, `SID_PLAN` (the stub), `SID_PLAY`, `SID_STOP` | `SID_PARSE` kept (the header, for display); `SID_PLAN` a thin call (it checks the song and sets `SID_SONG`: the planning is the card's); `SID_PLAY` is `SN_TUNE` and `SN_PLAY`, RSIDs too; `SID_STOP` is `SN_STOP` |
+| `sidv.s`, `sidnote.s`, `sidenv.s` | reads of the SIDs' registers | `SID_VOICES` from `SN_SIDREGS` (the same 50 bytes); `SID_NOTE` and `SID_ENV` unchanged (arithmetic on sidv's block) |
+| `pb.s`, `pbstat.s`, `pbvol.s`, `pblev.s` | per source: the 6510 by the mailbox stamp, the stream by `SN_STATUS`, the ES5503 by its RUN | `PB_SID` from `SN_TSTATUS`, `PB_STREAM` from `SN_STATUS`, `PB_MUSIC` (new, 3) from `SN_MSTATUS`; `PB_DOC` refused (`PE_REFUSED`). `PB_LEVELS` from `SN_LEVELS`, the same form for every source and no longer an estimate for a SID |
+| `pbeq.s`, `pbvis.s` | the card's EQ and vis registers | `SN_EQ`, `SN_VIS`; the calls and their errors as before |
+| `pbcard.s`, `pb.inc` | the ID read straight from `$C57F`; `pb.inc`'s own copy of the card's register addresses | `SN_INFO`; `pb.inc`'s register equates removed |
+| `physof.s` | | unchanged: every load takes a physical address |
+
+**No library module touches the card.** On revision 2 `sidv.s`, `pbeq.s`, `pbvis.s`, `pbcard.s`, `pbstat.s` (CTRL's
+RUN, DOCCTL's RUN, RATE) and `pblev.s` (CTRL's clock bit) read or wrote the card's registers directly, with no claim,
+through `pb.inc`'s private equates. On revision 3 every one of them goes through function 82, so OODOS is the card's
+only driver. OO-Amp (its own repo) needed the same change, its own step.
+
+*As first proposed, for revisions 1 and 2:*
 
 The card's 6510 can be used three ways; the services cover all three, one at a time:
 

@@ -336,7 +336,7 @@ DMA_BLOCK_IN    = $02                  ; MODE: block, card to memory (once DRQ o
 DMA_BLOCK_OUT   = $06                  ; MODE: block, memory to card
 DMA_ENABLE      = $01                  ; CTRL
 
-; The sound card (module A), revision 3: the card as a device (hw/future/sound-device.md). A program writes
+; The sound card (module A), revision 3: the card as a device (hw/design.md, "Sound card revision 3"). A program writes
 ; command records to CMD and reads event records from EVT; data goes in through DATA, by DMA channel 2.
 SOUND           = $C500
 SOUND_CTRL      = SOUND + $00          ; DRQ; FWRESTART and RESET, strobes

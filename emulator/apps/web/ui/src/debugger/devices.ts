@@ -196,7 +196,7 @@ export function frameText(c: SoundCpu): string {
   return `line ${c.raster} · interrupt ${c.frameEn & 1 ? "on" : "off"}${c.frame & 1 ? " · pending" : ""} · $D012 ${c.frameEn & 2 ? "shows it" : "reads $FF"}`;
 }
 
-/** The sound card's ID: revision 3, the card as a device (hw/future/sound-device.md), its only one. */
+/** The sound card's ID: revision 3, the card as a device (hw/design.md, "Sound card revision 3"), its only one. */
 export const SOUND_V3 = 0xa3;
 const TUNE_STATES = ["stopped", "starting", "playing", "paused", "stalled", "jammed", "ended"];
 /** Whether a tune's state has the card's 6510 running: starting, playing or stalled (paused holds it). */

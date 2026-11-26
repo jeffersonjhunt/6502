@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Sound card revision 3 firmware images, for tests (hw/future/sound-device.md, the S1 appendix's image).
+"""Sound card revision 3 firmware images, for tests (hw/design.md, "The firmware image").
 
 An image is a 32-byte header, then its body:
 

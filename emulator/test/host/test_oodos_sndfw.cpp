@@ -4,7 +4,7 @@
  * device) sent from M: through function 82's SN_FIRMWARE, on OODOS.SYS booted as test_oodos_sound boots it.
  * @copyright Copyright (c) 2024-2026 Jefferson J. Hunt (MIT)
  *
- * Each image is built here, as the spec's firmware image says (hw/future/sound-device.md, "The firmware image"):
+ * Each image is built here, as the spec's firmware image says (hw/design.md, "The firmware image"):
  * the 32-byte header (magic, card type, version, build, the body's length and CRC-32, the header's CRC-32) and a
  * body of noise, its length not a record's multiple, so the file's last record holds padding past the image.
  *   - a good image is written into the slot not running and marked to boot, and after FWRESTART the card runs

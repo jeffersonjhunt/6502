@@ -77,7 +77,7 @@ yet, [docs/tools/unwritten.txt](docs/tools/unwritten.txt) says so; go to hw/ and
   break an existing caller, or remove anything, goes to the owner first, named, with why.
   So, before 1.0 (the owner, 2026-11-23), function 82's operations were laid out afresh as one table grouped by
   job, for the sound card as a device (OODOS 0.17, OOLIB interface 18)
-  ([the build plan's decisions](hw/future/sound-device-build.md#decisions)).
+  ([the owner's rulings on the build](hw/design.md#the-owners-rulings-on-the-build-2026-11-23)).
 - **The sound card is revision 3 (`$A3`) only** (the owner, 2026-11-24: until 1.0, no support or tests for a
   revision that has been replaced). The ROM, OODOS, OOLIB and the emulator drive no other; a program reaches the card
   through function 82 alone, and writes none of its registers.
