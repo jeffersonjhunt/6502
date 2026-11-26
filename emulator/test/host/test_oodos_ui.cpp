@@ -5807,6 +5807,19 @@ TEST(s3_more_dirty_records_than_the_list_holds)
     poll(r);
     poll(r);
     constexpr uint8_t A_TR0 = 59; // the 26 track labels, then the 5 extras (85-89)
+    // (Review 1, T3) the list itself, read from the host: 8 records dirtied fill it (udn 8), the 9th makes it too
+    // long ($FF), and the byte after the list (ukeyl) is as it was: a list one longer would hold the 9th there.
+    const uint8_t keyl = r.phys(lab("ukeyl"));
+    for (unsigned i = 0; i < 9; ++i)
+    {
+        CHECK_EQ(ui(r, 'd', static_cast<uint8_t>(A_TR0 + i)).substr(6), std::string("00"));
+        if (i == 7)
+            CHECK_EQ(r.phys(lab("udn")), 8u);
+    }
+    CHECK_EQ(r.phys(lab("udn")), 0xFFu);
+    CHECK_EQ(r.phys(lab("ukeyl")), keyl);
+    poll(r);
+    CHECK_EQ(r.phys(lab("udn")), 0u);
     for (const auto &[n, text, at] : {std::tuple<unsigned, const char *, unsigned>{9, "Nine", 0x40},
                                       std::tuple<unsigned, const char *, unsigned>{30, "Thirty", 0x50}})
     {
@@ -5955,4 +5968,95 @@ TEST(s3_a_dialog_closed_walks_no_letter_again)
     CHECK(std::any_of(all.begin(), all.end(), [](const Event &e) { return e.code == UE_PICK && e.handle == P_WIN && e.value == 3; }));
     key(p, K_ESC);
     poll(p);
+}
+
+TEST(s3_a_record_on_the_damage_s_edge_is_drawn_again)
+{
+    // (Review 1, T1) UITEST's main scene. B_TOG dirtied (a button: ui_dirty on a window would make the cache stale,
+    // and the walk today's): its rectangle is the damage, and PASS's fast walk tests every clean record against the
+    // union of the boxes (FUNION) before CMEETS. W_TALL, after it in the table, placed by its fields (and ui_redraw)
+    // exactly on that box's edges, one cell over it: its shadow on the box's first column, its shadow on the box's
+    // first row, its first column on the box's last; and in a theme with no shadow (theme 4, the program's copy of the
+    // default, its TM_SHADOWX and TM_SHADOWY 0 and no TF_SHADOW), its last column on the box's first, its last row on
+    // the box's first, its first column on the box's last. It must be drawn again over B_TOG there, so the cells are
+    // as ui_redraw draws them. A union one cell too tight on any side leaves that column or row undrawn.
+    CcpRig r;
+    REQUIRE(r.ok);
+    open_main(r);
+    const uint16_t t = rec(W_TALL);
+    const Place b = rect(r, B_TOG);
+    std::printf("  B_TOG: %u,%u %ux%u\n", b.col, b.row, b.w, b.h);
+    const auto scene = [&](const char *what, unsigned x, unsigned y, uint8_t w, uint8_t h) {
+        r.poke(t + 2u, static_cast<uint8_t>(x));
+        r.poke(t + 3u, static_cast<uint8_t>(y));
+        r.poke(t + 4u, w);
+        r.poke(t + 5u, h);
+        CHECK_EQ(ui(r, 'D').substr(6), std::string("00"));
+        poll(r);
+        CHECK_EQ(ui(r, 'd', B_TOG).substr(6), std::string("00"));
+        const Polls p = polls_cost(r);
+        const std::string drawn = base_cells(r);
+        CHECK_EQ(ui(r, 'D').substr(6), std::string("00"));
+        poll(r);
+        const bool same = base_cells(r) == drawn;
+        std::printf("  %s: %lu ONE%s\n", what, p.ones, same ? "" : ", the cells aren't ui_redraw's");
+        CHECK(same);
+    };
+    r.poke(t + 4u, 6);
+    r.poke(t + 5u, 3);
+    CHECK_EQ(ui(r, 's', W_TALL).substr(6), std::string("00"));
+    poll(r);
+    // (the default theme: a window's shadow two columns right and a row down, TM_SHADOWX 2, TM_SHADOWY 1)
+    scene("its shadow on the box's first column", b.col - 7, b.row - 1, 6, 3); // its last column 2 before
+    scene("its shadow on the box's first row", b.col + 2, b.row - 3, 6, 3);    // its last row 1 above
+    scene("its first column on the box's last", b.col + b.w - 1, b.row - 1, 4, 3);
+    const uint16_t house = lab("UI_HOUSE");
+    r.poke(house + 1u, 0);  // TH_FLAGS: no TF_SHADOW
+    r.poke(house + 14u, 0); // TM_SHADOWX
+    r.poke(house + 15u, 0); // TM_SHADOWY
+    CHECK_EQ(ui(r, 't', 4).substr(6), std::string("00"));
+    poll(r);
+    scene("no shadow: its last column on the box's first", b.col - 5, b.row - 1, 6, 3);
+    scene("no shadow: its last row on the box's first", b.col + 2, b.row - 2, 6, 3);
+    scene("no shadow: its first column on the box's last", b.col + b.w - 1, b.row - 1, 4, 3);
+}
+
+namespace
+{
+    /// String `s` at S3TEXT + `at`, and record h's UW_TEXT pointed at it, in the running program's table `table`.
+    void text_in(CcpRig &r, const char *table, uint8_t h, unsigned at, const std::string &s)
+    {
+        const uint16_t a = static_cast<uint16_t>(S3TEXT + at), rh = static_cast<uint16_t>(lab(table) + h * 16u);
+        std::string z = s;
+        z.push_back('\0');
+        r.poke(a, bytes(z));
+        r.poke(rh + UW_TEXT, static_cast<uint8_t>(a & 0xFF));
+        r.poke(rh + UW_TEXT + 1, static_cast<uint8_t>(a >> 8));
+    }
+} // namespace
+
+TEST(s3_a_check_box_s_and_a_radio_button_s_letter)
+{
+    // (Review 1, T2) ACCREC's types are FINDACC's (one list, ACCTYPE): a table whose only key letters are a check
+    // box's, then one whose only letters are radio buttons', opens with ukeyl set, and those letters press.
+    CcpRig r;
+    REQUIRE(r.ok);
+    start_ui(r);
+    for (uint8_t h : {B_OK, B_CAN, B_TOG, B_HIDE})
+        text_in(r, "main", h, 0, "Btn");
+    CHECK_EQ(ui(r, 'o', BLK_MAIN).substr(6), std::string("00"));
+    poll(r);
+    CHECK(r.phys(lab("ukeyl")) != 0);
+    key(r, 0x10); // M: "&Mouse"
+    const std::vector<Event> m = poll(r);
+    CHECK(std::any_of(m.begin(), m.end(), [](const Event &e) { return e.code == UE_CHANGE && e.handle == C_MOUS; }));
+    CcpRig w;
+    REQUIRE(w.ok);
+    start_ui(w, "uitwid");
+    text_in(w, "u2", X_DONE, 0, "Done");
+    CHECK_EQ(ui(w, 'o', BLK_U2).substr(6), std::string("00"));
+    poll(w);
+    CHECK(w.phys(lab("ukeyl")) != 0);
+    key(w, 0x0B); // H: "&High"
+    expect(poll(w), {{UE_CHANGE, X_GRP, 0, 2}}, "H");
 }

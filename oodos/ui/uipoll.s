@@ -440,13 +440,9 @@ FINDACC:
         jsr     REC
         ldy     #UW_TYPE
         lda     (UIR),y
-        cmp     #UT_BUTTON
-        beq     @t
-        cmp     #UT_CHECK
-        beq     @t
-        cmp     #UT_RADIO               ; (U2: a radio button's letter chooses it)
+        jsr     ACCTYPE                 ; (S3, review T2) a button, a check box or (U2) a radio button
         bne     @n
-@t:     ldy     #UW_FLAGS
+        ldy     #UW_FLAGS
         lda     (UIR),y
         and     #UF_DISABLED
         bne     @n

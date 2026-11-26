@@ -2345,6 +2345,13 @@ as `ui_redraw` draws them, none left dirty); `s3_a_record_is_drawn_once` (none d
 label after another's paint draws one record; every mark set in block C's memory before `ui_open`, none after);
 `s3_a_record_moved_by_its_fields_and_dirtied_on_the_fast_walk` (a panel with two check boxes moved by its fields
 and only dirtied: its new place's cells as `ui_redraw` draws them, the cache as `ui_rect` gives it, no mark left).
+*(Review round 1:)* `s3_a_dialog_closed_walks_no_letter_again` (C2: the message box come and gone, and
+`ui_redraw`, then a letter walks no record; `ui_redraw` with the picker up keeps its letters);
+`s3_a_record_on_the_damage_s_edge_is_drawn_again` (T1: a window placed by its fields exactly on a dirty button's box's
+edges, one cell over it, with the default theme's shadow and with none: drawn again, the cells `ui_redraw`'s; the
+union one cell tighter on any side fails it); `s3_a_check_box_s_and_a_radio_button_s_letter` (T2: tables whose only
+letters are a check box's, a radio button's; `ACCTYPE` is `FINDACC`'s and `ACCREC`'s one type list); and the dirty
+list read from the host, `udn` 8 after the 8th record and `$FF` after the 9th, the byte after it untouched (T3).
 The guards are counts (`REC`, `RECT`, `ONE`, `POST`, the marks); the S1, S2 and B5 cases' cycle ceilings stay as
 they are (answer 5). **Changed expectation** (answer 6): `z3_the_thumbs_placed_after_a_paint_cost_little`'s second
 part, a status line's text changed, required that `POST` ran (9,689 cycles); it now checks that `POST` isn't

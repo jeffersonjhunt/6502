@@ -421,19 +421,25 @@ DLEN:   lda     UIP
 @r:     rts
         .code
 
+; (S3, review 1's T2) Z set if type A may have a key letter: a button, a
+; check box or (U2) a radio button. FINDACC's and ACCREC's one list.
+ACCTYPE:
+        cmp     #UT_BUTTON
+        beq     @r
+        cmp     #UT_CHECK
+        beq     @r
+        cmp     #UT_RADIO
+@r:     rts
+
 ; (S3) Record UIR: ukeyl set if it is a button, a check box or a radio
 ; button with a key letter (FINDACC's types). Keeps UIR and X. ui_open's
 ; (CHECKTAB, every record), ui_settext's, ui_dirty's and KEYS' (ui_redraw,
 ; a dialog closed); the dialogs' records (DLGREC) set ukeyl themselves.
 ACCREC: ldy     #UW_TYPE
         lda     (UIR),y
-        cmp     #UT_BUTTON
-        beq     @t
-        cmp     #UT_CHECK
-        beq     @t
-        cmp     #UT_RADIO
+        jsr     ACCTYPE
         bne     @r
-@t:     ldy     #UW_TEXT
+        ldy     #UW_TEXT
         lda     (UIR),y
         sta     UIP
         iny
