@@ -1,7 +1,7 @@
 ; HW_TEST, HW_LINE, HW_FAULT and HW_SUMMARY (oohw.inc): a diagnostic's
 ; report, one line a test (hw/diag.md, "DIAG.COM"):
 ;
-;   "  NB1  ID and STATUS agree, revision 2 ......................... PASS"
+;   "  NB1  ID $D3; STATUS'S REVISION 3 ............................. PASS"
 ;
 ; the test's name in a field of 5 after two blanks, what the program
 ; writes, a blank and dots to column 64, a blank and the result at 65. The

@@ -225,9 +225,8 @@ SN_PTR:         .res    2              ; SNDCMD's record; SNDDATA's bytes
 ; Every card quiet, as the BIOS's QUIET (bios.s) does it, with no JSR: DMA
 ; stopped (all eight channels, each one's CARD back to its reset module; X and Y
 ; not kept), the SD card's command abandoned, every card's interrupt off, the
-; sound card's every sound stopped (CTRL's RESET, on revision 3), the
-; clock's TIE off, the timebase's MSIE off (revision 3; an older bridge drops
-; the write), the VIA's interrupts off. The breakpoint is left alone.
+; sound card's every sound stopped (CTRL's RESET), the clock's TICK
+; cleared, the timebase's MSIE off, the VIA's interrupts off. The breakpoint is left alone.
 .macro QUIETM
         .local sd, idle, chans, chan, card, usb, video, sound, panel, via
                 lda     #NB_RTC_TICK

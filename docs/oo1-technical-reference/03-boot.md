@@ -32,7 +32,7 @@ BIOS says so after its greeting. No RAM is used before the copy. The BIOS, versi
 6. Sets up the video card's 80×30 text screen, and lets the USB keyboard's Pause/Break pull /NMI, if those cards
    answer. The screen needs video card revision 2 (ID `$92`, *proposed*) and the DMA controller; with any other card
    the monitor is on the serial line alone ([chapter 6](06-video.md#the-bioss-text-screen)).
-7. Prints `BACKPLANE BIOS 0.19` on the serial line and the screen.
+7. Prints `BACKPLANE BIOS` and its version (0.22) on the serial line and the screen.
 8. Boots the SD card's `/BOOT.BIN` once the splash is over, if there is one; otherwise it enters the monitor
    ([below](#booting-from-the-sd-card)).
 

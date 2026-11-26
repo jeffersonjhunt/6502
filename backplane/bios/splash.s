@@ -12,7 +12,7 @@
 ; CTRL's RESET first, so whatever a program left playing before C800R stops and
 ; a record it left half written is dropped; then READY waited for, 250 ms at
 ; most (power-on brings it within 100 ms). With no READY by then the splash
-; runs silent, as it does on revisions 1 and 2, which the ROM doesn't drive.
+; runs silent.
 ;
 ; The BIOS doesn't wait for the sound, nor for BOOTSOUND's reply (tag STAG,
 ; left in the event FIFO: OODOS's cold boot empties it). The monitor is up

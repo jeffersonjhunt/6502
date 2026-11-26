@@ -387,7 +387,6 @@ DM_BANK8        = 11                   ; block (interface version 12; B7): bank 
                                        ;   program's RAM until the warm boot (MAP's AP8 cleared), and +1
                                        ;   WIN1H, +2 the block that put aperture slot 1's window in W1
                                        ;   ($0E, 1: $E04000; 0, 0 with no video card): A = 0.
-                                       ;   $FF $FF under a ROM BIOS older than 0.17, nothing changed
 DM_VFILLW       = 12                   ; block (interface version 13; hw/video640.md): +1-2 a word (low
                                        ;   byte first), +3-5 the destination (card), +6-7 the length in
                                        ;   bytes (0: 65,536): the low byte at the destination's even offsets

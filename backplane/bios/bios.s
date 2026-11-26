@@ -538,7 +538,7 @@ IRQ:            PHA
 ; Stop what would go on behind the monitor: every DMA channel (all eight), the SD card's
 ; command, the boot splash and the video port's DMA request, every sound on a revision 3 sound card (CTRL's
 ; RESET: its tunes, music, effects, streams and beep, an open transfer and both FIFOs, IEN 0; one write, no
-; wait; revisions 1 and 2 aren't driven); and turn off the interrupts that
+; wait); and turn off the interrupts that
 ; IRQ can't answer, so a program run with R can CLI: the clock's tick too
 ; (its time runs on), a front-panel key already pending, and the VIA's. What
 ; it doesn't know (a program's own state) is left alone; the serial card the
@@ -546,10 +546,10 @@ IRQ:            PHA
 ; at $C340; only an emulator machine without its via6522 line has the stand-in
 ; 6551's mirror there, which takes VIA_IER's write until WOZMON undoes it.
 QUIET:
-                LDA     #NB_RTC_TICK   ; TICK cleared, TIE off; SET 0 sends nothing
+                LDA     #NB_RTC_TICK   ; TICK cleared; SET 0 sends nothing
                 STA     NB_RTCCTL
-                LDA     #NB_TB_MSF | NB_TB_OVR ; (revision 3) the timebase's flags cleared, MSIE off:
-                STA     NB_TBCTL       ; no ID check, since an older bridge drops the write
+                LDA     #NB_TB_MSF | NB_TB_OVR ; the timebase's flags cleared, MSIE off
+                STA     NB_TBCTL
                 LDA     DMA_ID
                 CMP     #DMA_ID_V2
                 BNE     @sd

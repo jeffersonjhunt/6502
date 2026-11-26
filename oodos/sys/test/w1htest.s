@@ -35,9 +35,9 @@
 ;   Q   W1HON, a spin of about 100 ms at QSPIN (the test gives an IRQ that
 ;       no card asserts there: the dispatcher's no-card way out), then
 ;       W1H hh B1 bb
-;   W   W1HON, MAP's AP8 changed (on $D2+), and the warm boot
+;   W   W1HON, MAP's AP8 changed, and the warm boot
 ;   B   W1HON, then a spin for ever at BSPIN (Break ends it)
-;   A   W1HON, MAP's AP8 changed (on $D2+), then function 75's Apple II
+;   A   W1HON, MAP's AP8 changed, then function 75's Apple II
 ;       mode (A = 1): A2 aa xx if it comes back (no IIe ROM), W1HOFF, the
 ;       warm boot
 ;

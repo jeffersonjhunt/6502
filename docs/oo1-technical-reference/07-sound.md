@@ -703,4 +703,4 @@ R. Writes are ignored.
 #### Notes
 
 `SOUND_ID_V3` (`$A3`) is the value, and `SOUND_TYPE` (`$A0`) its high nibble. The BIOS and OODOS check for `$A3`
-before they touch the card. The offsets with no register, `$12–$7E`, read `$FF` and ignore writes.
+before they touch the card. The offsets with no register, `$12–$7E`, read 0 and ignore writes.

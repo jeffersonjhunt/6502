@@ -60,7 +60,7 @@ GXPB:   .res    4                      ; function 73's
 ; In DATA, not BSS (which the loader doesn't clear), so that WIN1H is
 ; never written before GX_BANK8 gave a window, even before GX_INIT.
 GXCURH: .byte   0                      ; the WIN1H W1 has (as the library put it): 0 or GXAPH
-GXAPH:  .byte   0                      ; slot 1's window for W1: WIN1H (0: the old mode, and on $D1)
+GXAPH:  .byte   0                      ; slot 1's window for W1: WIN1H (0: the old mode)
 GXAPB:  .byte   VM_SLOT_BLOCK          ;   and the block (33; 1 after GX_BANK8 with a card)
 
 ; The vertical-blank go bits (EV_VBGO) set with TSB, which an interrupt

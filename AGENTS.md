@@ -32,10 +32,8 @@ yet, [docs/tools/unwritten.txt](docs/tools/unwritten.txt) says so; go to hw/ and
   through function 82 only), the VIA's IER and IFR, and its ACR but for
   timer 1's mode bits (7-6), and the serial line's receive (the 6551's CMD and its interrupt, its STATUS and DATA;
   later the TL16C552A's IER, MCR and FIFO control): a program reads AUX: by functions 3 and 7, and asks function 85
-  for the rest (the owner, 2026-11-21). **Timer 1 is the program's, polled** (the owner, 2026-11-21; OODOS 0.16,
-  which needs north bridge revision 3): its counter, its latches, ACR's bits 7-6 (the rest of ACR kept as read) and
-  its IFR flag, never its IER bit; a program that may run on an older OODOS checks function 80's `FT_INFO` for
-  `FC_T1` first. **`$F800-$FFFF` is common memory whatever W3 holds** (OODOS 0.16's common hole, the owner,
+  for the rest (the owner, 2026-11-21). **Timer 1 is the program's, polled** (the owner, 2026-11-21): its counter,
+  its latches, ACR's bits 7-6 (the rest of ACR kept as read) and its IFR flag, never its IER bit. **`$F800-$FFFF` is common memory whatever W3 holds** (OODOS 0.16's common hole, the owner,
   2026-11-22): a program never writes there, and a far-called block needs no copy of it. The one exception to the windows is OOLIB's: its linked library maps W1 itself (a video block
   or one the program allocated), under the W1 contract (OOLIB interface 4,
   [the Programmer's Guide, chapter 5](docs/oodos-programmers-guide/05-memory-and-banking.md#the-w1-contract)); a
