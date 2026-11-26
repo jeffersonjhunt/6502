@@ -205,21 +205,22 @@ describe("Breakpoints", () => {
     expect(bps.notRestored).toEqual([]);
   });
 
-  test("with no bridge answering VIDEO_ID decides, whatever MAP reads", async () => {
+  test("with no bridge answering bank 8 reaches the bus, whatever MAP and VIDEO_ID read", async () => {
+    // Only the bridge redirects bank 8: with none, a bank 8 breakpoint is kept, the video card fitted or not.
     const p = port();
     p.io.set(0xc6ff, 0xff);
     p.io.set(0xc6a5, 0xff); // nothing answering reads $FF, AP8's bit too
-    p.io.set(0xc4ff, 0xff); // VIDEO_ID: no video card, bank 8 is RAM
+    p.io.set(0xc4ff, 0xff); // VIDEO_ID: no video card
     const bps = new Breakpoints(p);
     const kept = await bps.add("84123");
     expect(typeof kept).toBe("object");
-    p.io.set(0xc4ff, 0x92); // the video card: bank 8 is the aperture
-    const r = await bps.add("84124");
-    expect(r).toMatch(/84124: bank 8 is the video aperture with the video card/);
-    expect(bps.list.length).toBe(1);
+    p.io.set(0xc4ff, 0x92); // the video card
+    const also = await bps.add("84124");
+    expect(typeof also).toBe("object");
+    expect(bps.list.length).toBe(2);
     await bps.recheck();
-    expect(bps.list).toEqual([]);
-    expect(bps.notRestored).toEqual(["84123"]);
+    expect(bps.list.length).toBe(2);
+    expect(bps.notRestored).toEqual([]);
   });
 
   test("a bank 8 breakpoint follows MAP's AP8 on a $D3 bridge", async () => {

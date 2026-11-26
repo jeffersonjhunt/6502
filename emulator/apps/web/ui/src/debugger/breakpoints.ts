@@ -19,8 +19,7 @@
  * cycle there reaches the bus to match. Which it does is the north
  * bridge's to say (B7): bank 8 is the aperture while AP8 (MAP, $C6A5 bit 0)
  * is set. With no bridge answering (NB_ID, $C6FF, reads $FF) nothing
- * redirects, and bank 8 is the video card's aperture while
- * VIDEO_ID ($C4FF) reads $92. A saved breakpoint that can't fire isn't
+ * redirects, and bank 8 reaches the bus. A saved breakpoint that can't fire isn't
  * restored, and notRestored names it: above $FFFFF at once, and in bank 8
  * once recheck() has found bank 8 sent to the aperture by the same rule
  * (the pane calls it on connecting; a page from before B1 could save one).
@@ -67,9 +66,6 @@ export const hex = (v: number, n: number) => v.toString(16).toUpperCase().padSta
 
 /** BPADDR's reach: A0-A19, with A20-A23 0. */
 export const BPADDR_MAX = 0xfffff;
-/** VIDEO_ID's address, and the video card's ID: its bank 8 is the aperture's (the rule with no bridge). */
-const VIDEO_ID = 0xc4ff;
-const VIDEO_CARD = 0x92;
 /** NB_ID's address, and what it reads with no north bridge answering. */
 const NB_ID = 0xc6ff;
 const NOTHING = 0xff;
@@ -85,13 +81,12 @@ export function describe(b: Breakpoint): string {
 }
 
 /**
- * Where bank 8 goes now, by the rule above: "ap8" with the bridge's AP8 set, "card" with no bridge and the
- * video card, null while bank 8 reaches the bus (a breakpoint there can fire).
+ * Whether bank 8 goes to the aperture now, by the rule above: with the bridge's AP8 set. False while bank 8
+ * reaches the bus (a breakpoint there can fire), as it always does with no bridge.
  */
-async function bank8Aperture(port: MachinePort): Promise<"ap8" | "card" | null> {
-  if ((await port.readMemory(NB_ID, 1, "io"))[0] === NOTHING)
-    return (await port.readMemory(VIDEO_ID, 1, "io"))[0] === VIDEO_CARD ? "card" : null;
-  return (await port.readMemory(NB_MAP, 1, "io"))[0] & MAP_AP8 ? "ap8" : null;
+async function bank8Aperture(port: MachinePort): Promise<boolean> {
+  if ((await port.readMemory(NB_ID, 1, "io"))[0] === NOTHING) return false;
+  return ((await port.readMemory(NB_MAP, 1, "io"))[0] & MAP_AP8) !== 0;
 }
 
 export interface Hit {
@@ -142,8 +137,8 @@ export class Breakpoints {
   }
 
   /**
-   * Once the machine is there: while bank 8 goes to the aperture (AP8 set; with no bridge, the video
-   * card, VIDEO_ID $92) a restored bank 8 breakpoint can never fire, so it joins notRestored (and
+   * Once the machine is there: while bank 8 goes to the aperture (the bridge's AP8 set) a restored bank 8
+   * breakpoint can never fire, so it joins notRestored (and
    * stays saved). Disarms it if it was armed.
    */
   async recheck(): Promise<void> {
@@ -183,9 +178,8 @@ export class Breakpoints {
     if (physical > BPADDR_MAX)
       return `${t}: $${hex(cpu ?? 0, 4)} is ${hex(physical, 6)}, above FFFFF: the Console card's breakpoint is 20 bits and never matches the flash or the video aperture`;
     if (physical >> 16 === 0x8) {
-      const why = await bank8Aperture(this.port);
-      if (why)
-        return `${t}: bank 8 is the video aperture ${why === "ap8" ? "while AP8 (MAP, $C6A5 bit 0) is set" : "with the video card"}, so the CPU and DMA never put ${hex(physical, 5)} on the bus: this breakpoint could never fire`;
+      if (await bank8Aperture(this.port))
+        return `${t}: bank 8 is the video aperture while AP8 (MAP, $C6A5 bit 0) is set, so the CPU and DMA never put ${hex(physical, 5)} on the bus: this breakpoint could never fire`;
     }
     const b: Breakpoint = {
       id: String(this.next++),
