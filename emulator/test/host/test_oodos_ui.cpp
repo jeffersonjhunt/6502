@@ -5781,6 +5781,17 @@ namespace
                 ++d;
         return d;
     }
+    /// (S3-4) The records PASS's fast walk has marked (block C's dmark, in its bank, read from the host): none
+    /// once ui_open is done or a walk has ended.
+    unsigned marks_left(CcpRig &r)
+    {
+        const uint32_t at = bank_block(r, "CFILL") * 0x4000u + (lab("dmark") - 0xC000u);
+        unsigned m = 0;
+        for (unsigned h = 0; h < 254; ++h)
+            if (r.phys(at + h) != 0)
+                ++m;
+        return m;
+    }
 } // namespace
 
 TEST(s3_more_dirty_records_than_the_list_holds)
@@ -5820,11 +5831,17 @@ TEST(s3_a_record_is_drawn_once)
 {
     // ui_open makes every record dirty and says the dirty list too long, so its first paint clears every record's
     // bit: none is left. Then a label dirtied and drawn, and another far from it: the second poll draws that one
-    // alone (one ONE), the first's bit cleared by its own paint (the listed records').
+    // alone (one ONE), the first's bit cleared by its own paint (the listed records'). (S3-4) Block C's memory is
+    // as ui_load left it, on the machine whatever its RAM held: every record is marked there for PASS's fast walk
+    // before ui_open, which clears the marks (CCLR); a mark left would have a later walk read that record.
     CcpRig r;
     REQUIRE(r.ok);
     start_ui(r, "uitbar");
+    const uint32_t cbank = bank_block(r, "CFILL") * 0x4000u + (lab("dmark") - 0xC000u);
+    for (unsigned h = 0; h < 254; ++h)
+        r.poke(cbank + h, 1);
     CHECK_EQ(ui(r, 'o', BLK_BIG).substr(6), std::string("00"));
+    CHECK_EQ(marks_left(r), 0u);
     poll(r);
     CHECK_EQ(dirty_left(r), 0u);
     CHECK_EQ(ui(r, 'd', A_TIME).substr(6), std::string("00"));
@@ -5835,4 +5852,47 @@ TEST(s3_a_record_is_drawn_once)
     say("a label dirty after another's paint", p);
     CHECK_EQ(p.ones, 1u);
     CHECK_EQ(dirty_left(r), 0u);
+}
+
+namespace
+{
+    /// OOUI's cells on layer `layer` (a character and an attribute each) in columns c0 to c1 - 1, rows r0 to r1 - 1.
+    std::string cells_in(CcpRig &r, unsigned layer, unsigned c0, unsigned r0, unsigned c1, unsigned r1)
+    {
+        const unsigned map0 = vid(r).peek(0x11 + 0x10 * layer) | vid(r).peek(0x12 + 0x10 * layer) << 8;
+        std::string c;
+        for (unsigned row = r0; row < std::min(r1, 30u); ++row)
+            for (unsigned i = c0 * 2u; i < std::min(c1, 80u) * 2u; ++i)
+                c += static_cast<char>(vid(r).card_peek(map0 * 256u + row * 160u + i));
+        return c;
+    }
+} // namespace
+
+TEST(s3_a_record_moved_by_its_fields_and_dirtied_on_the_fast_walk)
+{
+    // UITEST's main scene. A panel with children (P_OPTS: two check boxes) moved by its fields and only dirtied,
+    // against S1's rule, with a later label dirtied too: PASS's fast walk finds the panel moved when it places it
+    // (S2's comparison) and walks the rest as before S2, every record placed, so the children are drawn where they
+    // now are. A fast walk that went on reading the cache would test them at their old places, which the new box
+    // doesn't meet, and leave the panel empty. Its cells are then as ui_redraw draws them, and the cache matches
+    // ui_rect. The walk that ends that way leaves no record marked (the later label's mark cleared with the rest):
+    // a mark left would have a later walk read that record.
+    CcpRig r;
+    REQUIRE(r.ok);
+    open_main(r);
+    const uint16_t px = static_cast<uint16_t>(rec(P_OPTS) + 2), py = static_cast<uint16_t>(rec(P_OPTS) + 3);
+    r.poke(px, 24);
+    r.poke(py, 7);
+    CHECK_EQ(ui(r, 'd', P_OPTS).substr(6), std::string("00"));
+    CHECK_EQ(ui(r, 'd', L_DIS).substr(6), std::string("00"));
+    poll(r);
+    CHECK_EQ(marks_left(r), 0u);
+    const Place p = rect(r, P_OPTS);
+    CHECK_EQ(p.col, 31u);
+    CHECK_EQ(p.row, 11u);
+    const std::string moved = cells_in(r, 0, p.col, p.row, p.col + p.w, p.row + p.h);
+    CHECK_EQ(ui(r, 'D').substr(6), std::string("00"));
+    poll(r);
+    CHECK(cells_in(r, 0, p.col, p.row, p.col + p.w, p.row + p.h) == moved);
+    CHECK_EQ(cache_mismatches(r, "a panel moved by its fields, only ui_dirty"), 0u);
 }

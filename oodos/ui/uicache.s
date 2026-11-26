@@ -46,6 +46,11 @@ cey:    .res    1
 cbnd:   .res    1                      ;   and its layer's boxes' end
 ch:     .res    1                      ; CFILL's record
 cmode:  .res    1                      ; PASS's: 0 the cache read, 1 filled, 2 neither (stale)
+dmark:  .res    CMAX                   ; (S3) PASS's fast walk: not 0, the record is on the dirty list
+cu0:    .res    4                      ; (S3, O6) FUNION's: the union of the layer's boxes, c0, r0 (widened
+cu1     = cu0 + 1                      ;   by the shadow), c1, r1
+cu2     = cu0 + 2
+cu3     = cu0 + 3
 hh:     .res    1                      ; FRONT's record and pass
 hp:     .res    1
 mb:     .res    1                      ; MARGIN's: what HIT found, and its record
@@ -236,11 +241,13 @@ CON:    lda     cfl,x
 @r:     rts
 
 ; Every entry hidden (XC_CCLR: ui_open's, so no entry is the last table's
-; or the bank's memory as ui_load left it; the review's round 8, P1); and
+; or the bank's memory as ui_load left it; the review's round 8, P1), and
+; (S3) none marked for PASS's fast walk; and
 ; udend set (as A's UDEND does: ui_open's own before).
 CCLR:   jsr     CHID
         ldx     #0
 @l:     jsr     CSTORE
+        stz     dmark,x                 ; (S3) and not marked
         inx
         cpx     #CMAX
         bne     @l
@@ -297,6 +304,12 @@ CPUT:   sta     ch
 ; One layer's walk (A's PASSA, which cleared the box: pl the layer, pbx
 ; its box): each record drawn (A's ONE) that is dirty, whole, or that meets
 ; the box, clipped to it; the others not placed, while the cache holds.
+; (S3) While the cache holds and the dirty list isn't too long, the fast
+; walk: the listed records marked (dmark), each placed and drawn as before
+; (PREC); any other read only from its entry (the boxes' union, FUNION's,
+; then CMEETS), and a REC only for one that is drawn. A listed record
+; found moved by its fields (PREC's cmode 2) ends it: the marks cleared,
+; the rest of the records walked as before S2 (each placed).
 PASS:   stz     cmode                   ; the cache read; if it is stale, filled as each
         lda     #UQ_CSTALE              ;   record is placed
         bit     uany
@@ -306,7 +319,17 @@ PASS:   stz     cmode                   ; the cache read; if it is stale, filled
         sta     rcv
         sta     rcp
         stz     ph
-        lda     #0
+        lda     cmode                   ; (S3) the fast walk: the cache read, the list kept
+        bne     @slow
+        ldx     udn
+        cpx     #$FF
+        beq     @slow
+        jsr     FAST                    ; carry clear: the walk done; set: a record moved, the rest
+        bcc     @end                    ;   from ph as before S2
+        lda     ph
+        jsr     REC
+        bra     @rec
+@slow:  lda     #0
         jsr     REC
 @rec:   lda     ph
         cmp     utot
@@ -326,6 +349,119 @@ PASS:   stz     cmode                   ; the cache read; if it is stale, filled
         lda     #UQ_CSTALE
         trb     uany
 @r:     rts
+
+; (S3) PASS's fast walk (PASS's comment): the cache holds and the dirty
+; list isn't too long. Carry clear when every record is walked; set when a
+; listed record was found moved by its fields, the marks cleared and ph the
+; next record, which PASS walks on as before S2.
+FAST:   ldx     udn
+@dm:    dex                             ; the listed records marked
+        bmi     @u
+        ldy     udl,x
+        lda     #1
+        sta     dmark,y
+        bra     @dm
+@u:     jsr     FUNION
+@f:     ldy     ph
+        cpy     utot
+        bcc     @t
+        clc                             ; the walk done
+        rts
+@t:     lda     dmark,y
+        bne     @d
+        lda     cx0,y                   ; (O6) outside the boxes' union: not drawn
+        cmp     cu2
+        bcs     @fn
+        lda     cy0,y
+        cmp     cu3
+        bcs     @fn
+        lda     cx1,y
+        cmp     cu0
+        bcc     @fn
+        lda     cy1,y
+        cmp     cu1
+        bcc     @fn
+        jsr     CMEETS                  ; it meets a box: placed, drawn clipped to it
+        bcs     @fn
+        lda     ph
+        jsr     RECT
+        lda     ph
+        XGO     FARA, XA_ONE
+@fn:    inc     ph
+        bra     @f
+@d:     lda     #0                      ; listed: its mark cleared, placed and drawn as before
+        sta     dmark,y
+        tya
+        jsr     REC
+        jsr     PREC
+        lda     cmode
+        bne     @back
+        jsr     FUNION                  ; (its rectangle may be in the boxes now)
+        bra     @fn
+@back:  ldx     udn                     ; moved by its fields: the marks left cleared,
+@bc:    dex                             ;   and the rest as before S2
+        bmi     @bs
+        ldy     udl,x
+        lda     #0
+        sta     dmark,y
+        bra     @bc
+@bs:    inc     ph
+        sec
+        rts
+
+; (S3, O6) cu0-cu3: the union of layer pl's boxes, those CMEETS looks at,
+; its start (c0, r0) widened by the theme's shadow and less 1, at least 0:
+; a record whose cells end before it (cx1 < cu0, or cy1 < cu1) meets no box
+; even with its shadow, nor one that starts at its end or past it (cx0 >=
+; cu2, or cy0 >= cu3). The end 0 when every box is empty. Keeps nothing.
+FUNION: lda     #$FF
+        sta     cu0
+        sta     cu1
+        stz     cu2
+        stz     cu3
+        ldx     pl
+        lda     udend,x
+        sta     cbnd
+        ldx     pbx
+@b:     lda     udmg,x                  ; (as CMEETS: a box empty if c0 >= c1)
+        cmp     udmg + 2,x
+        bcs     @n
+        cmp     cu0                     ; the least start, the greatest end
+        bcs     @s1
+        sta     cu0
+@s1:    lda     udmg + 1,x
+        cmp     cu1
+        bcs     @e0
+        sta     cu1
+@e0:    lda     udmg + 2,x
+        cmp     cu2
+        bcc     @e1
+        sta     cu2
+@e1:    lda     udmg + 3,x
+        cmp     cu3
+        bcc     @n
+        sta     cu3
+@n:     txa
+        clc
+        adc     #8
+        tax
+        cpx     cbnd
+        bcc     @b
+        ldy     #TM_SHADOWX             ; the start: plus 1, less the shadow, at least 0
+        ldx     #0
+@w:     lda     cu0,x
+        inc     a
+        sec
+        sbc     (UIT),y
+        bcs     @ws
+        lda     #0
+@ws:    sta     cu0,x
+        iny
+        inx
+        cpx     #2
+        bcc     @w
+        rts
+.assert TM_SHADOWY = TM_SHADOWX + 1, error, "FUNION's shadow"
 
 ; PASS's record ph (UIR on it): drawn by ONE if it is to be; carry set if
 ; UIR moved (it was placed), clear if not.
