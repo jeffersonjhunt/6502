@@ -7165,7 +7165,9 @@ review round 1 `79699e7e` (T1-T3, C1). Its record is [GW-BASIC's](#gw-basic), "A
 `SID_PLAY` at `SID_FLAGS`' clock, the firmware model's read-only test accessors), before OO-Amp's port in its own repo;
 fix/need-urgent (merged `e41c8191`: the card's NEED urgent flag and ms buffered passed on, +108-112 and `SN_STATUS`'s
 +15-19); the cleanup pass (2026-11-25), in which the emulator's revision 1 and 2 host interface and their suites
-went, and this record and the decisions came home from hw/future/.
+went, and this record and the decisions came home from hw/future/; in it, an `SN_PLAY` that succeeds sets a layout-2
+area's `EV_TSTATE` to 1 and `EV_TMS` to 0 before it returns (GENERIC, `sound.s`), where the last tune's state (6,
+ended) had stayed until the next frame's reply; `SN_STREAM` and music's start still leave their fields to that reply.
 
 **Free bytes,** measured at each step (`make -C oodos/sys sizes`, the ROM's map, `make -C oodos/gwbasic sizes`):
 

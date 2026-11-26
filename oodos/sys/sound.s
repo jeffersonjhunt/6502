@@ -1259,6 +1259,10 @@ SNTAB:          OWN     SN_INFOX                                        ; 0
 ; unless DF_NOBLK, the part claimed, a revision 3 card; the record from the
 ; command, the stream playing (DF_STREAM) and the block's parameters; its
 ; REPLY's results put in the block after them, or the first in A (DF_ARES).
+; A tune played (SN_PLAY's REPLY OK): a layout-2 area's tune fields show it
+; starting, as the card has it then (EV_TSTATE 1, EV_TMS 0), not the last
+; run's until a frame's reply; the card answers in order, so a TUNE_STATUS
+; asked before the play has been written already. A refusal leaves them.
 GENERIC:        STA     T0             ; the flags
                 BIT     #DF_NOBLK
                 BNE     @blk
@@ -1296,7 +1300,32 @@ GENERIC:        STA     T0             ; the flags
                 LDA     #1
 @put:           INC     A
                 STA     RMODE
-                BRA     RUN            ; (X = 3 + n)
+                JSR     RUN            ; (X = 3 + n)
+                LDY     RB
+                CPY     #SOUND_TUNE_PLAY
+                BNE     @ret
+                TAY
+                BNE     @ret           ; refused, or no answer
+                BIT     EVON
+                BPL     @ret           ; no area with a sound part
+                PHP
+                SEI
+                LDX     NB_WIN1
+                LDA     EVBLK
+                STA     NB_WIN1
+                LDY     #EV_TMS + 2
+                LDA     #0
+@z:             STA     (EVP),Y        ; the ms played,
+                DEY
+                CPY     #EV_TSTATE
+                BNE     @z
+                INC     A              ; and T_STARTING
+                STA     (EVP),Y
+                STX     NB_WIN1
+                PLP
+                JMP     SN00
+@ret:           RTS
+.assert EV_TMS = EV_TSTATE + 1, error, "GENERIC: the tune's ms follow its state"
 @ff:            JMP     RETFF
 
 ; RB's record (X = its length: 3 + n) sent and its REPLY awaited: A = X = 0;

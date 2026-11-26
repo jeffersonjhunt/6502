@@ -421,7 +421,10 @@ behind. `EV_SBUFS` alone is written at once, as each stream buffer is taken or s
 | +122–123 | `EV_MWAIT` | the notes waiting, every voice, not yet begun |
 | +124–127 | | reserved, 0 |
 
-A part not claimed leaves its fields as they were.
+A part not claimed leaves its fields as they were. One write doesn't wait for a frame: an `SN_PLAY` that succeeds
+sets `EV_TSTATE` to 1 (starting, as the card has it then) and `EV_TMS` to 0 before it returns, so the state an
+earlier tune ended in isn't read as the new one's; the card's own figures follow from the next frame. A refused
+`SN_PLAY` leaves the fields as they were.
 
 ### Tunes
 

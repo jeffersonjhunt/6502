@@ -1398,6 +1398,94 @@ TEST(tunes_load_play_pause_status_and_info)
     CHECK_EQ(fw(r).tune_state(), SoundFw::T_STOPPED);
 }
 
+TEST(sn_play_after_a_tune_ended_shows_it_starting_until_the_card_says_more)
+{
+    // A tune that has ended leaves the area at 6 (ended) and its ms played. A refused SN_PLAY (no tune in the slot)
+    // leaves those as they were; one that succeeds shows the tune starting (1, 0 ms) when the call returns, before a
+    // frame's TUNE_STATUS reply says more. Must fail if the area is left to the next frame's reply (it shows 6 then),
+    // if a refusal resets it, if the ms aren't cleared, or if either field is written a byte off. Music plays on the
+    // tone generator meanwhile, so EV_MSTATE beside the ms is not 0.
+    CcpRig r;
+    REQUIRE(r.ok);
+    open(r, "2");
+    CHECK_EQ(f82(r, {SN_CLAIM, SC_TUNE | SC_MUSIC}), std::string("00 00"));
+    const std::vector<uint8_t> blk = note_block({tone(440, 3'000'000, 3'000'000)});
+    r.poke(0x30000, blk);
+    CHECK_EQ(f82(r, load_block(SN_MUSIC, {5}, 0x30000, static_cast<uint32_t>(blk.size()), {2})), std::string("00 00"));
+    r.poke(0x10000, tune());
+    CHECK_EQ(f82(r, load_block(SN_TUNE, {}, 0x10000, static_cast<uint32_t>(tune().size()), {1})), std::string("00 00"));
+    const std::vector<uint8_t> play{SN_PLAY, 1, 0, 0, 0x2C, 0x01, 0, 0, 0, 0}; // 300 ms
+    CHECK_EQ(f82(r, play), std::string("00 00"));
+    for (int i = 0; i < 100 && !queued(r, SoundFw::EV_TUNE_ENDED, 1); ++i)
+        r.run(ms(10));
+    REQUIRE(queued(r, SoundFw::EV_TUNE_ENDED, 1));
+    r.run(ms(50)); // a frame's reply or two since
+    // The area's bytes from the one before EV_TSTATE (reserved) to EV_MSTATE.
+    auto fields = [&] {
+        std::vector<uint8_t> f;
+        for (unsigned o = EV_TSTATE - 1; o <= EV_MSTATE; ++o)
+            f.push_back(area(r, o));
+        return f;
+    };
+    const std::vector<uint8_t> ended = fields();
+    const unsigned ms0 = ended[2] | ended[3] << 8 | ended[4] << 16;
+    std::printf("  ended: state %u, %u ms played\n", ended[1], ms0);
+    REQUIRE(ended[1] == SoundFw::T_ENDED);
+    REQUIRE(ms0 > 255);                       // the premise: the ms's two low bytes not 0,
+    REQUIRE(ended[5] == SoundFw::M_PLAYING);  //   and music's state beside them
+    // The fields as the call returns to the program, and the frames begun in the call.
+    const uint16_t f_sound = sym("F_SOUND"), sframe = sym("SFRAME");
+    std::vector<uint8_t> at_return;
+    unsigned frames = 0;
+    bool in = false;
+    auto snap = [&] {
+        at_return.clear();
+        frames = 0;
+        in = false;
+        r.watch = [&](uint16_t pc) {
+            if (pc == f_sound && r.nb(2) == 61)
+                in = true;
+            else if (in && pc == sframe && r.nb(2) == 61)
+                ++frames;
+            else if (in && pc >= 0x0300 && pc < 0x4000) // back in the program
+            {
+                at_return = fields();
+                in = false;
+            }
+        };
+    };
+    // Refused: the card has no tune in slot 4.
+    snap();
+    std::vector<uint8_t> bad = play;
+    bad[1] = 4;
+    const std::string refused = f82(r, bad);
+    r.watch = nullptr;
+    std::printf("  a refused SN_PLAY: %s, %u frames in the call\n", refused.c_str(), frames);
+    CHECK_EQ(refused.substr(0, 2), std::string("FD"));
+    REQUIRE(at_return.size() == ended.size());
+    CHECK(at_return == ended);
+    CHECK(fields() == ended);
+    // Played again.
+    snap();
+    CHECK_EQ(f82(r, play), std::string("00 00"));
+    r.watch = nullptr;
+    REQUIRE(at_return.size() == ended.size());
+    std::printf("  at SN_PLAY's return: state %u, ms %02X %02X %02X, %u frames in the call\n", at_return[1],
+                at_return[2], at_return[3], at_return[4], frames);
+    CHECK_EQ(at_return[0], ended[0]); // (the byte before untouched)
+    CHECK_EQ(at_return[1], SoundFw::T_STARTING);
+    CHECK_EQ(at_return[2], 0);
+    CHECK_EQ(at_return[3], 0);
+    CHECK_EQ(at_return[4], 0);
+    CHECK_EQ(at_return[5], ended[5]); // (EV_MSTATE untouched)
+    r.run(ms(100)); // the card says more
+    CHECK_EQ(area(r, EV_TSTATE), SoundFw::T_PLAYING);
+    const unsigned played = area(r, EV_TMS) | area(r, EV_TMS + 1) << 8 | area(r, EV_TMS + 2) << 16;
+    std::printf("  100 ms on: state %u, %u ms played\n", area(r, EV_TSTATE), played);
+    CHECK(played > 0 && played < 150);
+    CHECK_EQ(f82op(r, SN_STOP), std::string("00 00"));
+}
+
 TEST(the_bank_sample_effects_play_and_stop)
 {
     // SN_SAMPLE (a sample by DMA, its flags, rate and loop), SN_EFFECTS (a table of definitions), SN_EFFECT (A the

@@ -3443,7 +3443,7 @@ OODOS's own: CP/M 3 has no function 81 (OODOS's range, 72 on). It is OOLIB's sec
   | 4 | `SN_FIRMWARE` | +1–3 a physical address, +4–6 the length, +7 the step: 0 a piece, 1 begin (+8–11 the image's length), 2 commit | sends a firmware image to the card | none held |
   | | **Tunes** | | | |
   | 5 | `SN_TUNE` | +1–3 a `.sid` file's physical address, +4–6 its length, +7 a tune slot, 0–3 | loads the file into the slot by DMA, its header checked | tune |
-  | 6 | `SN_PLAY` | +1 the slot, +2 the song (0 the file's start song), +3 bit 0 PAL, bit 1 NTSC (neither: the file's), +4–7 a length in ms (0 until stopped), +8–9 a fade at the end in ms | plays a song of it | tune |
+  | 6 | `SN_PLAY` | +1 the slot, +2 the song (0 the file's start song), +3 bit 0 PAL, bit 1 NTSC (neither: the file's), +4–7 a length in ms (0 until stopped), +8–9 a fade at the end in ms | plays a song of it; a layout-2 area shows it starting at once (`EV_TSTATE` 1, `EV_TMS` 0) | tune |
   | 7 | `SN_STOP` | none | stops the tune, its chips silenced | tune |
   | 8 | `SN_TPAUSE` | none | holds the tune, its chips silent | tune |
   | 9 | `SN_TRESUME` | none | lets it go on | tune |
