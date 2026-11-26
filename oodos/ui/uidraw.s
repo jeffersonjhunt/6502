@@ -76,8 +76,7 @@ pi_:    .res    1                      ; SETPAL's
 pdim:   .res    1
 pbase:  .res    1
 ubofs:  .res    1                      ; the base layer's PALOFS as OOUI set it
-upost:  .res    2                      ; PAINT's last call, 0 none (U2), after a paint that drew
-udrew:  .res    1                      ;   not 0: this paint drew a record (X4)
+upost:  .res    2                      ; PAINT's last call, 0 none (U2): (S3) after a thumb's mark or a geometry event
 pdmg:   .res    8                      ; the last paint's damage, each layer's (B5: its boxes' bounds; POST's, U3a: Z3)
 obx:    .res    1                      ; (B5) ONE's and PASSA's box, ONE's record,
 obh:    .res    1
@@ -390,8 +389,7 @@ PAINT:  lda     ususp
         bit     uany                    ;   last: nothing to draw, nor thumbs to place
         bne     @go
 @r:     rts
-@go:    stz     udrew
-        jsr     FINDMODAL               ; the base layer dimmed under a modal window (TF_DIM)
+@go:    jsr     FINDMODAL               ; the base layer dimmed under a modal window (TF_DIM)
         ldy     #TH_GROUP
         lda     (UIT),y
         tax
@@ -495,20 +493,7 @@ PAINT:  lda     ususp
         lda     ph
         jsr     RNEXT                   ; (U3b, B4: keeps Y)
         bra     @c
-@e:     ldx     #0                      ; damage with nothing drawn (a window hidden over
-@ea:    lda     udmg,x                  ;   nothing): what shows changed, upost too (Z2)
-        cmp     udmg + 2,x
-        bcc     @dmg
-        inx
-        inx
-        inx
-        inx
-        cpx     #8 * UI_BOXES
-        bcc     @ea
-        bra     @clr
-@dmg:   lda     #1
-        sta     udrew
-@clr:   lda     #UQ_PAINT               ; (U3b, B1) painted: what dirties or damages from here
+@e:     lda     #UQ_PAINT               ; (U3b, B1) painted: what dirties or damages from here
         trb     uany                    ;   on is the next paint's
         ldx     #7                      ; the damage kept for upost (POST: U3a's Z3): each layer's
 @pz:    stz     pdmg,x                  ;   boxes' bounds (B5), then cleared
@@ -568,10 +553,10 @@ PAINT:  lda     ususp
         lda     uptr                    ; (review JJ3) and the pointer in the theme's
         beq     @sh                     ;   colours: a ui_theme before this paint left it
         jsr     PTRATTR
-@sh:    lda     #UQ_THUMB               ; a widget module's after a paint that drew (a slider's
-        and     uany                    ;   sprites, U2), or (S1) a thumb marked, its value
-        ora     udrew                   ;   changed (VDIRTY), with nothing drawn
-        beq     PNONE
+@sh:    lda     #UQ_THUMB | UQ_GPOST    ; a widget module's (a slider's sprites, U2): (S3) only for
+        and     uany                    ;   a thumb marked (its record drawn dirty, SPRDRAWN; its value
+        beq     PNONE                   ;   changed, VDIRTY) or a geometry event, which are what POST's
+                                        ;   tests act on: else every thumb is as it was (S1)
         lda     upost + 1
         beq     PNONE
         XGO     FARB, XB_POST           ; (a widget module's: block B's, U3a)
@@ -643,8 +628,7 @@ ONE:    sta     dh
         ldx     obx
 @t:     jsr     OVERLAP
         bcs     @n
-        lda     #1                      ; drawn (upost's)
-        sta     udrew
+        lda     #1                      ; drawn for this box
         sta     odn
         ldx     obx
         jsr     CLIPBOX
@@ -657,9 +641,7 @@ ONE:    sta     dh
         cpx     #8 * UI_BOXES
         bcc     @b
         rts
-@dirty: lda     #1
-        sta     udrew
-        jsr     CLIPALL
+@dirty: jsr     CLIPALL
         jsr     CLIPR
         jsr     DRAW
         ldx     pbx
