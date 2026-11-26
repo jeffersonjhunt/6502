@@ -1,8 +1,8 @@
 /**
  * @file test_video_rev2.cpp
  * @brief The video card, revision 2, ID $92 (hw/video-rev2.md, proposed): card memory, the register map,
- * the aperture, the data port and its DMA, the line renderer drawing from card memory, Apple II mode's
- * screens and the boot splash.
+ * the beam and its interrupts, the frame and write_ppm, the aperture, the data port and its DMA, the line
+ * renderer drawing from card memory, Apple II mode's screens and the boot splash.
  * @copyright Copyright (c) 2024-2026 Jefferson J. Hunt (MIT)
  *
  * The first cases drive the card alone, its "CPU clock" the pixel clock; the later ones put it on
@@ -25,6 +25,7 @@
 #include "symbols.h"
 #include "video_card.h"
 
+#include <algorithm>
 #include <cstdio>
 #include <cstdlib>
 #include <fstream>
@@ -245,6 +246,143 @@ TEST(memsize_is_32_and_memory_past_it_reads_ff)
     CHECK_EQ(r.card.card_peek(0xFFFFFF), 0xFF);
 }
 
+// --- the beam, its interrupts and the frame -----------------------------------------
+
+TEST(the_beam_runs_525_lines_of_800_clocks)
+{
+    constexpr uint64_t LINE = VideoCard::LINE_CLOCKS, VBLANK_LINE = LINE * VideoCard::HEIGHT;
+    Rig r;
+    r.card.tick(10 * LINE + 5);
+    CHECK_EQ(r.card.peek(VideoCard::LINE), 10);
+    CHECK_EQ(r.card.peek(VideoCard::STATUS), 0x00);
+    r.card.tick(VBLANK_LINE - 10 * LINE - 6);     // one clock before line 480
+    CHECK_EQ(r.card.peek(VideoCard::STATUS), 0x00);
+    CHECK_EQ(r.card.frames(), uint64_t{0});
+    r.card.tick(1);
+    CHECK_EQ(r.card.peek(VideoCard::STATUS), VideoCard::IN_VBLANK);
+    CHECK_EQ(r.card.frames(), uint64_t{1});
+    r.card.tick(44 * LINE);
+    CHECK_EQ(r.card.peek(VideoCard::LINE), 524 & 0xFF);
+    CHECK_EQ(r.card.peek(VideoCard::LINE + 1), 524 >> 8);
+    r.card.tick(LINE);                            // round to line 0
+    CHECK_EQ(r.card.peek(VideoCard::LINE), 0);
+    CHECK_EQ(r.card.peek(VideoCard::STATUS), 0x00);
+    r.card.tick(FRAME);
+    CHECK_EQ(r.card.frames(), uint64_t{2});
+}
+
+TEST(at_the_native_clock_a_second_is_60_frames_however_it_is_ticked)
+{
+    VideoCard whole, pieces;
+    whole.tick(VideoCard::NATIVE_HZ);             // 7.16 MHz: one second
+    for (uint32_t done = 0; done < VideoCard::NATIVE_HZ; done += 7)
+        pieces.tick(std::min<uint32_t>(7, VideoCard::NATIVE_HZ - done)); // one instruction at a time
+    CHECK_EQ(whole.frames(), uint64_t{60});       // 59.94 Hz: the 60th vertical blank is inside the second
+    CHECK_EQ(pieces.frames(), whole.frames());
+    CHECK_EQ(pieces.beam_line(), whole.beam_line());
+    VideoCard big;                                // past where cycles x step would overflow 64 bits
+    const uint64_t huge = 1'300'000'000;          // 3 minutes at 7.16 MHz
+    big.tick(huge);
+    const double want = (double(huge) * VideoCard::PIXEL_HZ / VideoCard::NATIVE_HZ - 480.0 * 800) / (525 * 800) + 1;
+    CHECK(big.frames() + 1 >= uint64_t(want) && big.frames() <= uint64_t(want) + 1);
+    VideoCard slow;
+    slow.set_cpu_hz(1'020'484);                   // the panel's slowest clock
+    slow.tick(1'020'484);
+    CHECK_EQ(slow.frames(), uint64_t{60});        // still 60 a second
+    VideoCard apple;                              // the Apple clock: a bigger step, so a smaller safe chunk
+    apple.set_cpu_hz(1'020'484);
+    const uint64_t ages = (uint64_t{1} << 28) + 1; // 4 minutes in one tick
+    apple.tick(ages);
+    const double frames = (double(ages) * VideoCard::PIXEL_HZ / 1'020'484 - 480.0 * 800) / (525 * 800) + 1;
+    CHECK(apple.frames() + 1 >= uint64_t(frames) && apple.frames() <= uint64_t(frames) + 1);
+}
+
+TEST(vertical_blank_and_line_interrupts_pend_whatever_ien_says)
+{
+    constexpr uint64_t LINE = VideoCard::LINE_CLOCKS, VBLANK_LINE = LINE * VideoCard::HEIGHT;
+    Rig r;
+    r.card.tick(VBLANK_LINE);
+    CHECK_EQ(r.card.peek(VideoCard::ISR), VideoCard::VBLANK);
+    CHECK(!r.card.irq());                         // pending, not enabled
+    r.reg(VideoCard::IEN, VideoCard::VBLANK);
+    CHECK(r.card.irq());
+    r.reg(VideoCard::ISR, VideoCard::VBLANK);     // write 1 to clear
+    CHECK(!r.card.irq());
+    CHECK_EQ(r.card.peek(VideoCard::ISR), 0x00);
+
+    r.reg(VideoCard::LINE, 100 & 0xFF);
+    r.reg(VideoCard::LINE + 1, 0xFC);             // only bits 0-1 count: line 100
+    r.reg(VideoCard::IEN, VideoCard::LINE_MATCH);
+    r.card.tick(FRAME - VBLANK_LINE + 100 * LINE - 1); // one clock before line 100 starts
+    CHECK(!r.card.irq());
+    r.card.tick(1);
+    CHECK(r.card.irq());
+    CHECK_EQ(r.card.peek(VideoCard::ISR), VideoCard::LINE_MATCH);
+    CHECK_EQ(r.card.peek(VideoCard::LINE), 100);  // a read is the beam, not the match
+}
+
+TEST(bus_reset_drops_the_interrupt_and_the_beam_runs_on)
+{
+    constexpr uint64_t LINE = VideoCard::LINE_CLOCKS;
+    Rig r;
+    r.reg(VideoCard::IEN, VideoCard::VBLANK);
+    r.card.tick(LINE * VideoCard::HEIGHT + 5 * LINE);
+    REQUIRE(r.card.irq());
+    r.card.bus_reset();                           // START, Ctrl-Reset, entering Apple II mode
+    CHECK(!r.card.irq());
+    CHECK_EQ(r.card.peek(VideoCard::IEN), 0);
+    CHECK_EQ(r.card.peek(VideoCard::ISR), 0);
+    CHECK_EQ(r.card.frames(), uint64_t{1});       // the monitor keeps its sync
+    CHECK_EQ(r.card.beam_line(), 485u);
+}
+
+TEST(frame_is_the_last_finished_frame_never_one_being_drawn)
+{
+    Rig r;
+    r.colour(0, 3, 0xFFF);
+    r.reg(VideoCard::BORDER, 3);
+    r.reg(VideoCard::CTRL, VideoCard::DISPLAY);
+    r.show();
+    r.colour(0, 3, 0xF00);
+    r.card.tick(300 * uint64_t{VideoCard::LINE_CLOCKS}); // 300 lines drawn red, not finished
+    CHECK_EQ(r.px(0, 0), rgba(0xFFF));
+    CHECK_EQ(r.px(0, 479), rgba(0xFFF));
+    r.card.tick(FRAME);
+    CHECK_EQ(r.px(0, 0), rgba(0xF00));
+    CHECK_EQ(r.px(0, 479), rgba(0xF00));
+}
+
+TEST(ppm_holds_the_frame)
+{
+    Rig r;
+    r.colour(0, 3, 0x123);
+    r.reg(VideoCard::BORDER, 3);
+    r.reg(VideoCard::CTRL, VideoCard::DISPLAY);
+    r.show();
+    const std::string path = "test_video_rev2_frame.ppm";
+    REQUIRE(write_ppm(r.card, path));
+    std::FILE *f = std::fopen(path.c_str(), "rb");
+    REQUIRE(f != nullptr);
+    char magic[3] = {};
+    unsigned w = 0, h = 0, max = 0;
+    CHECK_EQ(std::fscanf(f, "%2s %u %u %u", magic, &w, &h, &max), 4);
+    std::fgetc(f);                                // the one whitespace after 255
+    CHECK_EQ(std::string(magic), std::string("P6"));
+    CHECK_EQ(w, 640u);
+    CHECK_EQ(h, 480u);
+    CHECK_EQ(max, 255u);
+    uint8_t rgb[3] = {};
+    CHECK_EQ(std::fread(rgb, 1, 3, f), size_t{3});
+    CHECK_EQ(rgb[0], 0x11);
+    CHECK_EQ(rgb[1], 0x22);
+    CHECK_EQ(rgb[2], 0x33);
+    CHECK_EQ(std::fseek(f, 0, SEEK_END), 0);
+    CHECK_EQ(std::ftell(f), long{15 + 640 * 480 * 3}); // "P6\n640 480\n255\n" and every pixel
+    std::fclose(f);
+    std::remove(path.c_str());
+    CHECK(!write_ppm(r.card, "no/such/dir/x.ppm"));
+}
+
 // --- the port -------------------------------------------------------------------
 
 TEST(pdata_steps_paddr_up_by_pstep_and_peek_holds_it)
@@ -426,6 +564,176 @@ TEST(a_sprite_image_address_is_15_bits_of_256_byte_units)
         r.card.card_poke(image + i, 0x77);
     r.show();
     CHECK_EQ(r.px(20, 40), rgba(0xF80));
+}
+
+namespace
+{
+    constexpr uint32_t FONT = 0x000400, TEXT = 0x002000; // the console's (hw/video-rev2.md)
+    constexpr uint32_t MAP = 0x008000, TILES = 0x010000;
+
+    /// A text layer, the font at FONT and the cells at TEXT; glyph `ch` a full block.
+    void text_layer(Rig &r, uint8_t layer, uint8_t config, uint8_t ch)
+    {
+        r.reg(layer + VideoCard::CONFIG, config);
+        r.reg16(layer + R2::MAPBASE, static_cast<uint16_t>(TEXT >> 8));
+        r.reg16(layer + R2::TILEBASE, static_cast<uint16_t>(FONT >> 8));
+        for (unsigned row = 0; row < 16; ++row)
+            r.card.card_poke(FONT + uint32_t{ch} * 16 + row, 0xFF);
+    }
+    void cell(Rig &r, unsigned col, unsigned row, uint8_t ch, uint8_t attr)
+    {
+        r.card.card_poke(TEXT + (row * 80 + col) * 2, ch);
+        r.card.card_poke(TEXT + (row * 80 + col) * 2 + 1, attr);
+    }
+    /// A 4-bit pixel of tile `n` (size x size), left pixel high.
+    void tile4(Rig &r, unsigned n, unsigned size, unsigned tx, unsigned ty, uint8_t v)
+    {
+        const uint32_t at = TILES + n * size * size / 2 + (ty * size + tx) / 2;
+        const uint8_t b = r.card.card_peek(at);
+        r.card.card_poke(at, static_cast<uint8_t>(tx & 1 ? (b & 0xF0) | v : (b & 0x0F) | v << 4));
+    }
+    void entry(Rig &r, unsigned mx, unsigned my, unsigned map_w, unsigned tile, uint8_t flags)
+    {
+        const uint32_t at = MAP + (my * map_w + mx) * 2;
+        r.card.card_poke(at, static_cast<uint8_t>(tile));
+        r.card.card_poke(at + 1, static_cast<uint8_t>(flags | tile >> 8));
+    }
+    void tiles(Rig &r, uint8_t config)
+    {
+        r.reg(L0 + VideoCard::CONFIG, static_cast<uint8_t>(VideoCard::TILE | config));
+        r.reg16(L0 + R2::MAPBASE, static_cast<uint16_t>(MAP >> 8));
+        r.reg16(L0 + R2::TILEBASE, static_cast<uint16_t>(TILES >> 8));
+        r.reg(VideoCard::CTRL, VideoCard::DISPLAY | VideoCard::LAYER0_ON);
+    }
+} // namespace
+
+TEST(blink_hides_the_character_16_frames_in_32_and_leaves_8_backgrounds)
+{
+    Rig r;
+    r.colour(0, 0x01, 0x0F0);
+    r.colour(0, 0x09, 0x00F);
+    r.colour(0, 0x0F, 0xFFF);
+    text_layer(r, L0, VideoCard::TEXT80 | VideoCard::BLINK, 0xDB);
+    cell(r, 0, 0, 0xDB, 0x9F);                    // bg 9 (bit 7 set), fg F
+    r.reg(VideoCard::CTRL, VideoCard::DISPLAY | VideoCard::LAYER0_ON);
+    r.show();
+    CHECK_EQ(r.px(0, 0), rgba(0xFFF));            // frames 0-15: on
+    while (r.card.frames() < 17)                  // the frame drawn as the 16th finishes
+        r.frames();
+    CHECK_EQ(r.px(0, 0), rgba(0x0F0));            // off: the background, bit 7 dropped (9 -> 1)
+    while (r.card.frames() < 33)
+        r.frames();
+    CHECK_EQ(r.px(0, 0), rgba(0xFFF));            // on again
+    r.reg(L0 + VideoCard::CONFIG, VideoCard::TEXT80); // no blink: bit 7 is a bright background
+    cell(r, 0, 0, 0x00, 0x9F);
+    r.show();
+    CHECK_EQ(r.px(0, 0), rgba(0x00F));
+}
+
+TEST(tiles_flip_and_reach_tile_1023)
+{
+    Rig r;
+    r.colour(0, 0x07, 0xFFF);
+    tile4(r, 1023, 8, 1, 2, 7);                   // the last tile number, one pixel at (1, 2)
+    entry(r, 0, 0, 32, 1023, 0x00);
+    entry(r, 1, 0, 32, 1023, 0x04);               // H flip: (6, 2)
+    entry(r, 2, 0, 32, 1023, 0x08);               // V flip: (1, 5)
+    entry(r, 3, 0, 32, 1023, 0x0C);               // both: (6, 5)
+    tiles(r, 0);
+    r.show();
+    auto lit = [&](unsigned tx, unsigned ty) { return r.px(tx * 2, ty * 2) == rgba(0xFFF); };
+    CHECK(lit(1, 2));
+    CHECK(!lit(6, 2));
+    CHECK(lit(8 + 6, 2));
+    CHECK(!lit(8 + 1, 2));
+    CHECK(lit(16 + 1, 5));
+    CHECK(!lit(16 + 1, 2));
+    CHECK(lit(24 + 6, 5));
+    CHECK(!lit(24 + 1, 2));
+}
+
+TEST(tiles_16x16_8_bits_and_a_64_wide_map_scroll_and_wrap)
+{
+    Rig r;
+    r.colour(0, 0x9C, 0xF00);
+    r.colour(0, 0x2D, 0x0F0);
+    const uint32_t tile2 = TILES + 2 * 256;       // 16x16 at 8 bits: 256 bytes
+    r.card.card_poke(tile2 + 0, 0x9C);            // (0, 0)
+    r.card.card_poke(tile2 + 15 * 16 + 15, 0x2D); // (15, 15)
+    entry(r, 63, 0, 64, 2, 0xF0);                 // the map's last column; palette ignored at 8 bits
+    tiles(r, VideoCard::TILE16 | VideoCard::TILE8BPP | VideoCard::MAP_W64);
+    r.show();
+    CHECK_EQ(r.px(0, 0), rgba(0x000));            // column 63 is at x 1008 in 320-space: off screen
+    r.reg16(L0 + R2::HSCROLL, 63 * 16);
+    r.show();
+    CHECK_EQ(r.px(0, 0), rgba(0xF00));            // scrolled to it
+    CHECK_EQ(r.px(30, 30), rgba(0x0F0));          // (15, 15), doubled
+    CHECK_EQ(r.px(32, 0), rgba(0x000));           // then column 0, wrapped round (64 x 16 = 1024)
+    r.reg16(L0 + R2::HSCROLL, 63 * 16 + 4);       // fine scroll: 4 pixels on
+    r.reg16(L0 + R2::VSCROLL, 32 * 16 - 1);       // 32 high: 512, and one row back from 0
+    r.show();
+    CHECK_EQ(r.px(22, 32), rgba(0x0F0));          // (15, 15) now at 320-space (11, 16)
+}
+
+TEST(scroll_waits_for_the_vertical_blank_card_memory_does_not)
+{
+    constexpr uint64_t LINE = VideoCard::LINE_CLOCKS;
+    Rig r;
+    r.colour(0, 0x0F, 0xFFF);
+    text_layer(r, L0, VideoCard::TEXT80, 0xDB);
+    cell(r, 1, 18, 0xDB, 0x0F);                   // a block at column 1, row 18 (lines 288-303)
+    r.reg(VideoCard::CTRL, VideoCard::DISPLAY | VideoCard::LAYER0_ON);
+    r.show();
+    CHECK_EQ(r.px(0, 300), rgba(0x000));
+    CHECK_EQ(r.px(8, 300), rgba(0xFFF));
+    r.card.tick(100 * LINE);                      // the beam at line 100
+    r.reg16(L0 + R2::HSCROLL, 8);                 // one column left
+    CHECK_EQ(r.card.peek(L0 + R2::HSCROLL), 8);   // reads back at once
+    r.card.tick(FRAME - 100 * LINE);              // this frame: not yet, below the write
+    CHECK_EQ(r.px(0, 300), rgba(0x000));
+    r.frames();                                   // after the vertical blank
+    CHECK_EQ(r.px(0, 300), rgba(0xFFF));
+    r.card.tick(100 * LINE);
+    r.reg16(L0 + R2::VSCROLL, 16);                // one row up: lines 272-287
+    r.card.tick(FRAME - 100 * LINE);
+    CHECK_EQ(r.px(0, 280), rgba(0x000));
+    CHECK_EQ(r.px(0, 300), rgba(0xFFF));
+    r.frames();
+    CHECK_EQ(r.px(0, 280), rgba(0xFFF));
+    CHECK_EQ(r.px(0, 300), rgba(0x000));
+
+    r.colour(0, 3, 0x888);                        // the palette is card memory: from the next line drawn
+    r.reg(VideoCard::BORDER, 3);
+    r.reg(VideoCard::CTRL, VideoCard::DISPLAY);
+    r.show();
+    r.card.tick(240 * LINE);                      // the beam starts line 240...
+    r.colour(0, 3, 0x0F0);                        // ...and the palette changes
+    r.card.tick(FRAME - 240 * LINE);
+    CHECK_EQ(r.px(0, 239), rgba(0x888));
+    CHECK_EQ(r.px(0, 240), rgba(0x0F0));
+}
+
+TEST(the_sprite_table_moves_at_the_vertical_blank)
+{
+    constexpr uint64_t LINE = VideoCard::LINE_CLOCKS;
+    Rig r;
+    r.colour(0, 0x01, 0xF00);
+    // entry 0: image $050000 (unit $0500), 4 bits, at (0, 200), in front, 8x8; pixels 1
+    const uint8_t e[8] = {0x00, 0x05, 0, 0, 200, 0, 3 << 2, 0x00};
+    for (unsigned i = 0; i < 8; ++i)
+        r.card.card_poke(0x040000 + i, e[i]);
+    for (unsigned i = 0; i < 32; ++i)
+        r.card.card_poke(0x050000 + i, 0x11);
+    r.reg16(R2::SPRBASE, 0x0400);
+    r.reg(VideoCard::CTRL, VideoCard::DISPLAY | VideoCard::SPRITES_ON);
+    r.show();
+    CHECK_EQ(r.px(0, 400), rgba(0xF00));
+    r.card.tick(100 * LINE);
+    r.reg16(R2::SPRBASE, 0x0401);                 // an empty table one unit on, mid-frame
+    r.card.tick(FRAME - 100 * LINE);
+    CHECK_EQ(r.px(0, 400), rgba(0xF00));          // the rest of that frame: still the old table
+    r.frames();
+    CHECK_EQ(r.px(0, 400), rgba(0x000));
 }
 
 // --- on the machine: the aperture and DMA ------------------------------------------

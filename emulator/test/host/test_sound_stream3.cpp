@@ -1053,4 +1053,201 @@ TEST(damaged_frames_mid_stream_play_as_minimp3_with_the_end_at_once_or_late)
     }
 }
 
+// --- Tags between files, a tag's header, a stream of one frame (the parser's cases, on revision 3's streams) ------
+
+namespace
+{
+    /// Every frame minimp3 decodes in `bytes`, the whole data at once, as stereo frames: no trim.
+    std::vector<int16_t> whole(const std::vector<uint8_t> &bytes)
+    {
+        std::vector<int16_t> out;
+        auto dec = std::make_unique<mp3dec_t>();
+        mp3dec_init(dec.get());
+        std::vector<int16_t> pcm(MINIMP3_MAX_SAMPLES_PER_FRAME);
+        size_t pos = 0;
+        while (pos < bytes.size())
+        {
+            mp3dec_frame_info_t info{};
+            const int n = mp3dec_decode_frame(dec.get(), bytes.data() + pos, static_cast<int>(bytes.size() - pos), pcm.data(), &info);
+            if (!info.frame_bytes)
+                break;
+            pos += static_cast<size_t>(info.frame_bytes);
+            for (int i = 0; i < n; ++i)
+            {
+                const int16_t l = pcm[static_cast<size_t>(i * info.channels)];
+                out.push_back(l);
+                out.push_back(info.channels == 2 ? pcm[static_cast<size_t>(i * 2 + 1)] : l);
+            }
+        }
+        return out;
+    }
+    /// `mp3` cut at the first frame past its middle, `insert` put there.
+    std::vector<uint8_t> spliced_mid(const std::vector<uint8_t> &mp3, const std::vector<uint8_t> &insert)
+    {
+        size_t cut = 0;
+        for (const size_t h : frame_starts(mp3))
+            if ((cut = h) >= mp3.size() / 2)
+                break;
+        std::vector<uint8_t> out(mp3.begin(), mp3.begin() + static_cast<std::ptrdiff_t>(cut));
+        out.insert(out.end(), insert.begin(), insert.end());
+        out.insert(out.end(), mp3.begin() + static_cast<std::ptrdiff_t>(cut), mp3.end());
+        return out;
+    }
+} // namespace
+
+TEST(a_tag_between_frames_is_skipped_by_its_size)
+{
+    // A 1,000-byte ID3v2.4 tag between two frames mid-file: skipped by its size, the file plays as if it weren't
+    // there (the trimmed reference), written at once and fed in 300-byte pieces.
+    const std::vector<uint8_t> mp3 = mp3_file("vbr0_stereo_44k.mp3");
+    REQUIRE(!mp3.empty());
+    const std::vector<uint8_t> bytes = spliced_mid(mp3, id3_tag(1'000, 3));
+    const std::vector<int16_t> want = trimmed(mp3);
+    const Played once = play_mp3(bytes, 0), fed = play_mp3(bytes, 300);
+    std::printf("  want %zu, at once %zu, fed %zu\n", want.size() / 2, once.tap.size() / 2, fed.tap.size() / 2);
+    CHECK(once.tap == want);
+    CHECK(fed.tap == want);
+    CHECK_EQ(fed.state, SoundFw::S_ENDED);
+}
+
+TEST(a_tag_s_footer_is_skipped_with_it)
+{
+    // An ID3v2.4 tag with its footer flag set (flags bit 4) ends in a 10-byte footer ("3DI", the version, the
+    // flags, the size again) after its body: the tag is 10 + size + 10 bytes, and the frames after it play from
+    // the footer's end. Between two frames mid-file, and a second tag with a footer right after the first. Must
+    // fail if the footer is left out of the tag's length: its 10 bytes are taken as data, and the frame after
+    // them is found by a fresh search.
+    const std::vector<uint8_t> mp3 = mp3_file("vbr0_stereo_44k.mp3");
+    REQUIRE(!mp3.empty());
+    const auto footed = [](size_t payload, uint32_t seed) {
+        std::vector<uint8_t> t = id3_tag(payload, seed);
+        t[5] = 0x10;
+        t.insert(t.end(), {'3', 'D', 'I', 4, 0, 0x10, t[6], t[7], t[8], t[9]});
+        return t;
+    };
+    const std::vector<int16_t> want = trimmed(mp3);
+    std::vector<uint8_t> two = footed(500, 8);
+    const std::vector<uint8_t> second = footed(700, 9);
+    two.insert(two.end(), second.begin(), second.end());
+    for (const std::vector<uint8_t> &insert : {footed(1'000, 5), two})
+    {
+        const std::vector<uint8_t> bytes = spliced_mid(mp3, insert);
+        const Played once = play_mp3(bytes, 0), fed = play_mp3(bytes, 300);
+        std::printf("  %zu bytes of tags: want %zu, at once %zu, fed %zu\n", insert.size(), want.size() / 2,
+                    once.tap.size() / 2, fed.tap.size() / 2);
+        CHECK(once.tap == want);
+        CHECK(fed.tap == want);
+        CHECK_EQ(once.state, SoundFw::S_ENDED);
+    }
+}
+
+TEST(a_tag_header_must_be_a_real_one)
+{
+    // "ID3" with version 5, or flags the version doesn't define (bit 0 on 2.3; the footer's bit 4 on 2.3), isn't
+    // a tag: its 10 bytes are junk, and the file after it plays whole. Each declares 2 KB: taken as a tag, it would
+    // swallow the file's first frames. Must fail if the version's or the flags' check is loosened.
+    const std::vector<uint8_t> mp3 = mp3_file("cbr128_joint_44k.mp3");
+    REQUIRE(!mp3.empty());
+    const std::vector<int16_t> want = trimmed(mp3);
+    for (const std::vector<uint8_t> &bad : {std::vector<uint8_t>{'I', 'D', '3', 5, 0, 0, 0, 0, 0x10, 0},
+                                            std::vector<uint8_t>{'I', 'D', '3', 3, 0, 0x01, 0, 0, 0x10, 0},
+                                            std::vector<uint8_t>{'I', 'D', '3', 3, 0, 0x10, 0, 0, 0x10, 0}})
+    {
+        std::vector<uint8_t> bytes = bad;
+        bytes.insert(bytes.end(), mp3.begin(), mp3.end());
+        const Played p = play_mp3(bytes, 0);
+        std::printf("  version %u, flags $%02X: want %zu, played %zu\n", bad[3], bad[5], want.size() / 2, p.tap.size() / 2);
+        CHECK(p.tap == want);
+        CHECK_EQ(p.state, SoundFw::S_ENDED);
+    }
+}
+
+TEST(files_back_to_back_with_tags_between_play_whole)
+{
+    // File A, an ID3v1 record ("TAG" and 125 bytes), an 80 KB ID3v2.3 tag of binary data (FF FB 90 00 and other
+    // frame-like bytes in it), then file B. A plays to its last frame; the record is junk; the tag is skipped by
+    // its size, whatever is in it; B plays from its first frame. Written at once, and fed in 40-byte pieces.
+    const std::vector<uint8_t> a = mp3_file("cbr128_joint_44k.mp3"), b = mp3_file("vbr0_stereo_44k.mp3");
+    REQUIRE(!a.empty());
+    REQUIRE(!b.empty());
+    std::vector<uint8_t> bytes = a;
+    bytes.insert(bytes.end(), {'T', 'A', 'G'});
+    for (unsigned k = 0; k < 125; ++k)
+        bytes.push_back(static_cast<uint8_t>(k < 60 ? 'a' + k % 26 : 0));
+    const size_t size = 80'000;
+    bytes.insert(bytes.end(), {'I', 'D', '3', 3, 0, 0, static_cast<uint8_t>(size >> 21 & 127),
+                               static_cast<uint8_t>(size >> 14 & 127), static_cast<uint8_t>(size >> 7 & 127),
+                               static_cast<uint8_t>(size & 127)});
+    uint32_t r = 77;
+    for (size_t k = 0; k < size; ++k)
+    {
+        r = r * 1'103'515'245u + 12'345u;
+        bytes.push_back(k % 997 == 0 ? 0xFF : k % 997 == 1 ? 0xFB : k % 997 == 2 ? 0x90 : static_cast<uint8_t>(r >> 16));
+    }
+    bytes.insert(bytes.end(), b.begin(), b.end());
+    // The reference: A and B back to back with nothing between them. A plays trimmed by its Info frame, B whole
+    // after it, and as many frames come with the record and the tag between: none lost, none of the tag's bytes
+    // decoded. Only the join's one frame (1,152) may differ: after the record B starts afresh, where back to back
+    // the decoder carries A's last frame into B's first.
+    std::vector<uint8_t> ab = a;
+    ab.insert(ab.end(), b.begin(), b.end());
+    const Played joined = play_mp3(ab, 0);
+    const Played once = play_mp3(bytes, 0), fed = play_mp3(bytes, 40);
+    std::printf("  A then B: back to back %zu, with the record and the tag at once %zu, fed %zu\n",
+                joined.tap.size() / 2, once.tap.size() / 2, fed.tap.size() / 2);
+    const std::vector<int16_t> ta = trimmed(a);
+    const size_t join = ta.size() + 2 * 1152; // B's second frame on
+    REQUIRE(joined.tap.size() > join);
+    CHECK(std::equal(ta.begin(), ta.end(), joined.tap.begin()));
+    CHECK_EQ(once.tap.size(), joined.tap.size());
+    CHECK(once.tap.size() == joined.tap.size() && std::equal(ta.begin(), ta.end(), once.tap.begin()) &&
+          std::equal(once.tap.begin() + static_cast<std::ptrdiff_t>(join), once.tap.end(),
+                     joined.tap.begin() + static_cast<std::ptrdiff_t>(join)));
+    CHECK(fed.tap == once.tap);
+    CHECK_EQ(fed.state, SoundFw::S_ENDED);
+}
+
+TEST(a_stream_of_one_frame_plays_and_so_does_one_after_junk)
+{
+    // One audio frame alone, the whole of the data at the end: it plays, as minimp3 decodes it. The same frame
+    // after 100 bytes of text plays too (a frame by its own length at the end).
+    for (const char *name : {"cbr128_joint_44k.mp3", "vbr0_stereo_44k.mp3"}) // MPEG-1: a first frame needing no reservoir
+    {
+        const std::vector<uint8_t> f = mp3_file(name);
+        REQUIRE(!f.empty());
+        const std::vector<size_t> heads = frame_starts(f);
+        REQUIRE(heads.size() > 3);
+        const std::vector<uint8_t> one(f.begin() + static_cast<std::ptrdiff_t>(heads[1]),
+                                       f.begin() + static_cast<std::ptrdiff_t>(heads[2])); // after the Info frame
+        const std::vector<int16_t> want = whole(one);
+        std::vector<uint8_t> junk(100, 'x');
+        junk.insert(junk.end(), one.begin(), one.end());
+        const Played alone = play_mp3(one, 0), after = play_mp3(junk, 0);
+        std::printf("  %s's first audio frame: minimp3 %zu; alone %zu, after junk %zu\n", name, want.size() / 2,
+                    alone.tap.size() / 2, after.tap.size() / 2);
+        CHECK(!want.empty());
+        CHECK(alone.tap == want);
+        CHECK(after.tap == want);
+        CHECK_EQ(alone.state, SoundFw::S_ENDED);
+    }
+}
+
+TEST(cp_m_padding_after_the_last_frame_leaves_it_played)
+{
+    // A file padded with $1A to a 128-byte record, as CP/M stores it: the last frame plays, the padding is junk at
+    // the end, and the stream ends.
+    for (const char *name : {"cbr128_joint_44k.mp3", "vbr0_stereo_44k.mp3"})
+    {
+        const std::vector<uint8_t> mp3 = mp3_file(name);
+        REQUIRE(!mp3.empty());
+        std::vector<uint8_t> padded = mp3;
+        do
+            padded.push_back(0x1A);
+        while (padded.size() % 128);
+        const Played p = play_mp3(padded, 0);
+        CHECK(p.tap == trimmed(mp3));
+        CHECK_EQ(p.state, SoundFw::S_ENDED);
+    }
+}
+
 int main() { return run_all(); }

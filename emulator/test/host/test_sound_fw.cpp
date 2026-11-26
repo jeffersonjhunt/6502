@@ -53,7 +53,16 @@ namespace
         void doc_write(uint8_t, uint8_t) override {}
         uint8_t doc_read(uint8_t) override { return 0; }
         void doc_ram(uint32_t, const uint8_t *, size_t) override {}
-        void doc_frame(int16_t out[4]) override { out[0] = out[1] = out[2] = out[3] = 0; }
+        /// The ES5503's four channels: silent, or with `doc_half` set a full-scale square on all four at once,
+        /// `doc_half` frames high (+32,767), then as many low (-32,768); `doc_frames` counts the frames given.
+        unsigned doc_half{0};
+        uint64_t doc_frames{0};
+        void doc_frame(int16_t out[4]) override
+        {
+            const int16_t v = !doc_half ? int16_t{0} : (doc_frames / doc_half) % 2 ? int16_t{-32768} : int16_t{32767};
+            ++doc_frames;
+            out[0] = out[1] = out[2] = out[3] = v;
+        }
     };
 
     struct Event
@@ -546,6 +555,64 @@ namespace
         return 0xFF;
     }
 } // namespace
+
+TEST(the_sum_past_full_scale_is_clipped_never_wrapped)
+{
+    // The mix sums its sources in float and takes the sum to 16 bits, clamped (to16). The ES5503's four channels
+    // at full scale give the effects and music half each, so their sum alone is full scale; a beep at its loudest
+    // (a quarter) on top takes it to 1.25 of full scale while the beep's half agrees with theirs. That must come
+    // out at +32,767 or -32,768, its sign always the square's. Must fail if the clamp goes: 1.25 of full scale
+    // taken to 16 bits by wrapping is about -24,577 where +32,767 is due, a loud crackle.
+    Card c;
+    c.port.doc_half = 48; // 500 Hz
+    CHECK_EQ(ask_status(c, SoundFw::BEEP, {0xE8, 0x03, 0xF4, 0x01, 255}), 0); // 1,000 Hz, 500 ms, the loudest
+    c.fw.set_tap(true);
+    const uint64_t first = c.port.doc_frames; // the tap's frame 0 is the ES5503's frame `first`
+    c.fw.advance(200 * SoundFw::SAMPLES_PER_MS);
+    const std::vector<int16_t> tap = c.fw.take_tap();
+    REQUIRE(tap.size() >= 2 * 9000u);
+    size_t top = 0, bottom = 0, wrong = 0;
+    for (size_t i = 0; i < tap.size(); ++i)
+    {
+        const bool high = ((first + i / 2) / c.port.doc_half) % 2 == 0;
+        top += tap[i] == 32767;
+        bottom += tap[i] == -32768;
+        wrong += high ? tap[i] < 16000 : tap[i] > -16000; // the square at full scale, the beep a quarter of it
+    }
+    std::printf("  %zu samples: %zu at +32,767, %zu at -32,768, %zu not the square's sign\n", tap.size(), top, bottom,
+                wrong);
+    CHECK_EQ(wrong, size_t{0});
+    CHECK(top > tap.size() / 8);    // about a quarter: the beep's half agreeing with the square's, high
+    CHECK(bottom > tap.size() / 8); // and low
+}
+
+TEST(stream_open_takes_a_raw_rate_from_8000_to_48000_and_formats_0_to_3)
+{
+    // STREAM_OPEN's raw (codec 0) rate is 8,000-48,000 Hz, both ends taken, and the format's bits above 1 must be
+    // clear (E_PARAM otherwise). Must fail if either end moves (a stream at 48,001 Hz, or 7,999, opened) or a
+    // format with bit 2 is taken.
+    const auto open = [](Card &c, uint32_t rate, uint8_t fmt) {
+        return ask_status(c, SoundFw::STREAM_OPEN,
+                          {0, 0, static_cast<uint8_t>(rate), static_cast<uint8_t>(rate >> 8), fmt, 0, 0, 0, 0, 0});
+    };
+    Card c(32);
+    const size_t all = c.fw.store_free();
+    for (const uint32_t rate : {7999u, 48001u, 0u, 65535u})
+    {
+        CHECK_EQ(open(c, rate, 0), SoundFw::E_PARAM);
+        CHECK_EQ(c.fw.store_free(), all); // refused: no ring taken
+    }
+    for (const uint32_t rate : {8000u, 48000u})
+        for (const uint8_t fmt : {uint8_t{0}, uint8_t{1}, uint8_t{2}, uint8_t{3}})
+        {
+            CHECK_EQ(open(c, rate, fmt), 0);
+            CHECK(c.fw.store_free() < all);
+            CHECK_EQ(ask_status(c, SoundFw::STREAM_CLOSE, {0}), 0);
+        }
+    for (const uint8_t fmt : {uint8_t{4}, uint8_t{7}, uint8_t{0x80}})
+        CHECK_EQ(open(c, 22050, fmt), SoundFw::E_PARAM);
+    CHECK_EQ(c.fw.store_free(), all);
+}
 
 TEST(a_refused_load_leaves_the_slot_as_it_was)
 {
