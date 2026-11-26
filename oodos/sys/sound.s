@@ -86,6 +86,7 @@ WT0:            .res    3              ; the wait's start (MS0-MS2)
 WMS:            .res    3              ; and its time-out, ms
 RB:             .res    SSTLEN         ; the program's record: +0 the command, +1 n, +2 the tag, +3 on
                                        ;   (16 at most), and SN_STATUS's block (SSTLEN)
+SST:            .res    SSTLEN         ; SN_STATUS's block after +0, as SSMAP makes it (the frame's too)
 HB:             .res    8              ; the handler's
 EKIND:          .res    1              ; EVONE's: the record's kind,
 ELEFT:          .res    1              ;   the bytes of it still to read,
@@ -142,14 +143,19 @@ NEXTB:          .byte   0              ; the buffer the next SN_BUFFER takes: 0,
 SENDB:          .byte   0              ; the buffer to send next
 CUR:            .byte   0              ; the buffer moving (0, 1)
 SDPEND:         .byte   0              ; 1: STREAM_DATA sent, its REPLY not yet come
-NEEDP:          .byte   0              ; the streams that asked (NEED) and have had nothing: bit 0, bit 1
-ENDP:           .byte   0              ; the streams whose SN_END waits for their buffers: bit 0, bit 1
 SOPEN:          .byte   0              ; the streams open: bit 0, bit 1
 FEED:           .byte   0              ; the stream SN_BUFFER feeds (the last opened)
 SPLAY:          .byte   0              ; the stream playing, whose status the area has
 NROOM:          .res    2              ; the ring's room, 256-byte units, as the last NEED said
-NURG:           .byte   0              ; the streams whose last NEED was urgent (under 1 s buffered): bit 0, bit 1
-NMS:            .res    8              ; each stream's ms buffered, 4 bytes, as its last NEED said: 0's, then 1's
+NEEDP:          .byte   0              ; the streams that asked (NEED) and have had nothing: bit 0, bit 1
+ENDP:           .byte   0              ; the streams whose SN_END waits for their buffers: bit 0, bit 1
+NEEDS:                                 ; each stream's last NEED, 8 bytes (stream 0's, then 1's):
+NURG:           .byte   0              ;   +0 its flags (SNF_URGENT: under 1 s buffered),
+NMS:            .res    7              ;   +1-4 the ms it had buffered (+5-7 unused)
+                .res    8
+NCLRN           = NEEDS + 16 - NROOM   ; NCLR's bytes
+.assert NEEDP = NROOM + 2 && ENDP = NEEDP + 1 && NEEDS = ENDP + 1, error, "NCLR clears NROOM to the NEEDs in one run"
+.assert NMS = NEEDS + 1 && SNF_URGENT = 1, error, "a NEED's record: its flags (the urgent bit alone), then its ms"
 SANS:           .byte   0              ; SNDIRQ's: the IRQH bits it answered
 STMP:           .byte   0
 LDLEN:          .res    3              ; a load's length
@@ -219,12 +225,8 @@ SNDQUIET:       JSR     C2STOP
                 STZ     FPEND
                 STZ     XBUSY
                 STZ     SOPEN
-                STZ     NEEDP
-                STZ     ENDP
                 STZ     FEED
                 STZ     SPLAY
-                STZ     NROOM
-                STZ     NROOM + 1
                 JSR     NCLR
                 LDA     SON
                 BEQ     @done
@@ -645,26 +647,24 @@ EVENT:          LDY     #0
                 LDA     #$FF
                 STA     NROOM
                 STA     NROOM + 1
-@ask:           LDA     EB             ; the stream's ms buffered (+9-12) into NMS
+@ask:           LDA     EB + 13        ; the stream's record: its urgent bit (+13's bit 0)
+                AND     #SNF_URGENT    ;   over +8 (read), then +9-12 its ms buffered
+                STA     EB + 8
+                LDA     EB
+                ASL     A
                 ASL     A
                 ASL     A
                 TAY
                 LDX     #0
-@ms:            LDA     EB + 9,X
-                STA     NMS,Y
+@rec:           LDA     EB + 8,X
+                STA     NEEDS,Y
                 INY
                 INX
-                CPX     #4
-                BNE     @ms
-                LDX     EB             ; and its urgent bit (+13's bit 0) into NURG
-                LDA     EB + 13
-                LSR     A
+                CPX     #5
+                BNE     @rec
+                LDX     EB
                 LDA     BUFBIT,X
-                BCS     @urg
-                TRB     NURG
-                BRA     @asks
-@urg:           TSB     NURG
-@asks:          TSB     NEEDP
+                TSB     NEEDP
                 JSR     SFEED
                 BRA     @sk
 @track:         CMP     #SOUND_EV_TRACK
@@ -797,44 +797,40 @@ SSMAP:          LDA     RR,X
                 INY
                 CPY     #8
                 BNE     @c
-                LDX     SPLAY          ; the last NEED's, of the stream playing
-                LDA     BUFBIT,X
-                AND     NURG
-                BEQ     @u
-                LDA     #SNF_URGENT
-@u:             STA     SST + 14
-                TXA
+                LDA     SPLAY          ; the last NEED's record, of the stream playing
+                ASL     A
                 ASL     A
                 ASL     A
                 TAX
                 LDY     #0
-@m:             LDA     NMS,X
-                STA     SST + 15,Y
+@m:             LDA     NEEDS,X
+                STA     SST + 14,Y
                 INX
                 INY
-                CPY     #4
+                CPY     #5
                 BNE     @m
                 RTS
-SST:            .res    SSTLEN
 
-; The last NEEDs forgotten: both streams' (NCLR), or stream X's (NCLRX),
-; urgent and ms buffered 0. Keeps nothing.
-NCLR:           STZ     NURG
-                LDX     #7
-@z:             STZ     NMS,X
-                DEX
-                BPL     @z
+; The streams afresh (NCLR): the ring's room, the asks (NEEDP), the ends
+; waiting (ENDP) and both streams' last NEEDs 0; or from X on (NCLRQ, X
+; NEEDP - NROOM: all but the room). Keeps nothing.
+NCLR:           LDX     #0
+NCLRQ:          STZ     NROOM,X
+                INX
+                CPX     #NCLRN
+                BNE     NCLRQ
                 RTS
-NCLRX:          LDA     BUFBIT,X
-                TRB     NURG
-                TXA
+; Stream X's last NEED forgotten. Keeps nothing.
+NCLRX:          TXA
+                ASL     A
                 ASL     A
                 ASL     A
                 TAX
-                STZ     NMS,X
-                STZ     NMS + 1,X
-                STZ     NMS + 2,X
-                STZ     NMS + 3,X
+                LDY     #5
+@z:             STZ     NEEDS,X
+                INX
+                DEY
+                BNE     @z
                 RTS
 
 ; --- the handler ---------------------------------------------------------------
@@ -976,7 +972,13 @@ SENDS:          LDA     ENDP
                 BCS     @next          ; no room: the next frame's
                 LDA     BUFBIT,X
                 TRB     ENDP
-                TRB     NURG           ; no more data coming: not urgent
+                TXA                    ; no more data coming: not urgent
+                ASL     A
+                ASL     A
+                ASL     A
+                TAY
+                LDA     #0
+                STA     NEEDS,Y
 @next:          DEX
                 BPL     @s
 @x:             RTS
@@ -1385,10 +1387,6 @@ SN_CLAIMX:      BLOCK
                 AND     #SC_STREAM
                 BEQ     @set
                 JSR     C2STOP
-                STZ     NEEDP
-                STZ     ENDP
-                STZ     NROOM
-                STZ     NROOM + 1
                 JSR     NCLR
 @set:           LDA     T0
                 TSB     SCLAIM
@@ -1421,9 +1419,8 @@ PQUIET:         LDA     T0
                 PHP
                 SEI
                 JSR     C2STOP
-                STZ     NEEDP
-                STZ     ENDP
-                JSR     NCLR
+                LDX     #NEEDP - NROOM ; (the room kept)
+                JSR     NCLRQ
                 PLP
                 JSR     SCLOSE
 @music:         LDA     T0
@@ -1734,10 +1731,6 @@ SN_STREAMX:     BLOCK
                 PHP
                 SEI
                 JSR     C2STOP
-                STZ     NEEDP
-                STZ     ENDP
-                STZ     NROOM
-                STZ     NROOM + 1
                 JSR     NCLR
                 PLP
                 JSR     SCLOSE         ; (RB's parameters first kept in SG and T0-T1)

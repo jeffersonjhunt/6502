@@ -1088,6 +1088,48 @@ TEST(two_files_queued_by_sn_next_join_with_no_gap)
     CHECK(queued(r, SoundFw::EV_TRACK, 1));
 }
 
+TEST(the_queued_stream_s_need_shows_after_track)
+{
+    // Each stream keeps its own last NEED. The first stream fed, SN_END, then SN_NEXT: the second opened and queued,
+    // given one buffer, and the card's NEED after it (urgent, its ms buffered) comes while the first still plays. Once
+    // TRACK says the second is playing, the area's EV_SNEED and EV_SBUFMS and SN_STATUS's +15-19 are the second's last
+    // NEED (no NEED of its own since). Must fail with one record for both streams (TRACK's clear of the first's would
+    // take the second's) or with the first's record always shown.
+    CcpRig r;
+    REQUIRE(r.ok);
+    streaming(r, 44100, FMT_16BIT | FMT_STEREO);
+    const std::vector<uint8_t> a = noise(40000, 63), b = noise(30000, 64);
+    r.poke(0x10000, a);
+    r.poke(0x20000, b);
+    CHECK_EQ(f82(r, buffer_block(0x10000, static_cast<unsigned>(a.size()))), std::string("00 00"));
+    CHECK_EQ(f82op(r, SN_END), std::string("00 00"));
+    CHECK_EQ(f82(r, stream_block(0, 44100, FMT_16BIT | FMT_STEREO, SN_NEXT)), std::string("00 00"));
+    const uint32_t n0 = fw(r).last_need(1).count;
+    CHECK_EQ(f82(r, buffer_block(0x20000, static_cast<unsigned>(b.size()))), std::string("01 00"));
+    for (int i = 0; i < 200 && !queued(r, SoundFw::EV_TRACK, 1); ++i)
+        r.run(ms(5));
+    REQUIRE(queued(r, SoundFw::EV_TRACK, 1));
+    const SoundFw::NeedSent n = fw(r).last_need(1);
+    CHECK(n.count > n0); // the premise: the second's NEED after its buffer, before TRACK,
+    CHECK(n.ms > 0);     //   with some ms buffered,
+    CHECK(n.urgent);     //   under 1 s
+    r.run(ms(40));
+    const std::string st = command(r, 'S', "ST");
+    REQUIRE(st.size() >= 44);
+    uint32_t st_ms = 0;
+    for (unsigned i = 0; i < 4; ++i)
+        st_ms |= static_cast<uint32_t>(std::stoul(st.substr(36 + 2 * i, 2), nullptr, 16)) << (8 * i);
+    std::printf("  the second's NEED %u, %u ms%s; the area %02X, %u ms; SN_STATUS %s, %u ms; the first's NEED %u ms\n",
+                n.count, n.ms, n.urgent ? ", urgent" : "", area(r, EV_SNEED), area32(r, EV_SBUFMS),
+                st.substr(34, 2).c_str(), st_ms, fw(r).last_need(0).ms);
+    CHECK_EQ(fw(r).last_need(1).count, n.count); // (none since)
+    CHECK_EQ(sv(r, "SPLAY"), 1);
+    CHECK_EQ(area(r, EV_SNEED), SNF_URGENT);
+    CHECK_EQ(area32(r, EV_SBUFMS), n.ms);
+    CHECK_EQ(st.substr(34, 2), std::string("01"));
+    CHECK_EQ(st_ms, n.ms);
+}
+
 TEST(a_stray_terminal_count_on_channel_6_is_deafened)
 {
     // B3: a channel 4-7's interrupt that no driver turned on (a program's, against the rules) reaches IRQOTH and
