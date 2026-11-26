@@ -5896,3 +5896,63 @@ TEST(s3_a_record_moved_by_its_fields_and_dirtied_on_the_fast_walk)
     CHECK(cells_in(r, 0, p.col, p.row, p.col + p.w, p.row + p.h) == moved);
     CHECK_EQ(cache_mismatches(r, "a panel moved by its fields, only ui_dirty"), 0u);
 }
+
+TEST(s3_a_dialog_closed_walks_no_letter_again)
+{
+    // (Review 1, C2) Block 8 with no key letter, as OO-Amp's. A dialog's records have letters, so ukeyl is set while
+    // one shows (DLGREC); when its window is hidden ukeyl is found again (KEYS), so a letter key walks no record
+    // again, against F7's poll as in s3_a_letter_key_walks_no_records. The same after ui_redraw (OO-Amp makes its
+    // own dialogs with it), whose KEYS is timed. And ui_redraw while the picker is up keeps its letters: "Add a&ll"
+    // still takes L.
+    CcpRig r;
+    REQUIRE(r.ok);
+    start_ui(r, "uitbar");
+    open_big_no_letters(r);
+    constexpr uint8_t U_F7 = 0x40;
+    const auto no_walk = [&](const char *what) {
+        key(r, U_F7);
+        const Polls ref = polls_cost(r);
+        key(r, K_Q);
+        const Polls q = polls_cost(r);
+        std::printf("  %s: Q %lu REC, F7 %lu REC\n", what, q.recs, ref.recs);
+        CHECK(keyed(q.ev, K_Q));
+        CHECK_EQ(q.recs, ref.recs);
+        CHECK_EQ(q.rects, ref.rects);
+    };
+    CHECK_EQ(ui(r, 'm', 0).substr(6), std::string("00"));
+    poll(r);
+    CHECK(r.phys(lab("ukeyl")) != 0); // the box's records made
+    key(r, K_ENTER);
+    poll(r);
+    no_walk("the message box come and gone");
+    const uint16_t keys = lab("KEYS"), done = lab("RDONE");
+    const unsigned ba = bank_block(r, "KEYS");
+    uint64_t start = 0, took = 0;
+    r.watch = [&](uint16_t pc) {
+        const unsigned w3 = r.nb(3) & 0x3F;
+        if (w3 == ba && pc == keys && !start)
+            start = r.cpu->cycles();
+        else if (w3 == ba && pc == done && start && !took)
+            took = r.cpu->cycles() - start;
+    };
+    CHECK_EQ(ui(r, 'D').substr(6), std::string("00"));
+    r.watch = nullptr;
+    std::printf("  ui_redraw's KEYS among 90 records: %lu cycles\n", static_cast<unsigned long>(took));
+    CHECK(took != 0);
+    poll(r);
+    no_walk("after ui_redraw");
+    CcpRig p;
+    REQUIRE(p.ok);
+    p.put_m({{0, "DATA00  BIN", std::vector<uint8_t>(10, 1)}, {0, "DATA01  BIN", std::vector<uint8_t>(10, 1)}});
+    start_ui(p, "uitpick");
+    CHECK_EQ(ui(p, 'o', BLK_DESK).substr(6), std::string("00"));
+    poll(p);
+    pick(p, 5);
+    CHECK_EQ(ui(p, 'D').substr(6), std::string("00"));
+    poll(p);
+    key(p, 0x0F); // L
+    const std::vector<Event> all = poll(p);
+    CHECK(std::any_of(all.begin(), all.end(), [](const Event &e) { return e.code == UE_PICK && e.handle == P_WIN && e.value == 3; }));
+    key(p, K_ESC);
+    poll(p);
+}

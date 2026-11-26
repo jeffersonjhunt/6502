@@ -422,9 +422,9 @@ DLEN:   lda     UIP
         .code
 
 ; (S3) Record UIR: ukeyl set if it is a button, a check box or a radio
-; button with a key letter (FINDACC's types). Keeps UIR. ui_open's
-; (CHECKTAB, every record), ui_settext's and ui_dirty's; ui_redraw and the
-; dialogs' records (DLGREC) set ukeyl themselves.
+; button with a key letter (FINDACC's types). Keeps UIR and X. ui_open's
+; (CHECKTAB, every record), ui_settext's, ui_dirty's and KEYS' (ui_redraw,
+; a dialog closed); the dialogs' records (DLGREC) set ukeyl themselves.
 ACCREC: ldy     #UW_TYPE
         lda     (UIR),y
         cmp     #UT_BUTTON
@@ -443,6 +443,42 @@ ACCREC: ldy     #UW_TYPE
         beq     @r
         sta     ukeyl
 @r:     rts
+
+; (S3, review 1's C2) ukeyl found again: each table record's letter
+; (ACCREC), and not 0 while a dialog's window shows (its buttons' letters;
+; a closed dialog's window is hidden). ui_redraw's, and HIDEH's when it
+; hides a dialog's window, so a table with no letter walks none again after
+; a dialog. Keeps X.
+KEYS:   phx
+        stz     ukeyl
+        ldx     #0
+        txa
+        jsr     REC
+@l:     cpx     utot
+        bcs     @r
+        cpx     ucount
+        bcs     @dlg
+        jsr     ACCREC
+@n:     inx
+        txa
+        jsr     RNEXT
+        bra     @l
+@dlg:   ldy     #UW_PARENT              ; a dialog's window (no parent, used) that shows
+        lda     (UIR),y
+        cmp     #UI_NONE
+        bne     @n
+        ldy     #UW_TYPE
+        lda     (UIR),y
+        beq     @n
+        ldy     #UW_FLAGS
+        lda     (UIR),y
+        and     #UF_HIDDEN
+        bne     @n
+        lda     #1
+        sta     ukeyl
+        bra     @n
+@r:     plx
+        rts
 
 ; UIP a string (0 none): A its key, the letter after its first single '&'
 ; in capitals, or 0.
@@ -1414,6 +1450,10 @@ HIDEH:  sta     sh_h
         lda     (UIR),y
         ora     #UF_HIDDEN
         sta     (UIR),y
+        lda     sh_h                    ; (S3, review C2) a dialog's window hidden: its letters gone
+        cmp     ucount                  ;   with it, the key letters found again
+        bcc     HIDSET
+        jsr     KEYS
 ; (S2) record sh_h's entry in the position cache found again (block C's
 ; CSET: its own, or the whole cache stale if it has children); then the
 ; focus.
@@ -1775,9 +1815,9 @@ STALE:  lda     #UQ_STALE | UQ_GEOM | UQ_CSTALE ; (S1: a geometry event; S2: the
         rts
 
 ui_redraw:
-        lda     #1                      ; (S3) a record's type or text may be the program's own
-        sta     ukeyl                   ;   writing (S1's rule): FINDACC looks till ui_open
-        jsr     ALLDIRTY
+        jsr     KEYS                    ; (S3, review C2) a record's type or text may be the program's
+                                       ;   own writing (S1's rule): the key letters found again
+RDONE:  jsr     ALLDIRTY                ; (test_oodos_ui times KEYS to here)
         bra     STALE
 
 ui_focus:

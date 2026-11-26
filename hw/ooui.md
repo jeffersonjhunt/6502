@@ -2257,9 +2257,12 @@ changes; `UI_IFACE` stays 1; the 25 golden frames are compared unchanged, and B5
   (`INSCOPE`'s `RECT`), so only the button whose letter it is is placed; the same record is found. `ukeyl` (a
   `UISTATE` byte) says a button, check box or radio button may have a key letter; while it is 0 `FINDACC` looks
   at no record. `ACCREC` sets it for a record of those types with a letter, from `ui_open` (`CHECKTAB`, which
-  clears it first), `ui_settext` and `ui_dirty`; `ui_redraw` and the dialogs' records (`DLGREC`) set it whatever
-  they find. It is cleared only by `ui_open`, so after a dialog or a `ui_redraw` every letter key walks again (at
-  O1's cost, about 13,500 cycles on OO-Amp's screen).
+  clears it first), `ui_settext` and `ui_dirty`; the dialogs' records (`DLGREC`) set it whatever they find.
+  *(Review round 1, C2:)* `KEYS` finds it again, every table record's letter and any dialog's window that shows,
+  at `ui_redraw` and when `HIDEH` hides a dialog's window, so after a dialog or a `ui_redraw` a table with no
+  letter walks none again (before, every letter key walked at O1's cost, about 13,500 cycles on OO-Amp's screen,
+  until the next `ui_open`). `KEYS` costs 11,108 cycles among 90 records (block 8), once a `ui_redraw` or a
+  dialog's going.
 - **S3-2, `POST` after a mark or a geometry event (O3).** `PAINT` calls `POST` only when `uany` has `UQ_THUMB` (a
   thumb marked: `SPRDRAWN`, which now sets it too, or `VDIRTY`) or `UQ_GPOST` (a geometry event): what S1's tests
   act on. `udrew` goes.
