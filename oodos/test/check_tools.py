@@ -782,13 +782,14 @@ def mkbank_checks(tmp):
 DIRTY_SETTERS = ("DIRTY", "CHECKTAB", "DLGREC")  # (OOUI S3) the only routines that set a record's UF_DIRTY
 
 
-def dirty_setters(sources):
+def dirty_setters(sources, allowed=DIRTY_SETTERS):
     """(OOUI S3, the owner's answer 4) UF_DIRTY is OOUI's alone, and only DIRTY (which puts the record on the dirty
     list), CHECKTAB and DLGREC (which say the list is too long) set it: a bit set anywhere else would name a record
     the list doesn't, which PASS's fast walk would never draw. sources is {name: text}; the answer is each place an
     instruction can set the bit (an ora, eor, tsb or adc of it, or a load of it as an immediate, for a tsb or a
-    store) outside those three, as (name, line, routine): its routine the last label at a line's start that isn't a
-    local (@) one. A mask that clears the bit (<~UF_DIRTY), an and or a bit of it, is no setting."""
+    store) outside the routines `allowed` (those three in OOUI's sources, none in a program's), as (name, line,
+    routine): its routine the last label at a line's start that isn't a local (@) one. A mask that clears the bit
+    (<~UF_DIRTY), an and or a bit of it, is no setting."""
     found = []
     for name, text in sorted(sources.items()):
         routine = None
@@ -804,32 +805,56 @@ def dirty_setters(sources):
                 continue
             if ins.group(1).lower().startswith("ld") and not ins.group(2):
                 continue
-            if routine not in DIRTY_SETTERS:
+            if routine not in allowed:
                 found.append((name, n, routine))
     return found
 
 
+def program_sources():
+    """(Review 1, T4) Every other assembly source in the repository, {path: text}: the programs (uidemo, the test
+    programs, docs/examples), OODOS, OOLIB, the ROM; build output, fixtures and node_modules left out."""
+    repo = os.path.dirname(ROOT)
+    skip = {".git", "node_modules", "fixtures"}
+    found = {}
+    for top, dirs, files in os.walk(repo):
+        dirs[:] = sorted(d for d in dirs if d not in skip and not d.startswith("build"))
+        if os.path.relpath(top, repo).startswith(os.path.join("oodos", "ui")):
+            continue
+        for f in sorted(files):
+            if f.endswith(".s"):
+                path = os.path.join(top, f)
+                with open(path, errors="replace") as fh:
+                    found[os.path.relpath(path, repo)] = fh.read()
+    return found
+
+
 def dirty_checks():
-    """dirty_setters on OOUI's sources (ui/*.s: none outside the three), and on examples it must refuse (a routine
-    of its own setting the bit by an ora, and by a tsb of it loaded) and take (a mask clearing it; DIRTY's own)."""
+    """dirty_setters on OOUI's sources (ui/*.s: none outside the three), on every other source in the repository
+    (none at all: a program asks with ui_dirty), and on examples it must refuse (a routine of its own setting the
+    bit by an ora, and by a tsb of it loaded; a program's routine named DIRTY) and take (a mask clearing it; OOUI's
+    DIRTY's own)."""
     real = {}
     for src in sorted(glob.glob(os.path.join(ROOT, "ui", "*.s"))):
         with open(src) as f:
             real[os.path.basename(src)] = f.read()
     bad = dirty_setters(real)
     ok(not bad and "DIRTY:" in real.get("uicore.s", ""), "UF_DIRTY set only by DIRTY, CHECKTAB and DLGREC: %s" % (bad or "so"))
-    for what, src, refuse in (
-            ("an ora of it in a routine of its own", "FOO:    lda     (UIR),y\n        ora     #UF_DIRTY\n        sta     (UIR),y\n", True),
-            ("a tsb of it loaded", "BAR:    lda     #UF_DIRTY | UF_HIDDEN\n        tsb     t0\n", True),
-            ("a set after a local label in a routine of its own", "BAZ:    rts\n@x:     ora     #UF_DIRTY\n", True),
-            ("a mask that clears it", "QUX:    and     #<~UF_DIRTY\n        lda     #<~UF_DIRTY\n", False),
-            ("DIRTY's own", "DIRTY:  lda     (UIR),y\n        bit     #UF_DIRTY\n        ora     #UF_DIRTY\n", False)):
-        got = dirty_setters({"example.s": src})
+    progs = program_sources()
+    bad = dirty_setters(progs, allowed=())
+    ok(not bad and any(p.endswith("uidemo.s") for p in progs) and any("examples" in p for p in progs),
+       "UF_DIRTY set by no program, OODOS or ROM source (%d of them): %s" % (len(progs), bad or "so"))
+    for what, src, refuse, allowed in (
+            ("an ora of it in a routine of its own", "FOO:    lda     (UIR),y\n        ora     #UF_DIRTY\n        sta     (UIR),y\n", True, DIRTY_SETTERS),
+            ("a tsb of it loaded", "BAR:    lda     #UF_DIRTY | UF_HIDDEN\n        tsb     t0\n", True, DIRTY_SETTERS),
+            ("a set after a local label in a routine of its own", "BAZ:    rts\n@x:     ora     #UF_DIRTY\n", True, DIRTY_SETTERS),
+            ("a program's own routine named DIRTY", "DIRTY:  lda     (UIR),y\n        ora     #UF_DIRTY\n", True, ()),
+            ("a mask that clears it", "QUX:    and     #<~UF_DIRTY\n        lda     #<~UF_DIRTY\n", False, DIRTY_SETTERS),
+            ("OOUI's DIRTY's own", "DIRTY:  lda     (UIR),y\n        bit     #UF_DIRTY\n        ora     #UF_DIRTY\n", False, DIRTY_SETTERS)):
+        got = dirty_setters({"example.s": src}, allowed=allowed)
         if refuse:
             ok(len(got) == 1, "the UF_DIRTY rule refuses %s: %s" % (what, got))
         else:
             ok(not got, "the UF_DIRTY rule takes %s" % what)
-
 
 def main():
     built =os.path.abspath(sys.argv[1] if len(sys.argv) > 1 else os.path.join(ROOT, "build"))

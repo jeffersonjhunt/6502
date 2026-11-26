@@ -2280,8 +2280,9 @@ changes; `UI_IFACE` stays 1; the 25 golden frames are compared unchanged, and B5
 - **`UF_DIRTY` is OOUI's alone** (answer 4). Its calls set it, and a program asks with `ui_dirty`; `ui_flags`
   refuses the bit ([widget records](#widget-records)). A program that set it by writing `UW_FLAGS` would name a
   record the dirty list doesn't, which the fast walk would not draw. check_tools.py's rule (`dirty_setters`)
-  allows an instruction that can set the bit only in `DIRTY`, `CHECKTAB` and `DLGREC`; its own examples refuse an
-  `ora` of it and a `tsb` of it elsewhere.
+  allows an instruction that can set the bit only in `DIRTY`, `CHECKTAB` and `DLGREC`, and *(review round 1, T4)*
+  in no other source in the repository (the programs, uidemo, the test programs, docs/examples, OODOS, the ROM); its
+  own examples refuse an `ora` of it and a `tsb` of it elsewhere, and a program's own routine named `DIRTY`.
 - **A record's letter.** A program that writes a button's `UW_TEXT` itself calls `ui_dirty`, which finds the
   letter; one that changes a record's type calls `ui_redraw` (S1's rule). *(Review round 1, C1; the owner's
   decision, 2026-11-26:)* a letter written into a record's fields directly (its text, or the string it points to,
