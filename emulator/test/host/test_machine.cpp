@@ -131,7 +131,7 @@ TEST(physical_addresses_above_64k)
 TEST(dma_line_and_drq_option)
 {
     // `drq` is a flag: the card's request reaches /DREQ, and a channel serves it by the module its CARD names
-    // (DMA revision 2). Revision 1's `drq=N`, a channel, is refused, naming CARD.
+    // (dma_controller.h): `drq=N` is no option.
     std::string error;
     auto m = build("ram 0000-7FFF\ndma C400-C47F name=dma irq\npia6821 D000-D003 module=6 drq\n", error);
     REQUIRE(m != nullptr);
@@ -145,10 +145,7 @@ TEST(dma_line_and_drq_option)
     CHECK(moduleless.find("module ID") != std::string::npos);
     CHECK_EQ(m->bus().read(0xC47F), 0x82);
     CHECK(starts_with(error_of("dma C400-C47F\ndma C500-C57F\n"), "test.machine:2: dma: only one"));
-    const std::string channel = error_of("ram 0-F drq=2\n");
-    CHECK(starts_with(channel, "test.machine:1: drq:"));
-    CHECK(channel.find("CARD") != std::string::npos);
-    CHECK(starts_with(error_of("ram 0-F drq=\n"), "test.machine:1: drq:"));
+    CHECK(starts_with(error_of("ram 0-F drq=2\n"), "test.machine:1: unknown option 'drq'"));
     CHECK(starts_with(error_of("dma C400-C47F x.bin\n"), "test.machine:1: dma takes no image"));
 }
 
@@ -222,16 +219,15 @@ TEST(spaces_and_the_northbridge_line)
     CHECK(starts_with(error_of("ram 000-0FF space=io\n"), "test.machine:1: ram: 000-0FF crosses"));
 }
 
-TEST(the_machine_takes_rev_and_memsize)
+TEST(the_sound_line_takes_memsize_and_no_revision)
 {
-    // The sound line: the device, revision 3 (rev=3 may be said); memsize=2, 4 or 8 (MB), 8 the default.
+    // The sound line: the device, revision 3, its only one (no rev=); memsize=2, 4 or 8 (MB), 8 the default.
     std::string error;
     auto with = [&error](const std::string &opts) {
         return build("northbridge backplane\nram 00000-FFFFF\nsound 500-57F space=io name=sound irq drq" + opts + "\n", error);
     };
-    for (const char *opts : {"", " rev=3"})
     {
-        auto m = with(opts);
+        auto m = with("");
         REQUIRE(m != nullptr);
         REQUIRE(m->sound_device() != nullptr);
         CHECK_EQ(m->sound_device()->peek(SoundCard3::MEMSIZE), 128);
@@ -240,18 +236,18 @@ TEST(the_machine_takes_rev_and_memsize)
     std::unique_ptr<Machine> m;
     for (const char *mb : {"2", "4", "8"})
     {
-        m = with(std::string(" rev=3 memsize=") + mb);
+        m = with(std::string(" memsize=") + mb);
         REQUIRE(m != nullptr);
         CHECK_EQ(m->sound_device()->peek(SoundCard3::MEMSIZE), 16 * (mb[0] - '0'));
     }
-    for (const char *bad : {" rev=4", " rev=3 memsize=3", " memsize=16", " rev=0"})
+    for (const char *bad : {" rev=3", " memsize=3", " memsize=16", " rev=0"})
     {
         CHECK(with(bad) == nullptr);
         std::printf("  %s: %s\n", bad, error.c_str());
     }
 }
 
-TEST(the_northbridge_line_takes_revision_1_2_or_3)
+TEST(the_northbridge_line_takes_bootsel_and_rng_chip)
 {
     std::string error;
     std::unique_ptr<Machine> m; // the latest built
@@ -259,43 +255,35 @@ TEST(the_northbridge_line_takes_revision_1_2_or_3)
         m = build(line + "\nram 00000-FFFFF\n", error);
         if (!m)
             std::printf("  %s\n", error.c_str());
+        if (m)
+            m->bus().reset(); // power-on: the random number chip's set-up
         return m ? m->find_as<BackplaneBridge>("northbridge") : nullptr;
     };
     const BackplaneBridge *b = bridge_of("northbridge backplane");
     REQUIRE(b != nullptr);
-    CHECK_EQ(b->revision(), BackplaneBridge::REVISION); // the default
-    CHECK_EQ(b->id(), BackplaneBridge::ID);
-    b = bridge_of("northbridge backplane revision=1");
-    REQUIRE(b != nullptr);
-    CHECK_EQ(b->revision(), 1u);
-    CHECK_EQ(b->peek(BackplaneBridge::ID_REG), 0xD1);
-    CHECK_EQ(b->peek(BackplaneBridge::MAP), 0xFF);       // none of revision 2's registers
-    b = bridge_of("northbridge backplane revision=2");
-    REQUIRE(b != nullptr);
-    CHECK_EQ(b->revision(), 2u);
-    CHECK_EQ(b->peek(BackplaneBridge::ID_REG), 0xD2);
-    CHECK_EQ(b->peek(BackplaneBridge::MAP), BackplaneBridge::MAP_AP8);
-    b = bridge_of("northbridge backplane revision=3");
-    REQUIRE(b != nullptr);
     CHECK_EQ(b->revision(), 3u);
+    CHECK_EQ(b->id(), BackplaneBridge::ID);
     CHECK_EQ(b->peek(BackplaneBridge::ID_REG), 0xD3);
-    CHECK_EQ(b->peek(BackplaneBridge::MAP), BackplaneBridge::MAP_AP8); // revision 2's registers too
-    CHECK(b->wide());
-    b = bridge_of("northbridge backplane revision=2 bootsel"); // either order
+    CHECK_EQ(b->peek(BackplaneBridge::MAP), BackplaneBridge::MAP_AP8);
+    CHECK_EQ(b->window(3), BackplaneBridge::RESET_TOP);
+    CHECK_EQ(b->rngst() & (BackplaneBridge::RNG_CHIP | BackplaneBridge::RNG_LOCKED),
+             BackplaneBridge::RNG_CHIP | BackplaneBridge::RNG_LOCKED); // locked, the default
+    b = bridge_of("northbridge backplane rng_chip=unlocked bootsel"); // either order
     REQUIRE(b != nullptr);
-    CHECK_EQ(b->revision(), 2u);
     CHECK_EQ(b->window(3), 0x3F);
-    b = bridge_of("northbridge backplane bootsel revision=1");
+    CHECK_EQ(b->rngst() & (BackplaneBridge::RNG_CHIP | BackplaneBridge::RNG_LOCKED), BackplaneBridge::RNG_CHIP);
+    b = bridge_of("northbridge backplane bootsel rng_chip=none");
     REQUIRE(b != nullptr);
-    CHECK_EQ(b->revision(), 1u);
     CHECK_EQ(b->window(3), 0x3F);
+    CHECK_EQ(b->rngst() & BackplaneBridge::RNG_CHIP, 0);
 
-    const std::string four = error_of("northbridge backplane revision=4\n");
-    CHECK(starts_with(four, "test.machine:1: northbridge: want"));
-    CHECK(four.find("'revision=4'") != std::string::npos); // the token named
-    CHECK(error_of("northbridge backplane revision=\n").find("'revision='") != std::string::npos);
-    CHECK(starts_with(error_of("northbridge backplane revision=2 revision=1\n"), "test.machine:1: northbridge: want"));
+    const std::string word = error_of("northbridge backplane revision=3\n"); // no such option: one revision
+    CHECK(starts_with(word, "test.machine:1: northbridge: want"));
+    CHECK(word.find("'revision=3'") != std::string::npos); // the token named
     CHECK(starts_with(error_of("northbridge backplane bootsel bootsel\n"), "test.machine:1: northbridge: want"));
+    CHECK(starts_with(error_of("northbridge backplane rng_chip=none rng_chip=locked\n"),
+                      "test.machine:1: northbridge: want"));
+    CHECK(error_of("northbridge backplane rng_chip=maybe\n").find("'rng_chip=maybe'") != std::string::npos);
 }
 
 TEST(rom_override_replaces_only_the_first_rom)

@@ -7,8 +7,7 @@
  * north bridge's ATECC608B gives the fixed stream (Atecc608::splitmix(1)):
  * every byte a case sees is known. The bridge drew the stream's first 32 at
  * power-on; nothing else in OODOS reads the pool, so the bytes RN_FILL gives
- * are the stream's in order. (The spec's O5, a revision 2 bridge, can't run:
- * OODOS 0.16 refuses that bridge, test_oodos_sys's O7.)
+ * are the stream's in order.
  */
 
 #include "harness.h"

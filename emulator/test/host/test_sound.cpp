@@ -1,18 +1,14 @@
 /**
  * @file test_sound.cpp
- * @brief The sound card (hw/design.md, "Sound"): the host's side of it.
+ * @brief The sound card's chips (sound_card.h): the SIDs, the 6510 and its map, the mailbox.
  * @copyright Copyright (c) 2024-2026 Jefferson J. Hunt (MIT)
  *
  * The card alone: the SIDs' registers as the host sees them, the card's RAM
  * through RAMADDR and RAMDATA, the mailbox from both sides, and /RESET. Then
  * its own 6510, with hand-assembled programs: its clock against the host's,
- * its map, and CIA 1's timer and interrupt. Then on a backplane machine: its
- * block at $C500, its interrupt in IRQH, a tune's bytes loaded by DMA, and
- * /RESET from the north bridge. test_sound_driver runs a real driver.
- * Then revision 2's registers (hw/sound-rev2.md, step 1): each one's reset
- * value, what it keeps and reads back, the latches and the moving indexes,
- * the DOC's port into its registers and wave RAM, DRQSEL's routes, and
- * /RESET against CTRL RESET.
+ * its map, CIA 1's timer and interrupt, and the card's frame interrupt.
+ * These are revision 3's chips (sound_card3.h uses this class as them);
+ * test_sound_device and the other revision 3 suites test the card itself.
  */
 
 #include "harness.h"
@@ -57,15 +53,16 @@ namespace
     constexpr std::initializer_list<uint8_t> SPIN = {0xE6, 0x10, 0x4C, 0x00, 0x10}; // INC $10; JMP $1000
 } // namespace
 
-TEST(id_and_unused_offsets)
+TEST(unused_offsets_read_ff)
 {
+    // The chips have no ID of their own: revision 3's card (sound_card3.h) answers $7F.
     SoundCard c;
-    CHECK_EQ(c.peek(SoundCard::ID_REG), 0xA2);
     CHECK_EQ(c.read(0x1D), 0xFF); // past SID A's 29 registers
     CHECK_EQ(c.read(0x3F), 0xFF);
-    CHECK_EQ(c.read(0x64), 0xFF); // past revision 2's (hw/sound-rev2.md), $48-$63
-    CHECK_EQ(c.read(0x7E), 0xFF);
-    CHECK_EQ(c.read(0xFF), 0xA2); // the block repeats every $80
+    CHECK_EQ(c.read(0x48), 0xFF); // past MBIN
+    CHECK_EQ(c.read(0x7F), 0xFF);
+    c.write(SoundCard::RAMADDR, 0x12);
+    CHECK_EQ(c.read(0x80 + SoundCard::RAMADDR), 0x12); // the block repeats every $80
 }
 
 TEST(sid_registers_read_back_as_written_and_the_chip_answers_its_four)
@@ -152,7 +149,6 @@ TEST(ramdata_walks_the_cards_64k_from_ramaddr)
     c.write(SoundCard::RAMDATA, 0x42);
     CHECK_EQ(c.ram()[0xFFFF], 0x42);
     CHECK_EQ(c.read(SoundCard::RAMADDR + 1), 0x00); // wrapped
-    CHECK(c.drq());                                 // always ready
 }
 
 TEST(mailbox_both_ways)
@@ -186,17 +182,13 @@ TEST(a_byte_for_the_host_interrupts_when_ien_says_so)
     c.card_send(1);
     CHECK(!c.irq());
     c.write(SoundCard::IEN, 0xFF);
-    CHECK_EQ(c.read(SoundCard::IEN), SoundCard::IEN_MAILBOX | SoundCard::IEN_DOC); // revision 2: the ES5503's bit too
+    CHECK_EQ(c.read(SoundCard::IEN), SoundCard::IEN_MAILBOX);
     CHECK(c.irq());
     CHECK_EQ(c.read(SoundCard::STATUS), SoundCard::STATUS_TO_HOST | SoundCard::STATUS_IRQ);
     c.read(SoundCard::MBIN);
     CHECK(!c.irq());
     c.write(SoundCard::MBOUT, 9); // the host's own byte never interrupts the host
     CHECK(!c.irq());
-    SoundCard r1; // revision 1: bit 2 alone
-    r1.set_revision(1);
-    r1.write(SoundCard::IEN, 0xFF);
-    CHECK_EQ(r1.read(SoundCard::IEN), SoundCard::IEN_MAILBOX);
 }
 
 TEST(reset_stops_and_silences_and_keeps_the_ram)
@@ -643,351 +635,6 @@ TEST(only_one_per_machine)
     CHECK(error.find("sound: only one per machine") != std::string::npos);
 }
 
-// --- revision 2 (hw/sound-rev2.md): the registers ----------------------------
-
-namespace
-{
-    /// Revision 2's registers, $48-$63, as the host reads them (peek: no latch, no index moved).
-    std::vector<uint8_t> rev2(const SoundCard &c)
-    {
-        std::vector<uint8_t> out;
-        for (unsigned o = SoundCard::PCMCTL; o <= SoundCard::DRQSEL; ++o)
-            out.push_back(c.peek(o));
-        return out;
-    }
-
-    /// Everything revision 2 adds, away from its reset value.
-    void unsettle(SoundCard &c)
-    {
-        c.write(SoundCard::CODEC, 1);
-        c.write(SoundCard::RATE, 0x44);
-        c.write(SoundCard::RATE + 1, 0xAC);
-        c.write(SoundCard::PCMFMT, 3);
-        c.write(SoundCard::PCMCTL, SoundCard::PCMCTL_RUN | SoundCard::PCMCTL_PAUSE | SoundCard::PCMCTL_EOF);
-        c.write(SoundCard::VOLL, 0x40);
-        c.write(SoundCard::VOLR, 0x41);
-        c.write(SoundCard::EQIDX, 3);
-        c.write(SoundCard::EQVAL, 7);
-        c.write(SoundCard::EQIDX, SoundCard::EQIDX_ENABLE);
-        c.write(SoundCard::EQVAL, 1);
-        c.write(SoundCard::VISIDX, 40);
-        c.write(SoundCard::DOCCTL, SoundCard::DOCCTL_AUTOINC);
-        c.write(SoundCard::DOCADDR, Es5503::CONTROL + 5);
-        c.write(SoundCard::DOCDATA, 0x06);          // oscillator 5 running: halt clear
-        c.write(SoundCard::DOCADDR, Es5503::ENABLE);
-        c.write(SoundCard::DOCDATA, 0x3E);          // all 32 enabled
-        c.write(SoundCard::DOCCTL, SoundCard::DOCCTL_RUN | SoundCard::DOCCTL_RAM | SoundCard::DOCCTL_IRQ_CARD);
-        c.write(SoundCard::DOCBANK, 1);
-        c.write(SoundCard::DOCADDR, 0x34);
-        c.write(SoundCard::DOCADDR + 1, 0x12);
-        c.write(SoundCard::DOCDATA, 0x99);          // wave RAM $11234
-        c.write(SoundCard::DRQSEL, SoundCard::DRQ_DOCDATA);
-    }
-} // namespace
-
-TEST(rev2_registers_reset_to_the_specs_values)
-{
-    SoundCard c;
-    const std::vector<uint8_t> want = {
-        0x00,             // $48 PCMCTL
-        0x00,             // $49 CODEC: raw PCM
-        0x00, 0x00,       // $4A-$4B RATE
-        0x00,             // $4C PCMFMT
-        0x00, 0x02,       // $4D-$4E FREE: 512 x 256 bytes, the FIFO empty
-        0xFF,             // $4F PCMDATA: write only
-        0x00,             // $50 STATE: idle
-        0x00, 0x00, 0x00, 0x00, // $51-$54 POS
-        0x00, 0x00,       // $55-$56 KBPS: no MP3
-        0xFF, 0xFF,       // $57-$58 VOLL, VOLR: unity
-        0x00,             // $59 EQIDX: the preamp
-        0x00,             // $5A EQVAL: 0 dB
-        0x00,             // $5B VISIDX
-        0x00,             // $5C VISDATA: the spectrum's first band, silent
-        0x83,             // $5D CODECS: raw PCM, MP3, an ES5503
-        0x00,             // $5E DOCCTL
-        0x00,             // $5F DOCDATA: the DOC's register 0, frequency low
-        0x00, 0x00, 0x00, // $60-$62 DOCADDR, DOCBANK
-        0x00,             // $63 DRQSEL: RAMDATA
-    };
-    CHECK(rev2(c) == want);
-    CHECK(c.drq());
-}
-
-TEST(pcmctl_keeps_run_pause_and_eof_and_codec_holds_while_running)
-{
-    SoundCard c;
-    c.write(SoundCard::PCMCTL, 0xFF);
-    CHECK_EQ(c.read(SoundCard::PCMCTL), 0x0B); // FLUSH reads 0, bits 4-7 reserved
-    c.write(SoundCard::CODEC, 2);              // ignored while RUN is set
-    CHECK_EQ(c.read(SoundCard::CODEC), 0);
-    c.write(SoundCard::PCMCTL, SoundCard::PCMCTL_FLUSH);
-    CHECK_EQ(c.read(SoundCard::PCMCTL), 0);
-    c.write(SoundCard::CODEC, 1);
-    CHECK_EQ(c.read(SoundCard::CODEC), 1);
-    c.write(SoundCard::PCMCTL, SoundCard::PCMCTL_RUN);
-    c.write(SoundCard::CODEC, 0);
-    CHECK_EQ(c.read(SoundCard::CODEC), 1);
-}
-
-TEST(rate_format_and_volumes_read_back)
-{
-    SoundCard c;
-    c.write(SoundCard::RATE, 44100 & 0xFF);
-    c.write(SoundCard::RATE + 1, 44100 >> 8);
-    CHECK_EQ(c.read(SoundCard::RATE) | c.read(SoundCard::RATE + 1) << 8, 44100);
-    c.write(SoundCard::PCMFMT, 0xFF);
-    CHECK_EQ(c.read(SoundCard::PCMFMT), SoundCard::PCMFMT_STEREO | SoundCard::PCMFMT_16BIT);
-    c.write(SoundCard::VOLL, 0);
-    c.write(SoundCard::VOLR, 0x80);
-    CHECK_EQ(c.read(SoundCard::VOLL), 0);
-    CHECK_EQ(c.read(SoundCard::VOLR), 0x80);
-    c.write(SoundCard::STATE, 3);       // read only
-    c.write(SoundCard::KBPS, 0x80);
-    c.write(SoundCard::CODECS, 0);
-    c.write(SoundCard::FREE, 0);
-    CHECK_EQ(c.read(SoundCard::STATE), 0);
-    CHECK_EQ(c.read(SoundCard::KBPS), 0);
-    CHECK_EQ(c.read(SoundCard::CODECS), 0x83);
-    c.write(SoundCard::PCMDATA, 0x55);  // into the FIFO: 511 units of room left
-    CHECK_EQ(c.read(SoundCard::FREE), 0xFF);
-    CHECK_EQ(c.read(SoundCard::FREE + 1), 0x01);
-    CHECK_EQ(c.read(SoundCard::PCMDATA), 0xFF);
-}
-
-TEST(pos_reads_through_its_latch_and_a_write_to_51_zeroes_it)
-{
-    // Step 1 can't tell a latch from a live read: POS is always 0 and FREE always 512. Step 2 (hw/sound-rev2.md)
-    // must test both latches with data flowing: $52-$54 keep the value latched until $51 is read again, and
-    // $4E keeps the one latched by the last $4D read, while POS and FREE move on.
-    SoundCard c;
-    for (unsigned o = SoundCard::POS; o < SoundCard::POS + 4; ++o)
-        c.write(o, 0x5A); // $52-$54 ignore writes; $51 zeroes
-    CHECK_EQ(c.read(SoundCard::POS), 0);
-    CHECK_EQ(c.read(SoundCard::POS + 1), 0);
-    CHECK_EQ(c.read(SoundCard::POS + 2), 0);
-    CHECK_EQ(c.read(SoundCard::POS + 3), 0);
-}
-
-TEST(eqval_follows_eqidx_clamps_and_moves_it_on)
-{
-    SoundCard c;
-    const int8_t gains[11] = {-30, 30, 24, -24, 1, -1, 0, 12, -12, 25, -128};
-    for (const int8_t g : gains)
-        c.write(SoundCard::EQVAL, static_cast<uint8_t>(g)); // the preamp, then bands 1-10
-    CHECK_EQ(c.read(SoundCard::EQIDX), 11);
-    c.write(SoundCard::EQVAL, 9);                           // index 11 is nothing
-    CHECK_EQ(c.read(SoundCard::EQIDX), 12);
-    c.write(SoundCard::EQIDX, 11);
-    CHECK_EQ(c.read(SoundCard::EQVAL), 0);
-    c.write(SoundCard::EQIDX, 0);
-    const int8_t want[11] = {-24, 24, 24, -24, 1, -1, 0, 12, -12, 24, -24};
-    bool same = true;
-    for (const int8_t w : want)
-        same = same && static_cast<int8_t>(c.read(SoundCard::EQVAL)) == w;
-    CHECK(same);
-    CHECK_EQ(c.read(SoundCard::EQIDX), 11);
-    CHECK_EQ(c.peek(SoundCard::EQVAL), 0);  // the debugger's look moves nothing
-    CHECK_EQ(c.read(SoundCard::EQIDX), 11);
-    // Bit 7: the enable, bit 0 of EQVAL; the index moves on in bits 0-6.
-    c.write(SoundCard::EQIDX, SoundCard::EQIDX_ENABLE);
-    CHECK_EQ(c.read(SoundCard::EQVAL), 0);
-    CHECK_EQ(c.read(SoundCard::EQIDX), 0x81);
-    c.write(SoundCard::EQVAL, 0xFF);
-    c.write(SoundCard::EQIDX, SoundCard::EQIDX_ENABLE);
-    CHECK_EQ(c.read(SoundCard::EQVAL), 1);
-    c.write(SoundCard::EQIDX, 0xFF);
-    c.read(SoundCard::EQVAL);
-    CHECK_EQ(c.read(SoundCard::EQIDX), 0x80); // wraps within bits 0-6
-    c.write(SoundCard::EQIDX, 1);
-    CHECK_EQ(static_cast<int8_t>(c.read(SoundCard::EQVAL)), 24); // the enable left the gains alone
-}
-
-TEST(the_vis_page_is_silence_and_visdata_moves_visidx_on)
-{
-    SoundCard c;
-    c.write(SoundCard::VISIDX, 0); // a snapshot
-    std::vector<uint8_t> page;
-    for (unsigned i = 0; i < 100; ++i)
-        page.push_back(c.read(SoundCard::VISDATA));
-    std::vector<uint8_t> want(100, 0x00);       // spectrum, VU: -60 dBFS
-    std::fill(want.begin() + 34, want.begin() + 98, uint8_t{0x80}); // the samples at zero; past 97, 0
-    CHECK(page == want);
-    CHECK_EQ(c.read(SoundCard::VISIDX), 100);
-    c.write(SoundCard::VISIDX, 40);
-    CHECK_EQ(c.peek(SoundCard::VISDATA), 0x80);
-    CHECK_EQ(c.read(SoundCard::VISIDX), 40);
-    c.write(SoundCard::VISIDX, 0xFF);
-    c.read(SoundCard::VISDATA);
-    CHECK_EQ(c.read(SoundCard::VISIDX), 0);
-}
-
-TEST(docdata_reaches_wave_ram_and_moves_on_across_the_bank_and_round)
-{
-    SoundCard c;
-    c.write(SoundCard::DOCCTL, 0xFF);
-    CHECK_EQ(c.read(SoundCard::DOCCTL), 0x65); // RUN, IRQ to the 6510, auto-increment, RAM
-    c.write(SoundCard::DOCADDR, 0xFF);
-    c.write(SoundCard::DOCADDR + 1, 0xFF);
-    c.write(SoundCard::DOCBANK, 0xFE);         // bit 0 only
-    CHECK_EQ(c.read(SoundCard::DOCBANK), 0);
-    for (const uint8_t b : std::vector<uint8_t>{0x11, 0x22, 0x33})
-        c.write(SoundCard::DOCDATA, b);
-    CHECK_EQ(c.doc().ram()[0x0FFFF], 0x11);
-    CHECK_EQ(c.doc().ram()[0x10000], 0x22);    // carried into the bank
-    CHECK_EQ(c.doc().ram()[0x10001], 0x33);
-    CHECK_EQ(c.read(SoundCard::DOCBANK), 1);
-    CHECK_EQ(c.read(SoundCard::DOCADDR + 1), 0x00);
-    CHECK_EQ(c.read(SoundCard::DOCADDR), 0x02);
-    c.write(SoundCard::DOCADDR, 0xFF);
-    c.write(SoundCard::DOCADDR + 1, 0xFF);
-    c.write(SoundCard::DOCDATA, 0x44);         // $1FFFF, then round to 0
-    CHECK_EQ(c.doc().ram()[0x1FFFF], 0x44);
-    CHECK_EQ(c.doc_address(), 0u);
-    c.write(SoundCard::DOCBANK, 1);
-    c.write(SoundCard::DOCADDR, 0x00);
-    c.write(SoundCard::DOCADDR + 1, 0x00);
-    CHECK_EQ(c.read(SoundCard::DOCDATA), 0x22);
-    CHECK_EQ(c.peek(SoundCard::DOCDATA), 0x33); // the next; peek moves nothing
-    CHECK_EQ(c.doc_address(), 0x10001u);
-    c.write(SoundCard::DOCCTL, SoundCard::DOCCTL_RAM); // no auto-increment: DOCADDR stays
-    c.write(SoundCard::DOCDATA, 0x55);
-    c.write(SoundCard::DOCDATA, 0x66);
-    CHECK_EQ(c.doc().ram()[0x10001], 0x66);
-    CHECK_EQ(c.doc_address(), 0x10001u);
-}
-
-TEST(docdata_reaches_the_docs_registers)
-{
-    SoundCard c;
-    c.write(SoundCard::DOCCTL, SoundCard::DOCCTL_AUTOINC); // registers, auto-increment
-    c.write(SoundCard::DOCADDR, Es5503::FREQ_LO + 31);
-    c.write(SoundCard::DOCDATA, 0x34);                  // the last oscillator's, then the first's high
-    c.write(SoundCard::DOCDATA, 0x12);
-    c.write(SoundCard::DOCADDR, Es5503::FREQ_LO + 31);
-    CHECK_EQ(c.read(SoundCard::DOCDATA), 0x34);
-    CHECK_EQ(c.read(SoundCard::DOCDATA), 0x12);
-    std::vector<uint8_t> regs;
-    for (const uint8_t r : std::vector<uint8_t>{Es5503::VOLUME, Es5503::DATA, Es5503::POINTER, Es5503::CONTROL,
-                                                Es5503::TABLE, Es5503::INTERRUPT, Es5503::ENABLE, Es5503::ADC, 0xE3,
-                                                0xFF})
-    {
-        c.write(SoundCard::DOCADDR, r);
-        regs.push_back(c.read(SoundCard::DOCDATA));
-    }
-    // Volume 0, data $80, pointer 0, halted, table 0; no interrupt; one oscillator; no A/D input; nothing.
-    CHECK(regs == (std::vector<uint8_t>{0x00, 0x80, 0x00, 0x01, 0x00, 0xFF, 0x00, 0x80, 0x00, 0x00}));
-    c.write(SoundCard::DOCCTL, 0);
-    // Oscillator 1's registers, then the chip's.
-    const std::vector<uint8_t> osc1 = {Es5503::VOLUME + 1, Es5503::DATA + 1, Es5503::POINTER + 1, Es5503::CONTROL + 1,
-                                       Es5503::TABLE + 1,  Es5503::INTERRUPT, Es5503::ENABLE, Es5503::ADC};
-    for (const uint8_t r : osc1)
-    {
-        c.write(SoundCard::DOCADDR, r);
-        c.write(SoundCard::DOCDATA, 0xFF);
-    }
-    regs.clear();
-    for (const uint8_t r : osc1)
-    {
-        c.write(SoundCard::DOCADDR, r);
-        regs.push_back(c.read(SoundCard::DOCDATA));
-    }
-    // The data register and $E0 and $E2 take no writes; the table drops bit 7; $E1 32 oscillators.
-    CHECK(regs == (std::vector<uint8_t>{0xFF, 0x80, 0xFF, 0xFF, 0x7F, 0xFF, 0x3E, 0x80}));
-    CHECK_EQ(c.doc().enabled(), 32u);
-    CHECK_EQ(c.doc_address(), 0x1E2u); // no auto-increment: still $E2 (the $FF read above carried into $61)
-}
-
-TEST(drqsel_routes_the_cards_drq_and_its_fly_by_bytes)
-{
-    SoundCard c;
-    c.write(SoundCard::RAMADDR, 0x00);
-    c.write(SoundCard::RAMADDR + 1, 0x20);
-    c.dack_write(0x5A, false);                    // DRQSEL 0: RAMDATA
-    CHECK_EQ(c.ram()[0x2000], 0x5A);
-    c.write(SoundCard::DRQSEL, 0xFE);             // bits 0-1: DOCDATA
-    CHECK_EQ(c.read(SoundCard::DRQSEL), SoundCard::DRQ_DOCDATA);
-    CHECK(c.drq());
-    c.write(SoundCard::DOCCTL, SoundCard::DOCCTL_RAM | SoundCard::DOCCTL_AUTOINC);
-    c.write(SoundCard::DOCBANK, 1);
-    c.dack_write(0x21, false);
-    c.dack_write(0x22, true);
-    CHECK_EQ(c.doc().ram()[0x10000], 0x21);
-    CHECK_EQ(c.doc().ram()[0x10001], 0x22);
-    c.write(SoundCard::DOCADDR, 0);
-    CHECK_EQ(c.dack_read(false), 0x21);
-    CHECK_EQ(c.read(SoundCard::RAMADDR + 1), 0x20); // RAMADDR left alone
-    CHECK_EQ(c.read(SoundCard::RAMADDR), 0x01);
-    c.write(SoundCard::DRQSEL, SoundCard::DRQ_PCMDATA); // the FIFO has room
-    CHECK(c.drq());
-    CHECK_EQ(c.dack_read(false), 0xFF);
-    c.dack_write(0x77, false);                    // into the FIFO
-    CHECK_EQ(c.fifo_bytes(), 1u);
-    CHECK_EQ(c.doc_address(), 0x10001u);
-    CHECK_EQ(c.read(SoundCard::RAMADDR), 0x01);
-    c.write(SoundCard::DRQSEL, 3);                // no source: no DRQ
-    CHECK(!c.drq());
-    CHECK_EQ(c.dack_read(false), 0xFF);
-}
-
-TEST(revision_1_is_the_card_before_rev2_and_keeps_through_reset)
-{
-    // For tests of software that must take the card at any revision (test_bios, test_oodos_sys).
-    SoundCard c;
-    c.write(SoundCard::DRQSEL, SoundCard::DRQ_DOCDATA);
-    c.write(SoundCard::VOLL, 0x10);
-    c.set_revision(1);
-    CHECK_EQ(c.read(SoundCard::ID_REG), 0xA1);
-    CHECK_EQ(c.revision(), 1u);
-    bool none = true;
-    for (unsigned o = SoundCard::PCMCTL; o < SoundCard::ID_REG; ++o)
-    {
-        c.write(o, 0x01);
-        none = none && c.read(o) == 0xFF && c.peek(o) == 0xFF;
-    }
-    CHECK(none);                                  // $48-$7E as before: nothing there
-    c.write(SoundCard::RAMADDR, 0x00);
-    c.write(SoundCard::RAMADDR + 1, 0x30);
-    c.dack_write(0x42, false);                    // DRQSEL back at RAMDATA, and stays there
-    CHECK_EQ(c.ram()[0x3000], 0x42);
-    CHECK(c.drq());
-    c.reset();
-    CHECK_EQ(c.peek(SoundCard::ID_REG), 0xA1);    // a jumper, not a register
-    c.set_revision(2);
-    CHECK_EQ(c.peek(SoundCard::ID_REG), 0xA2);
-    CHECK_EQ(c.peek(SoundCard::VOLL), 0xFF);      // revision 2's registers from reset
-    CHECK_EQ(c.peek(SoundCard::CODECS), 0x83);
-}
-
-TEST(rev2_reset_is_reset_and_ctrl_reset_leaves_it_alone)
-{
-    SoundCard c;
-    const std::vector<uint8_t> fresh = rev2(c);
-    unsettle(c);
-    const std::vector<uint8_t> set = rev2(c);
-    CHECK(set != fresh);
-    c.write(SoundCard::CTRL, SoundCard::CTRL_RESET); // the 6510's reset: none of this
-    CHECK(rev2(c) == set);
-    CHECK_EQ(c.doc().peek(Es5503::CONTROL + 5), 0x06);
-    CHECK_EQ(c.doc().enabled(), 32u);
-    c.write(SoundCard::EQIDX, 3);
-    CHECK_EQ(c.read(SoundCard::EQVAL), 7);
-
-    c.reset(); // /RESET
-    CHECK(rev2(c) == fresh);
-    c.write(SoundCard::EQIDX, 3);
-    CHECK_EQ(c.read(SoundCard::EQVAL), 0);           // the gains 0
-    c.write(SoundCard::EQIDX, SoundCard::EQIDX_ENABLE);
-    CHECK_EQ(c.read(SoundCard::EQVAL), 0);           // and EQ off
-    CHECK_EQ(c.doc().peek(Es5503::CONTROL + 5), 0x07); // halted, the rest of control kept
-    CHECK_EQ(c.doc().peek(Es5503::ENABLE), 0x00);
-    CHECK_EQ(c.doc().enabled(), 1u);
-    CHECK_EQ(c.doc().ram()[0x11234], 0x99);          // wave RAM keeps its contents
-    bool halted = true;
-    for (unsigned i = 0; i < Es5503::OSCILLATORS; ++i)
-        halted = halted && (c.doc().peek(static_cast<uint8_t>(Es5503::CONTROL + i)) & Es5503::CONTROL_HALT);
-    CHECK(halted);
-}
-
 TEST(a_single_tick_of_a_year_keeps_the_sid_clock_exact)
 {
     // cycles x SID Hz passed 64 bits for a tick of about 29 days at 7.16 MHz. Counted in whole seconds and the
@@ -1010,7 +657,7 @@ TEST(a_single_tick_of_a_year_keeps_the_sid_clock_exact)
 TEST(a_test_fault_in_the_cards_ram_reads_wrong_for_every_reader)
 {
     // hw/diag.md's answer 8 (D2): set_ram_fault(), a test-only hook, makes one byte read with a bit forced, for the
-    // host's RAMDATA, DMA's reads and the 6510's alike; writes store as ever, and clear_ram_fault() takes it off.
+    // host's RAMDATA and the 6510's alike; writes store as ever, and clear_ram_fault() takes it off.
     SoundCard c;
     c.ram()[0x5678] = 0x00;
     c.set_ram_fault(0x5678, 0xFF, 0x04); // bit 2 stuck at 1
@@ -1018,11 +665,7 @@ TEST(a_test_fault_in_the_cards_ram_reads_wrong_for_every_reader)
     c.write(SoundCard::RAMADDR + 1, 0x56);
     CHECK_EQ(c.peek(SoundCard::RAMDATA), 0x04);
     CHECK_EQ(c.read(SoundCard::RAMDATA), 0x04);
-    c.write(SoundCard::RAMADDR, 0x78);
-    c.write(SoundCard::RAMADDR + 1, 0x56);
-    c.write(SoundCard::DRQSEL, SoundCard::DRQ_RAMDATA);
-    CHECK_EQ(c.dack_read(false), 0x04); // DMA channel 2's read
-    CHECK_EQ(c.ram()[0x5678], 0x00);   // what is stored is as written
+    CHECK_EQ(c.ram()[0x5678], 0x00); // what is stored is as written
     // The 6510: LDA $5678; STA $DE00 (to the host); JMP *.
     start(c, 0x1000, {0xAD, 0x78, 0x56, 0x8D, 0x00, 0xDE, 0x4C, 0x06, 0x10});
     host(c, HOST_SECOND / 1000);
@@ -1048,7 +691,7 @@ int main()
 
 TEST(a_write_to_de02_stops_the_6510_itself)
 {
-    // The boot splash's tune ends this way: the SIDs are the host's again, as after a reset.
+    // A one-shot ends this way: the SIDs are the host's again, as after a reset.
     SoundCard c;
     start(c, 0x1000, {0xE6, 0x10, 0xA5, 0x10, 0xC9, 0x05, 0xD0, 0xF8, // INC $10; LDA $10; CMP #5; BNE
                       0x8D, 0x02, 0xDE,                                  // STA $DE02
@@ -1059,29 +702,4 @@ TEST(a_write_to_de02_stops_the_6510_itself)
     CHECK_EQ(c.ram()[0x11], 0); // nothing after the write ran
     c.write(VOICE1_FREQ_LO, 0x34); // and the host has the SIDs
     CHECK_EQ(c.sid(0)[VOICE1_FREQ_LO], 0x34);
-}
-
-TEST(a_write_to_de02_with_bit_0_stops_the_es5503_too)
-{
-    // Revision 2's boot splash ends this way: the 6510 and the ES5503 stopped, so PCM isn't refused after.
-    for (const uint8_t value : {uint8_t{0x01}, uint8_t{0x00}})
-    {
-        std::printf("  $DE02 written $%02X\n", value);
-        SoundCard c;
-        c.write(SoundCard::DOCCTL, SoundCard::DOCCTL_RUN);
-        REQUIRE(c.peek(SoundCard::DOCCTL) & SoundCard::DOCCTL_RUN);
-        start(c, 0x1000, {0xA9, value,       // LDA #value
-                          0x8D, 0x02, 0xDE,  // STA $DE02
-                          0x4C, 0x05, 0x10}); // JMP (here)
-        host(c, HOST_SECOND / 100);
-        CHECK_EQ(c.ctrl() & SoundCard::CTRL_RUN, 0);
-        CHECK_EQ(c.peek(SoundCard::DOCCTL) & SoundCard::DOCCTL_RUN, value & 0x01 ? 0 : SoundCard::DOCCTL_RUN);
-    }
-    // Revision 1 has no ES5503 (DOCCTL can't be reached, so its RUN is never set): bit 0 stops the 6510, as any
-    // write to $DE02 does.
-    SoundCard c;
-    c.set_revision(1);
-    start(c, 0x1000, {0xA9, 0x01, 0x8D, 0x02, 0xDE, 0x4C, 0x05, 0x10});
-    host(c, HOST_SECOND / 100);
-    CHECK_EQ(c.ctrl() & SoundCard::CTRL_RUN, 0);
 }

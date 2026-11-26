@@ -107,8 +107,7 @@ The block needs no common memory of its own. FARCALL itself, the BDOS's entry an
 `$F800–$FFFF`, and since OODOS 0.16 (interface 17) that is the north bridge's common hole: OODOS's 2 KB whatever block
 W3 holds ([the Technical Reference, chapter 11](../oo1-technical-reference/11-north-bridge-and-rtc.md#the-common-hole)).
 So a block from 53–56 can be far called as it is, and W3 shows a block's `$C800–$F7FF` only, its own top 2 KB being
-plain RAM reached through W0–W2 or DMA. A program for an older OODOS copied common memory into the block itself; a
-program that relies on the hole checks function 80's `FT_INFO` for interface 17.
+plain RAM reached through W0–W2 or DMA.
 
 FARCALL is the far call table's one entry so far. FARPEEK, FARPOKE and FARMOVE, for bytes at physical addresses, are
 proposed ([hw/oodos.md, "Far calls"](../../hw/oodos.md#far-calls)), not built: a program reaches physical memory by
@@ -168,7 +167,7 @@ OOLIB is OODOS's own extension, there so that programs don't go around the rules
 not, OODOS says so here, as part of the interface, and checks it by version. From OOLIB's interface version 4
 ([function 80's](07-function-reference.md#bdos-80) `FT_INFO`, OODOS 0.5), **OOLIB may write W1** (`NB_WIN1`,
 `$C681`) with any block [function 83's](07-function-reference.md#bdos-83) `DM_INFO` puts in its W1 map. From
-interface version 8 (OODOS 0.9, video card revision 2) that is block 1, the blocks the program has allocated, block
+interface version 8 (OODOS 0.9) that is block 1, the blocks the program has allocated, block
 33 (aperture slot 1's window) and blocks 36–47 (banks 9–B); never 32, 34 or 35, the windows of OODOS's slots
 while AP8 is set (after `DM_BANK8` they are the program's RAM, and in the map). And
 **OOLIB may write `SLOT1`** (`VIDEO_SLOT1`, `$C4B2`) with any of the program's card banks, 16–111, so that
@@ -185,11 +184,10 @@ block 33 shows the card memory it draws in. OODOS keeps W1 and `SLOT1`:
 A single `STA NB_WIN1` can't be split by an interrupt, and costs 4 cycles against about 450 for a BDOS call, which
 matters to a draw that crosses blocks. That holds while WIN1H stays 0; from interface version 12 a map may be two
 writes (below). The library checks `FT_INFO`'s version at its start (`GX_INIT`) and refuses to
-map below 8 (interface versions 4–7 were revision 1's: video memory's blocks 33–47 in W1); a change to the
-contract comes with a new version. Only W1: W2 and W3 stay OODOS's (`$0203` jumps to
+map below 8; a change to the contract comes with a new version. Only W1: W2 and W3 stay OODOS's (`$0203` jumps to
 `$BFFD` in block 2; FARCALL's block is mapped in W3, under the common hole).
 
-**Interface version 12** (since OODOS 0.11, B7: a revision 2 north bridge, ID `$D2`; every bridge OODOS 0.16 runs on, revision 3, has WIN1H). After the program's `GX_BANK8`,
+**Interface version 12** (since OODOS 0.11, B7: the north bridge's WIN1H). After the program's `GX_BANK8`,
 which asks for function 83's `DM_BANK8`, **OOLIB may write `NB_WIN1H`** (`$C6A1`) too: slot 1 is then WIN1H `$0E`
 with WIN1 1, the aperture's own place at `$E04000`, and every other block of the map is WIN1H 0. OOLIB writes WIN1H
 first, then WIN1, and goes back by WIN1H 0, then the block. A map is then two writes, which an interrupt can split;
@@ -212,14 +210,13 @@ A program that doesn't use OOLIB keeps the old rule: the windows are OODOS's.
 
 Since OODOS 0.9, OODOS and OOLIB are built for revision 2 of the video card (its ID `$92`), from interface version 8:
 the card draws from 2 MB of its own memory instead of banks 8–B
-([the Technical Reference, chapter 6](../oo1-technical-reference/06-video.md#revision-2-card-memory)). On an older
-card, or none, OODOS has no console screen and the card operations are refused. For a program:
+([the Technical Reference, chapter 6](../oo1-technical-reference/06-video.md#revision-2-card-memory)). With no video
+card, OODOS has no console screen and the card operations are refused. For a program:
 
 - **Banks 8–B.** While the north bridge's AP8 is set, as OODOS leaves it, bank 8, blocks 32–35, is the card's
   aperture: four 16 KB slots, each showing a 16 KB card bank that its slot register chooses. Slot 0 (block 32)
   always shows card bank 0, the console's; slots 2 and 3 (blocks 34 and 35) are OODOS's, borrowed by `DM_VCOPY`;
-  slot 1 (block 33) is the program's, through OOLIB. The aperture's own place is `$E00000` (since OODOS 0.11, B7: a
-  `$D2` north bridge), where OODOS's console and `DM_VCOPY` reach it. A program that calls function 83's
+  slot 1 (block 33) is the program's, through OOLIB. The aperture's own place is `$E00000` (since OODOS 0.11, B7), where OODOS's console and `DM_VCOPY` reach it. A program that calls function 83's
   `DM_BANK8` (through OOLIB's `GX_BANK8`) has bank 8 as RAM too, until the warm boot sets AP8 again, and reaches
   slot 1 at `$E04000`, WIN1H `$0E` with block 1. Banks 9–B, blocks
   36–47, are ordinary RAM, the running program's as video memory was: in the W1 map, reachable by DMA segments and
@@ -242,4 +239,4 @@ card, or none, OODOS has no console screen and the card operations are refused. 
 
 The rest of this chapter (allocation, FARCALL, the DMA segment, physical addresses) is unchanged. A program tells
 the revisions apart by OOLIB's interface version ([function 80's](07-function-reference.md#bdos-80) `FT_INFO`, 8)
-and `DM_INFO`'s A, the card's memory (0 with no revision 2 card).
+and `DM_INFO`'s A, the card's memory (0 with no video card).

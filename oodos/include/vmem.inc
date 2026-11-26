@@ -27,8 +27,8 @@
 ;     contract of interface version 8: OOLIB sets SLOT1 to one of the
 ;     program's banks and puts block 33 (slot 1's window, physical $84000-
 ;     $87FFF, while the north bridge's MAP has AP8 set, as the warm boot
-;     leaves it) in W1. On a revision 2 north bridge (B7) the aperture is
-;     also at $E00000, which W1 reaches with WIN1H $0E (VM_SLOT_H) and
+;     leaves it) in W1. The aperture is also at its own address, $E00000
+;     (B7), which W1 reaches with WIN1H $0E (VM_SLOT_H) and
 ;     block 1 (VM_SLOT_W1); after function 83's DM_BANK8 (interface version
 ;     12) that is the only way, bank 8 being the program's RAM. While
 ;     slot 1 is in W1 the program's own $4000-$7FFF is out of reach, as
@@ -110,7 +110,7 @@ VM_SLOT         = 1                    ; the aperture slot OOLIB maps (SLOT1)
 VM_SLOT_BLOCK   = 33                   ; its window's block: physical $84000-$87FFF (while MAP's AP8 is set)
 VM_SLOT_CPU     = $4000                ; where W1 shows it
 VM_APERTURE     = $80000               ; the aperture: slot n's window at $80000 + n x $4000 (AP8 set)
-VM_APER_E0      = $E00000              ; the aperture's own address (a revision 2 north bridge, B7):
+VM_APER_E0      = $E00000              ; the aperture's own address (B7):
 VM_SLOT_H       = $0E                  ;   slot n's window with WINnH VM_SLOT_H and block n, so slot 1's in
 VM_SLOT_W1      = 1                    ;   W1 is WIN1H $0E and block 1 ($E04000), function 83's DM_BANK8's
 .assert VM_APER_E0 = VM_SLOT_H << 20, error, "WINnH is A20-A23: $0E is $E00000"

@@ -6,7 +6,7 @@ import { onTerminal, openDebugger, pastSplash, phosphor, powerOn } from "./ui";
 async function booted(page: Page) {
   await page.goto("./?sd=empty");
   await powerOn(page);
-  await expect(page.getByTestId("crt-text")).toContainText("BACKPLANE BIOS 0.21", { timeout: 15_000 });
+  await expect(page.getByTestId("crt-text")).toContainText("BACKPLANE BIOS 0.22", { timeout: 15_000 });
 }
 
 /** A VGA pixel (x, y in 640x480) off the canvas, which holds k x k canvas pixels for each. */
@@ -61,7 +61,7 @@ test("typing shows on VGA too, and a reload opens on VGA again", async ({ page }
   await expect.poll(() => litInRow(page, 5)).toBeGreaterThan(40); // the answer
   await page.reload();
   await powerOn(page);
-  await expect(page.getByTestId("crt-text")).toContainText("BACKPLANE BIOS 0.21", { timeout: 15_000 });
+  await expect(page.getByTestId("crt-text")).toContainText("BACKPLANE BIOS 0.22", { timeout: 15_000 });
   await expect(page.getByTestId("crt")).toHaveAttribute("data-scene", "vga"); // opens on VGA again...
   await openDebugger(page);
   await page.locator('[data-tab="dev"]').click();
@@ -187,7 +187,7 @@ test("C803R runs the video demo on VGA, and a key goes back to the monitor", asy
 });
 
 test("SPRCTL's full-resolution bit shows on the Devices tab's Sprites row", async ({ page }) => {
-  // hw/sprites640.md: $C48E on the revision 2 card, written at the monitor.
+  // hw/sprites640.md: $C48E on the video card, written at the monitor.
   await booted(page);
   await pastSplash(page);
   await openDebugger(page);

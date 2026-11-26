@@ -291,8 +291,7 @@ Status: **emulated**
 The card asks for DMA by its module, 7, while CTRL's DMA bit is set and STATUS's DATA is: it pulls /DREQ, the shared
 request line, low while DATA is set, and answers the controller's poll on its own data line, D7. Channel 0 serves it,
 since its CARD is `$07` from reset ([chapter 5](05-dma.md#transfers-for-a-card)). The transfer is fly-by, a byte a
-cycle, each grant naming module 7 on PS0–PS3 (*proposed*; revision 1 had a line of the card's own, DRQ0, wired to
-channel 0). DATA takes bytes, so CARD's WIDE stays 0 on channel 0 (*proposed*, B4,
+cycle, each grant naming module 7 on PS0–PS3 (*proposed*). DATA takes bytes, so CARD's WIDE stays 0 on channel 0 (*proposed*, B4,
 [16-bit transfers](05-dma.md#16-bit-transfers)): with WIDE set, each word grant would move one byte of DATA, memory
 getting `$FF` in each odd byte, and a write would hand the card half its bytes. Break puts CARD back. A word DATA is
 a later step of the card's own design.

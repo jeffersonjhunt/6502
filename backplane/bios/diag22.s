@@ -111,7 +111,7 @@ CARDIS:
                 rts
 
 ; Carry clear if there is a DMA controller this build knows: revision 2 (ID
-; $82 exactly; revision 1's layout is another, so it reads as none).
+; $82 exactly).
 HAVEDMA:
                 lda     HW_REV + 8
                 cmp     #2
@@ -190,11 +190,8 @@ STAGE7:
                 lda     #7
                 jsr     SBEGIN
                 ldx     #$D
-                lda     HW_REV + $D    ; ID $D2 or $D3 (B7, revision 3); $D1 SKIPs, not known
-                cmp     #3
-                beq     @rev
-                lda     #2
-@rev:           jsr     CARDIS
+                lda     #3             ; ID $D3, revision 3; another SKIPs, not known to this build
+                jsr     CARDIS
                 bcc     @card
                 rts
 @card:          jsr     NB1
@@ -433,7 +430,7 @@ NB6:
                 cmp     #2
                 beq     @video
                 SAY     "BY THE VIDEO FRAME"
-                TS      "NO REVISION 2 VIDEO CARD"
+                TS      "NO VIDEO CARD"
                 rts
 @video:         lda     #<VIDEO_STATUS
                 sta     HW_WATCH
@@ -547,18 +544,13 @@ NB8:
 @none:          TS      "NO TESTED BLOCK"
                 rts
 
-; NB9, the random number chip (north bridge revision 3, hw/design.md, "The random source"): on $D3 only, else SKIP;
-; no chip, SKIP; a chip not locked, FAIL. Then the pool's 32 bytes, read through RNGDATA: FAIL if they are all one
-; value or one 4-byte group repeated (an unlocked part's fixed pattern is such a group). Then DRAW: BUSY must clear
-; with READY set within 150 ms; FAIL on FAULT. Its sample is in D22ZP (T_RND).
+; NB9, the random number chip (hw/design.md, "The random source"): no chip, SKIP; a chip not locked, FAIL. Then the
+; pool's 32 bytes, read through RNGDATA: FAIL if they are all one value or one 4-byte group repeated (an unlocked
+; part's fixed pattern is such a group). Then DRAW: BUSY must clear with READY set within 150 ms; FAIL on FAULT. Its
+; sample is in D22ZP (T_RND).
 NB9:
                 TB      "NB9  THE RANDOM NUMBER CHIP"
-                lda     HW_REV + $D
-                cmp     #3
-                beq     @r3
-                TS      "NOT NORTH BRIDGE REVISION 3"
-                rts
-@r3:            lda     NB_RNGST
+                lda     NB_RNGST
                 and     #NB_RNG_CHIP
                 bne     @chip
                 TS      "NO RANDOM NUMBER CHIP"
@@ -630,20 +622,15 @@ RNGW:           stz     T_K
 @ok:            clc
                 rts
 
-; NB10, the timebase (north bridge revision 3, hw/design.md, "The north bridge, revision 3"): on $D3 only, else SKIP. With
-; interrupts off throughout: MSF sets within 1.1 ms of being cleared, and a read doesn't clear it; with MSIE, IRQH
-; bit 5 reads 0 while MSF is set and 1 once it is cleared, then MSIE off. Then across three of the DS3231's
-; seconds (three SEC changes): MSS reads 0 or 1 at each change and never more than 999; MS0-MS3 gain 1,000 +/- 1
-; between the first change and the second; MS0-MS2, read through the latch, never go backwards. Then SYNC set. A
-; FAIL names the step. Its counts are in D22ZP (T_MS, T_MSB, T_MSP).
+; NB10, the timebase (hw/design.md, "The north bridge, revision 3"). With interrupts off throughout: MSF sets within
+; 1.1 ms of being cleared, and a read doesn't clear it; with MSIE, IRQH bit 5 reads 0 while MSF is set and 1 once it
+; is cleared, then MSIE off. Then across three of the DS3231's seconds (three SEC changes): MSS reads 0 or 1 at each
+; change and never more than 999; MS0-MS3 gain 1,000 +/- 1 between the first change and the second; MS0-MS2, read
+; through the latch, never go backwards. Then SYNC set. A FAIL names the step. Its counts are in D22ZP (T_MS, T_MSB,
+; T_MSP).
 NB10:
                 TB      "NB10 THE TIMEBASE"
-                lda     HW_REV + $D
-                cmp     #3
-                beq     @r3
-                TS      "NOT NORTH BRIDGE REVISION 3"
-                rts
-@r3:            lda     #NB_TB_MSF | NB_TB_OVR ; both cleared, MSIE off
+                lda     #NB_TB_MSF | NB_TB_OVR ; both cleared, MSIE off
                 sta     NB_TBCTL
                 lda     NB_TBCTL
                 bpl     @wait
@@ -778,20 +765,14 @@ NB10:
 @back:          TD      "MS: BACKWARDS ACROSS A CARRY"
                 rts
 
-; NB12, the common hole (north bridge revision 3, hw/design.md, "The common hole"): on $D3
-; only, else SKIP (NB11 is the deferred WINnH and MAP check's number). A tested RAM block's top 2 KB, seen through
-; W1 at $7800-$7FFF, gets a tag at $7800 and its complement at $7FF0, and VEC's vectors at $7FFA (a Break while
-; the hole is on still lands in the core). With interrupts off, HOLE EN on it: $F800 and $FFF0 must read the tags
-; and $F7FF W3's own byte; then with RO set a write at $F800 must leave the block as it was; and with HOLE 0, $F800
-; is W3's again. HOLE is 0 and W1 on block 1 at the end, whatever the outcome.
+; NB12, the common hole (hw/design.md, "The common hole"; NB11 is the deferred WINnH and MAP check's number). A tested
+; RAM block's top 2 KB, seen through W1 at $7800-$7FFF, gets a tag at $7800 and its complement at $7FF0, and VEC's
+; vectors at $7FFA (a Break while the hole is on still lands in the core). With interrupts off, HOLE EN on it: $F800
+; and $FFF0 must read the tags and $F7FF W3's own byte; then with RO set a write at $F800 must leave the block as it
+; was; and with HOLE 0, $F800 is W3's again. HOLE is 0 and W1 on block 1 at the end, whatever the outcome.
 NB12:
                 TB      "NB12 THE COMMON HOLE"
-                lda     HW_REV + $D
-                cmp     #3
-                beq     @r3
-                TS      "NOT NORTH BRIDGE REVISION 3"
-                rts
-@r3:            lda     #$FF
+                lda     #$FF
 @b:             jsr     GOODBLK
                 jcs     @none
                 cmp     DG_W0
@@ -903,7 +884,7 @@ STAGE8:
                 lda     #8
                 jsr     SBEGIN
                 ldx     #8
-                lda     #2             ; revision 2 (ID $82): revision 1's layout is another
+                lda     #2             ; revision 2 (ID $82)
                 jsr     CARDIS
                 bcc     @card
                 rts
@@ -1480,13 +1461,7 @@ D5:
 STAGE9:
                 lda     #9
                 jsr     SBEGIN
-                lda     HW_REV + 9
-                cmp     #1
-                bne     @r2
-                lda     #<SVREV1
-                ldx     #>SVREV1
-                jmp     CSKIP
-@r2:            ldx     #9
+                ldx     #9
                 lda     #2
                 jsr     CARDIS
                 bcc     @card
@@ -1779,25 +1754,15 @@ SLOTS:
                 stz     VIDEO_PCTL
                 rts
 
-; W1 on aperture slot A (0-3): on a $D2+ north bridge WIN1H $0E and block A
-; ($E00000 + A x $4000, whatever AP8 says); on a $D1 one block 32 + A (bank 8).
-; A and X.
-APW1:           ldx     NB_ID
-                cpx     #NB_ID_V2
-                bcc     @v1
-                ldx     #VIDEO_APER_H
+; W1 on aperture slot A (0-3): WIN1H $0E and block A ($E00000 + A x $4000,
+; whatever AP8 says). A and X.
+APW1:           ldx     #VIDEO_APER_H
                 stx     NB_WIN1H
                 sta     NB_WIN1
                 rts
-@v1:            ora     #32
-                sta     NB_WIN1
-                rts
-; W1 back on RAM block 1 (WIN1H 0 on a $D2+ bridge). A only.
-W1HOME:         lda     NB_ID
-                cmp     #NB_ID_V2
-                bcc     @b
-                stz     NB_WIN1H
-@b:             lda     #1
+; W1 back on RAM block 1 (WIN1H 0). A only.
+W1HOME:         stz     NB_WIN1H
+                lda     #1
                 sta     NB_WIN1
                 rts
 
@@ -2185,7 +2150,7 @@ DMA1GO:
 
 ; --- Stage 10: the sound card ---------------------------------------------------
 
-; The sound card, revision 3, the device (hw/future/sound-device.md): driven
+; The sound card, revision 3, the device (hw/design.md, "Sound card revision 3"): driven
 ; only by its records (diagsnd.inc). S1 the ID and READY; S2 IDENTIFY; S3
 ; SELFTEST; S4 channel 2 into DATA, then CHECKSUM against the host's CRC-32;
 ; S5 the event path and its interrupt line; S6 a raw PCM stream's frames at
@@ -2712,7 +2677,6 @@ CGA:            RGB     $0, $0, $0
                 RGB     $F, $F, $F
 
 SNOCARD:        .byte   "NO CARD", 0
-SVREV1:         .byte   "REVISION 1: LISTED, NOT TESTED (BIOS ", BIOS_VERSION, " DOESN'T DRIVE IT)", 0
 SLOST:          .byte   "LOST: THE CLOCK CHIP'S OSCILLATOR STOPPED; SET THE TIME", 0
 SCOPYUP:        .byte   "THE COPY UP DOESN'T MATCH ITS SOURCE", 0
 SCOPYDN:        .byte   "THE COPY DOWN (MODE'S DEC) DOESN'T MATCH ITS SOURCE", 0

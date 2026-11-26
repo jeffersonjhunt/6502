@@ -1,7 +1,7 @@
 # 11 The north bridge and the clock
 
 The north bridge's registers (module D, `$C680`): the windows, VEC, MODE, STATUS, the interrupt summary, the wait
-states, and on revision 2 the windows' high bits and MAP; and the DS3231 real-time clock behind it.
+states, the windows' high bits and MAP; and the DS3231 real-time clock behind it.
 
 The design record, for the reasons: [hw/design.md, "North bridge
 registers"](../../hw/design.md#north-bridge-registers), ["Real-time clock"](../../hw/design.md#real-time-clock).
@@ -27,8 +27,7 @@ and points W3 at the copy, and the next fetch comes from the copy, at the same a
 
 Status: **proposed**
 
-Emulated as step B7. A revision 2 bridge (ID `$D2`) has six more registers; revision 1 (`$D1`) has none of them,
-and there the six offsets read `$FF` and drop what is written.
+Emulated as step B7. Six registers widen the windows to the 24-bit bus and choose what bank 8 is.
 
 - **WIN0H–WIN3H** ([`$C6A0`–`$C6A3`](#reg-c6a0)) give A20–A23 for their window's block while its ROM bit is clear,
   so the block is ten bits, WIN*n*H:BLOCK, any 16 KB of the 16 MB. **VECH** ([`$C6A4`](#reg-c6a4)) does the same
@@ -39,7 +38,7 @@ and there the six offsets read `$FF` and drop what is written.
   controller's memory side) to the video card's aperture at `$E00000–$E0FFFF`, so software that knows the aperture
   only in bank 8 still finds it there. With AP8 clear, bank 8 is the RAM card's
   ([chapter 2](02-memory-and-banking.md#revision-2-bank-8-the-aperture)). The bridge reads AP8 on every cycle.
-- **Software writes them only after reading NB_ID as `$D2`.** The BIOS's boot and Break set WIN0H–WIN3H and VECH to
+- **Who writes them.** The BIOS's boot and Break set WIN0H–WIN3H and VECH to
   0 and write MAP whole: 1 when a revision 2 video card is fitted (`VIDEO_ID` `$92`), else 0, so a machine with no
   such card has bank 8 as RAM ([chapter 3](03-boot.md)). OODOS does the same at its warm boot, keeps AP8 set, and
   clears it only for a program that asks (function 83's `DM_BANK8`). Under OODOS, among programs only OOLIB gives
@@ -62,13 +61,10 @@ Status: **emulated**
 - **WAIT0–WAIT3** ([`$C68A`–`$C68D`](#reg-c68a)) are read/write storage, reserved for a turbo mode: since B2
   (*proposed*) they slow nothing. A slow card asks for wait states by /WAIT, which the bridge turns into RDY for the
   CPU ([chapter 5](05-dma.md#the-controller)). The ROM's diagnostics keep their options in WAIT3.
-- **ID** ([`$C6FF`](#reg-c6ff)) reads `$D3`: module D, revision 3, revision 2's bridge with
-  [the timebase](#the-timebase), [the random number chip](#the-random-number-chip) and
-  [the common hole](#the-common-hole) (*proposed*, emulated, the emulator's default). Revision 2 (`$D2`) has
-  WIN0H–WIN3H, VECH and MAP; revision 1 (`$D1`) has none of them; the emulator keeps both as machine-file options.
-  Software uses a register only after reading an ID that has it: on an older bridge the new offsets read `$FF` and
-  drop writes. Every block with registers has
-  its ID byte at `+$7F` ([chapter 1](01-overview.md#slots-and-module-ids)).
+- **ID** ([`$C6FF`](#reg-c6ff)) reads `$D3`: module D, revision 3, the bridge with
+  [the high window registers and MAP](#the-high-window-registers-and-map), [the timebase](#the-timebase),
+  [the random number chip](#the-random-number-chip) and [the common hole](#the-common-hole) (*proposed*,
+  emulated). Every block with registers has its ID byte at `+$7F` ([chapter 1](01-overview.md#slots-and-module-ids)).
 
 ### Turbo
 
@@ -102,9 +98,8 @@ Status: **emulated**
 - **At power-on**, while /RESET is still held, it sets the DS3231's square wave to 1 Hz and reads the time. The
   first instruction finds SEC–YEAR valid and BUSY clear.
 - **Once a second**, on each falling edge of the square wave, it reads the seven time registers and the chip's
-  status into SEC–YEAR, LOST and ALARM, and sets TICK. On revisions 1 and 2, with TIE set, TICK interrupts on IRQH
-  bit 5; revision 3 dropped that interrupt (TIE reads 0) and gives bit 5 to [the tick](#the-timebase): TICK is a
-  flag to poll.
+  status into SEC–YEAR, LOST and ALARM, and sets TICK. TICK is a flag to poll: it never interrupts, and IRQH's
+  bit 5 is [the tick](#the-timebase)'s.
 - **One transaction at a time.** BUSY is set from the request until the transaction ends, and its effect lands at
   the end. A transaction takes its bits' time at 400 kHz: 9 bits a byte, and one for each START, repeated START and
   STOP.
@@ -136,7 +131,7 @@ The bridge holds 2000–2199.
 
 Status: **emulated**
 
-Write SEC to YEAR, then write RTCCTL with SET (bit 1) set and TIE as it should stay. Writes to SEC–YEAR go to a
+Write SEC to YEAR, then write RTCCTL with SET (bit 1) set. Writes to SEC–YEAR go to a
 holding copy, which SET sends; until then the registers still read the running time. BUSY is set from the SET write
 until the send is done, and then SEC–YEAR read what was sent. The send restarts the chip's second and clears its
 oscillator-stopped flag, so LOST goes off. A second's read, with TICK, follows soon after.
@@ -199,8 +194,8 @@ Revision 3 gives the machine its 1 kHz tick and a millisecond counter of its own
   read-modify-write or a 16-bit read, which can read twice.
 - **Resets:** any reset clears MSF, OVR and MSIE, so no tick interrupts until software turns MSIE on. In Apple II
   mode the registers are hidden and the counter runs on. The BIOS's Break writes `$C0` to TBCTL (both flags
-  cleared, MSIE off), with no ID check: an older bridge drops the write.
-- **Under OODOS 0.16** the timebase is OODOS's (AGENTS.md): its tick is MSF's interrupt, acknowledged with the flags it saw (`$A0`, or `$E0` after OVR),
+  cleared, MSIE off).
+- **Under OODOS** the timebase is OODOS's (AGENTS.md): its tick is MSF's interrupt, acknowledged with the flags it saw (`$A0`, or `$E0` after OVR),
   and its millisecond counter is the bridge's. A program reads it through function 80
   ([the Programmer's Guide, chapter 8](../oodos-programmers-guide/08-game-services.md#the-clocks)).
 
@@ -217,7 +212,7 @@ is emptied it draws the next 32 (about 26 ms), trying three times before it repo
   (a draw under way). Writing DRAW clears FAULT and starts a fresh draw.
 - [RNGCNT](#reg-c69a) is the bytes left; a read of [RNGDATA](#reg-c69b) takes the next, `$00` when the pool is
   empty. Read RNGDATA with a load only.
-- **Under OODOS 0.16** the registers are OODOS's: a program asks
+- **Under OODOS** the registers are OODOS's: a program asks
   [function 78](../oodos-programmers-guide/07-function-reference.md#bdos-78).
 - **The emulated chip** gives a fixed stream by default, the same bytes every run, for tests; the apps take the
   host's random device. The machine file's `rng_chip=locked|unlocked|none` sets what the bridge finds
@@ -236,7 +231,7 @@ copy that every block W3 maps shows.
 - HOLE is `$00` at every reset, so the ROM and its vectors are never behind it. DMA and the Console card use
   physical addresses and reach the same RAM at the block's `$3800–$3FFF`. Apple II mode's map ignores it.
 - **The ROM never runs with the hole on:** an ordinary `JMP ($FFFA)` would read the hole's bytes, not the ROM's.
-  OODOS 0.16 writes `$BE` (EN, block 62, where its common memory is) at its cold boot and 0 on every way it hands
+  OODOS writes `$BE` (EN, block 62, where its common memory is) at its cold boot and 0 on every way it hands
   the machine to the ROM (Break, Apple II mode, the diagnostics).
 - The ROM's diagnostics test it as NB12 ([chapter 15](15-diagnostics.md)).
 
@@ -265,7 +260,7 @@ R/W. The new mapping applies from the next bus cycle.
 |---|---|---|
 | 7 | ROM | 1: the flash. Blocks 0–31 are ROM A, 32–63 ROM B, the game cartridge, each reached by its address, with no module ID ([chapter 2](02-memory-and-banking.md#the-24-bit-bus)). 0: RAM |
 | 6 | RO | 1: writes through this window are ignored |
-| 5–0 | BLOCK | the 16 KB block: physical A14–A19 for RAM, or the 16 KB offset into the flash. With ROM clear, A20–A23 come from [WIN0H](#reg-c6a0) on a revision 2 bridge (*proposed*, B7), 0 on revision 1 |
+| 5–0 | BLOCK | the 16 KB block: physical A14–A19 for RAM, or the 16 KB offset into the flash. With ROM clear, A20–A23 come from [WIN0H](#reg-c6a0) (*proposed*, B7) |
 
 The CPU's A0–A13 pass through, so CPU `$0000–$3FFF` is physical `WIN0H × $100000 + BLOCK × $4000` on.
 
@@ -340,9 +335,9 @@ As [WIN0](#reg-c680): bit 7 ROM, bit 6 RO, bits 5–0 the block, for CPU `$8000�
 
 The BIOS borrows W2 to copy itself into RAM block 63 at boot, then sets it to block 2. VINIT, setting up the text
 screen, borrows W1 for the font (ROM A block 30), which it writes to the video card's port. VPUTC borrows W2 for each
-character that ECHO puts on the screen, on the card's aperture slot 0 (*proposed*, revision 2:
-[chapter 6](06-video.md#the-bioss-text-screen)): on a `$D2` bridge with WIN2H `$0E` and block 0, `$E00000`; on
-`$D1`, block 32. Both put back whatever the windows held before, WIN2H included.
+character that ECHO puts on the screen, on the card's aperture slot 0 (*proposed*:
+[chapter 6](06-video.md#the-bioss-text-screen)), with WIN2H `$0E` and block 0, `$E00000`. Both put back whatever
+the windows held before, WIN2H included.
 
 <a id="reg-c683"></a>
 ### $C683 NB_WIN3: window 3, CPU $C000–$FFFF
@@ -408,8 +403,7 @@ The same as WIN3's: `$DF`, or `$3F` with /BOOTSEL.
 #### Notes
 
 Only the vector's two bytes come through VEC. The handler is fetched through W3. The BIOS sets VEC to `$7F`, the
-same as W3. Ignored in Apple II mode. See [chapter 4](04-interrupts.md#vec-and-the-vectors). On a revision 2
-bridge (*proposed*, B7) A20–A23 of a vector pull come from [VECH](#reg-c6a4), not WIN3H, while VEC's ROM bit is
+same as W3. Ignored in Apple II mode. See [chapter 4](04-interrupts.md#vec-and-the-vectors). A20–A23 of a vector pull come from [VECH](#reg-c6a4), not WIN3H, while VEC's ROM bit is
 clear; the BIOS and OODOS keep it 0.
 
 <a id="reg-c685"></a>
@@ -469,14 +463,14 @@ R. Writes are ignored.
 
 | Bit | Name | Meaning |
 |---|---|---|
-| 7–4 | REV | the bridge's revision: 2 (*proposed*, B7), as NB_ID's low digit; 1 on a revision 1 bridge, the emulator's option |
+| 7–4 | REV | the bridge's revision: 3 (*proposed*), as NB_ID's low digit |
 | 3–2 | | 0 |
 | 1 | POWER_ON | 1: the last hard reset was the power-on one |
 | 0 | BOOTSEL | 1: /BOOTSEL was held, so the machine booted from RAM |
 
 #### Reset
 
-`$22` after power-on, `$20` after a later hard reset (`$12` and `$10` on a revision 1 bridge). Bit 0 is also set
+`$32` after power-on, `$30` after a later hard reset. Bit 0 is also set
 with /BOOTSEL.
 
 #### Status
@@ -501,14 +495,14 @@ D, the north bridge
 
 #### Access
 
-R/W. Writing TICK as 1 clears it, and writing SET as 1 sends SEC–YEAR to the chip. TIE takes the value written.
+R/W. Writing TICK as 1 clears it, and writing SET as 1 sends SEC–YEAR to the chip.
 
 #### Bits
 
 | Bit | Name | Meaning |
 |---|---|---|
 | 7 | TICK | 1: a second's read has happened. Write 1 to clear |
-| 6 | TIE | revisions 1 and 2: 1, TICK interrupts on IRQH bit 5. Revision 3: reads 0 and a write is ignored |
+| 6 | | 0 |
 | 5 | ALARM | 1: the chip's status had A1F or A2F set when the bridge last read it (read-only) |
 | 4–3 | | 0 |
 | 2 | LOST | 1: the chip's oscillator stopped (OSF), so the time is invalid until set (read-only) |
@@ -517,7 +511,7 @@ R/W. Writing TICK as 1 clears it, and writing SET as 1 sends SEC–YEAR to the c
 
 #### Reset
 
-Any reset clears TICK and TIE. ALARM and LOST follow the chip's status. After power-on BUSY is 0.
+Any reset clears TICK. ALARM and LOST follow the chip's status. After power-on BUSY is 0.
 
 #### Status
 
@@ -525,9 +519,9 @@ Any reset clears TICK and TIE. ALARM and LOST follow the chip's status. After po
 
 #### Notes
 
-backplane.inc has the bits: `NB_RTC_TICK`, `NB_RTC_TIE`, `NB_RTC_ALARM`, `NB_RTC_LOST`, `NB_RTC_SET` and
+backplane.inc has the bits: `NB_RTC_TICK`, `NB_RTC_ALARM`, `NB_RTC_LOST`, `NB_RTC_SET` and
 `NB_RTC_BUSY`. Write the bits you mean, not what you read ([above](#setting-the-time)). TICK comes every second,
-alarm or not; an alarm shows only as ALARM. The BIOS's Break writes `$80`, which clears TICK and turns TIE off.
+alarm or not; an alarm shows only as ALARM. The BIOS's Break writes `$80`, which clears TICK.
 
 <a id="reg-c688"></a>
 ### $C688 NB_IRQL: the interrupt poll, IDs 0–7
@@ -586,7 +580,7 @@ R, as [IRQL](#reg-c688).
 |---|---|---|
 | 7 | ID F | no module: reads 1 |
 | 6 | ID E | 0: the console card |
-| 5 | ID D | 0: the bridge's own: revision 3's tick (TBCTL's MSF, with MSIE); before it RTCCTL's TICK, with TIE |
+| 5 | ID D | 0: the bridge's own: the tick (TBCTL's MSF, with MSIE) |
 | 4 | ID C | the Disk II has no interrupt: reads 1 |
 | 3 | ID B | 0: the USB card |
 | 2 | ID A | 0: the sound card |
@@ -1042,9 +1036,6 @@ keeps the pool.
 
 **proposed**
 
-Revision 3 only (`$D3`): on revisions 1 and 2 the offset reads `$FF`, which would look like READY and CHIP, so
-read [NB_ID](#reg-c6ff) first.
-
 #### Notes
 
 The bridge fills a pool of 32 bytes from the chip by itself and refills it when the last byte is taken. It never
@@ -1079,8 +1070,6 @@ All: how many bytes the pool holds, 0–32.
 
 **proposed**
 
-Revision 3 only: on revisions 1 and 2 the offset reads `$FF`.
-
 <a id="reg-c69b"></a>
 ### $C69B NB_RNGDATA: the pool's next byte
 
@@ -1108,8 +1097,6 @@ The pool's first byte.
 #### Status
 
 **proposed**
-
-Revision 3 only: on revisions 1 and 2 the offset reads `$FF`.
 
 #### Notes
 
@@ -1142,8 +1129,6 @@ Counting from the power-on read of the time until the first square-wave edge, th
 #### Status
 
 **proposed**
-
-Revision 3 only: on revisions 1 and 2 the offset reads `$FF`.
 
 #### Notes
 
@@ -1181,8 +1166,6 @@ As [MSSL](#reg-c69c).
 
 **proposed**
 
-Revision 3 only: on revisions 1 and 2 the offset reads `$FF`.
-
 <a id="reg-c6a0"></a>
 ### $C6A0 NB_WIN0H: window 0's A20–A23
 
@@ -1210,13 +1193,13 @@ of the 16 MB. With ROM set the flash is chosen and HIGH is ignored.
 
 #### Reset
 
-`$00` at every reset, hard or a /RESET pulse: the 1 MB of RAM, as on revision 1.
+`$00` at every reset, hard or a /RESET pulse: the first 1 MB of RAM.
 
 #### Status
 
 **proposed**
 
-Emulated as step B7. Revision 2 only: on a revision 1 bridge the offset reads `$FF` and a write is lost.
+Emulated as step B7.
 
 #### Notes
 
@@ -1253,7 +1236,7 @@ As [WIN0H](#reg-c6a0): bits 3–0 A20–A23 for [WIN1](#reg-c681)'s block, CPU `
 
 **proposed**
 
-Emulated as step B7. Revision 2 only: on a revision 1 bridge the offset reads `$FF` and a write is lost.
+Emulated as step B7.
 
 #### Notes
 
@@ -1290,11 +1273,11 @@ As [WIN0H](#reg-c6a0): bits 3–0 A20–A23 for [WIN2](#reg-c682)'s block, CPU `
 
 **proposed**
 
-Emulated as step B7. Revision 2 only: on a revision 1 bridge the offset reads `$FF` and a write is lost.
+Emulated as step B7.
 
 #### Notes
 
-The BIOS's VPUTC writes WIN2H `$0E` with W2 0 (slot 0) for each character on a `$D2` bridge, and puts both back
+The BIOS's VPUTC writes WIN2H `$0E` with W2 0 (slot 0) for each character, and puts both back
 ([chapter 6](06-video.md#the-bioss-text-screen)).
 
 <a id="reg-c6a3"></a>
@@ -1324,7 +1307,7 @@ As [WIN0H](#reg-c6a0): bits 3–0 A20–A23 for [WIN3](#reg-c683)'s block, CPU `
 
 **proposed**
 
-Emulated as step B7. Revision 2 only: on a revision 1 bridge the offset reads `$FF` and a write is lost.
+Emulated as step B7.
 
 #### Notes
 
@@ -1358,7 +1341,7 @@ bit is clear; bits 7–4 read 0. WIN3H is not used for a vector pull.
 
 **proposed**
 
-Emulated as step B7. Revision 2 only: on a revision 1 bridge the offset reads `$FF` and a write is lost.
+Emulated as step B7.
 
 #### Notes
 
@@ -1394,11 +1377,11 @@ R/W. A change applies from the next bus cycle.
 
 **proposed**
 
-Emulated as step B7. Revision 2 only: on a revision 1 bridge the offset reads `$FF` and a write is lost.
+Emulated as step B7.
 
 #### Notes
 
-`NB_MAP_AP8` (`$01`) is the bit. With AP8 set and no revision 2 video card, bank 8 reads `$FF`: the BIOS writes
+`NB_MAP_AP8` (`$01`) is the bit. With AP8 set and no video card, bank 8 reads `$FF`: the BIOS writes
 MAP whole at boot and at Break, 1 with `VIDEO_ID` `$92`, else 0, and the diagnostics write 0 for their run, so they
 test all 64 RAM blocks ([chapter 15](15-diagnostics.md)). OODOS writes MAP the same way at its warm boot and clears
 AP8 only for a program that asks, by function 83's `DM_BANK8`
@@ -1437,14 +1420,13 @@ R/W, read back as written; a read has no side effect. A change applies from the 
 
 **proposed**
 
-Emulated as unit N15 of north bridge revision 3. Revision 3 only: on revisions 1 and 2 the offset reads `$FF` and a
-write is lost.
+Emulated as unit N15 of north bridge revision 3.
 
 #### Notes
 
 With EN set, W3's ROM bit, its RO bit and WIN3H don't reach `$F800–$FFFF`, and a vector pull reads the hole whatever
 VEC holds; `$C800–$F7FF` is still W3's. The I/O hole is decoded first, and Apple II mode's map ignores it. DMA and
-the Console card use physical addresses, so they reach the same RAM at the block's `$3800–$3FFF`. OODOS 0.16 writes
+the Console card use physical addresses, so they reach the same RAM at the block's `$3800–$3FFF`. OODOS writes
 `$BE` (EN, block 62, where common memory is) at its cold boot and writes 0 on every way it hands the machine to the
 ROM, since an ordinary `JMP ($FFFA)` would read OODOS's bytes through the hole: the ROM never runs with it on. The
 bits' equates are `NB_HOLE_EN` and `NB_HOLE_RO`. The design is in hw/design.md, "The common hole".
@@ -1484,14 +1466,11 @@ it.
 
 **proposed**
 
-Revision 3 only: on revisions 1 and 2 the offset reads `$FF` and a write is lost, so the BIOS's Break may write it
-without checking the ID.
-
 #### Notes
 
 The tick is 1 kHz from the master oscillator: the k-th comes 157,500 k / 11 oscillator clocks (rounded down) after
 the counter starts, so a period is 7,159 native cycles, or 7,160 twice in every 11 ms. SYNC clears when no edge
-has come from the chip for 1.1 s. Under OODOS 0.16 the timebase is OODOS's: its tick acknowledges with the flags it saw, `$A0` (MSF), or `$E0` when it read OVR set. The bits' equates are `NB_TB_MSF`,
+has come from the chip for 1.1 s. Under OODOS the timebase is OODOS's: its tick acknowledges with the flags it saw, `$A0` (MSF), or `$E0` when it read OVR set. The bits' equates are `NB_TB_MSF`,
 `NB_TB_OVR`, `NB_TB_MSIE` and `NB_TB_SYNC`.
 
 <a id="reg-c6a9"></a>
@@ -1521,8 +1500,6 @@ there) leaves it running.
 #### Status
 
 **proposed**
-
-Revision 3 only: on revisions 1 and 2 the offset reads `$FF`.
 
 #### Notes
 
@@ -1558,8 +1535,6 @@ All: bits 15–8 of the count, as it was when [MS0](#reg-c6a9) was last read.
 
 **proposed**
 
-Revision 3 only: on revisions 1 and 2 the offset reads `$FF`.
-
 <a id="reg-c6ab"></a>
 ### $C6AB NB_MS2: the millisecond counter, bits 23–16
 
@@ -1586,8 +1561,6 @@ All: bits 23–16 of the count, as [MS1](#reg-c6aa).
 #### Status
 
 **proposed**
-
-Revision 3 only: on revisions 1 and 2 the offset reads `$FF`.
 
 <a id="reg-c6ac"></a>
 ### $C6AC NB_MS3: the millisecond counter, bits 31–24
@@ -1616,8 +1589,6 @@ All: bits 31–24 of the count, as [MS1](#reg-c6aa).
 
 **proposed**
 
-Revision 3 only: on revisions 1 and 2 the offset reads `$FF`.
-
 <a id="reg-c6ad"></a>
 ### $C6AD NB_TBSUBL: cycles into the millisecond, low byte
 
@@ -1645,8 +1616,6 @@ Counting from /RESET's release.
 #### Status
 
 **proposed**
-
-Revision 3 only: on revisions 1 and 2 the offset reads `$FF`.
 
 #### Notes
 
@@ -1679,8 +1648,6 @@ As [TBSUBL](#reg-c6ad).
 
 **proposed**
 
-Revision 3 only: on revisions 1 and 2 the offset reads `$FF`.
-
 <a id="reg-c6ff"></a>
 ### $C6FF NB_ID: the north bridge's ID
 
@@ -1698,14 +1665,13 @@ R.
 
 #### Bits
 
-All: the type, module D, in bits 7–4, and the revision in bits 3–0: 3 (*proposed*), revision 2's bridge with
-[the timebase](#the-timebase), [the random number chip](#the-random-number-chip) and
-[the common hole](#the-common-hole); 2 (*proposed*, B7), the bridge with
-[WIN0H–WIN3H, VECH and MAP](#the-high-window-registers-and-map); 1 on a revision 1 bridge, which has none of them.
+All: the type, module D, in bits 7–4, and the revision in bits 3–0: 3 (*proposed*), the bridge with
+[WIN0H–WIN3H, VECH and MAP](#the-high-window-registers-and-map), [the timebase](#the-timebase),
+[the random number chip](#the-random-number-chip) and [the common hole](#the-common-hole).
 
 #### Reset
 
-`$D3` (`$D2` on revision 2, `$D1` on revision 1).
+`$D3`.
 
 #### Status
 
@@ -1713,7 +1679,4 @@ All: the type, module D, in bits 7–4, and the revision in bits 3–0: 3 (*prop
 
 #### Notes
 
-`NB_ID_V1` (`$D1`), `NB_ID_V2` (`$D2`) and `NB_ID_V3` (`$D3`) are the values. OODOS 0.16 runs only on `$D3`: on
-any other bridge its cold boot says so and goes to the ROM's monitor. Software writes [WIN0H–WIN3H](#reg-c6a0),
-[VECH](#reg-c6a4) and [MAP](#reg-c6a5) only after reading `$D2`: on `$D1` it reaches the aperture by block 32 as
-before. NB_ID is read as an ID byte, so a program reads it under SYSINFO's exception only (AGENTS.md).
+`NB_ID_V3` (`$D3`) is the value. NB_ID is read as an ID byte, so a program reads it under SYSINFO's exception only (AGENTS.md).

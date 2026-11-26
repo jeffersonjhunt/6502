@@ -2,7 +2,7 @@
 import { describe, expect, test } from "vitest";
 import { FakePort } from "../port/fake-port";
 import type { AppleState, Envelope, SoundCpu } from "../port/machine-port";
-import { deviceStatusText, appleLanguageCard, rngstText, tbctlText, clockControl, clockStatus, clockTime, rtcctlText, appleMemory, appleSlots, appleVideo, describeLayer, describeLayer2, devicesView, diskMode, diskText, keyText, SD, sdCardText, sdErrorText, sdStatusText, sidFilter, sidVoice, SOUND, soundCpuText, soundPortText, frameText, trackText, tuneRuns, USB, VIDEO } from "./devices";
+import { deviceStatusText, appleLanguageCard, rngstText, tbctlText, clockControl, clockStatus, clockTime, rtcctlText, appleMemory, appleSlots, appleVideo, describeLayer, devicesView, diskMode, diskText, keyText, SD, sdCardText, sdErrorText, sdStatusText, sidFilter, sidVoice, SOUND, soundCpuText, soundPortText, frameText, trackText, tuneRuns, USB, VIDEO } from "./devices";
 
 /** The IIe's switches at power-on. */
 const IIE: AppleState = {
@@ -14,49 +14,14 @@ const IIE: AppleState = {
 const text = (el: Element, reg: string) => el.querySelector(`[data-reg="${reg}"]`)?.textContent;
 
 describe("Devices tab", () => {
-  test("a layer's registers in words", () => {
-    expect(describeLayer(Uint8Array.from([0x80, 8, 1, 0, 0, 0, 0, 0]), true)).toBe(
-      "text 80×30 · text $82000 · font $80400 · blink",
-    );
-    expect(describeLayer(Uint8Array.from([0x05, 64, 0, 0x2c, 0x01, 3, 0, 2]), false)).toBe(
-      "off (mono 640×480) · image $90000 · scroll 300,3 · palofs 2",
-    );
-    expect(describeLayer(Uint8Array.from([0x02, 4, 16, 0, 0, 0, 0, 0]), true)).toBe("tile · map $81000 · tiles $84000");
-  });
-
-  test("revision 2's types 6 and 7 by name, revision 1's by number", () => {
-    expect(describeLayer2(Uint8Array.from([0x06, 0x00, 0x04, 0, 0, 0x84, 0x03, 0, 0, 0]), true)).toBe(
+  test("types 6 and 7 by name", () => {
+    expect(describeLayer(Uint8Array.from([0x06, 0x00, 0x04, 0, 0, 0x84, 0x03, 0, 0, 0]), true)).toBe(
       "bitmap 640 · image $040000 · scroll 900,0",
     );
-    expect(describeLayer2(Uint8Array.from([0x07, 0x60, 0x13, 0, 0, 0, 0, 0, 0, 0]), false)).toBe("off (direct 640) · image $136000");
-    expect(describeLayer(Uint8Array.from([0x06, 64, 0, 0, 0, 0, 0, 0]), true)).toBe("type 6 · image $90000");
-    expect(describeLayer(Uint8Array.from([0x07, 64, 0, 0, 0, 0, 0, 0]), true)).toBe("type 7 · image $90000");
+    expect(describeLayer(Uint8Array.from([0x07, 0x60, 0x13, 0, 0, 0, 0, 0, 0, 0]), false)).toBe("off (direct 640) · image $136000");
   });
 
-  test("the video card as the BIOS leaves it", async () => {
-    const port = new FakePort();
-    const regs: Record<number, number> = { 0x00: 0x03, 0x04: 0x00, 0x05: 0x01, 0x06: 0xe0, 0x07: 0x01, 0x08: 0x80, 0x10: 0x80, 0x11: 8, 0x12: 1, 0x7f: 0x91 };
-    for (const [o, v] of Object.entries(regs)) port.memory.set(VIDEO + Number(o), v);
-    const v = devicesView(port);
-    await v.refresh();
-    expect(v.element.querySelector("h4")!.textContent).toContain("ID $91");
-    expect(text(v.element, "CTRL")).toBe("$03  display · layer 0");
-    expect(text(v.element, "Layer 0")).toBe("text 80×30 · text $82000 · font $80400 · blink");
-    expect(text(v.element, "Layer 1")).toBe("off (text 80×30) · text $80000 · font $80000");
-    expect(text(v.element, "IEN / ISR")).toBe("$00 / $01  vblank");
-    expect(text(v.element, "Beam")).toBe("line 480 · vertical blank");
-    expect(text(v.element, "Sprites")).toBe("off · table $80000");
-    port.memory.set(VIDEO + 0x00, 0x0b);
-    port.memory.set(VIDEO + 0x03, 40);
-    port.memory.set(VIDEO + 0x08, 0x86); // in vertical blank, groups 2 and 4 collided
-    await v.refresh();
-    expect(text(v.element, "Sprites")).toBe("on · table $8A000 · collided: groups $6");
-    port.memory.set(VIDEO + 0x0e, 0xff); // revision 1 has no SPRCTL: $C48E reads $FF, and means nothing
-    await v.refresh();
-    expect(text(v.element, "Sprites")).toBe("on · table $8A000 · collided: groups $6");
-  });
-
-  test("a revision 2 card: card memory addresses, the slots, the port", async () => {
+  test("the video card: card memory addresses, the slots, the port", async () => {
     const port = new FakePort();
     // As the BIOS's VSCREEN leaves it (hw/video-rev2.md): the text at $002000, the font at $000400.
     const regs: Record<number, number> = {
@@ -82,7 +47,7 @@ describe("Devices tab", () => {
     expect(text(v.element, "Slots")).toBe("$000000 $004000 $008000 $1FC000");
     expect(text(v.element, "Port")).toBe("$1E4000 · step 160 down · DMA from the card");
     expect(text(v.element, "Memory")).toBe("2048 KB");
-    expect(describeLayer2(Uint8Array.from([0x02, 0x00, 0x10, 0x00, 0x08, 0, 0, 0, 0, 0]), true)).toBe("tile · map $100000 · tiles $080000");
+    expect(describeLayer(Uint8Array.from([0x02, 0x00, 0x10, 0x00, 0x08, 0, 0, 0, 0, 0]), true)).toBe("tile · map $100000 · tiles $080000");
   });
 
   test("no card: says so", async () => {
@@ -117,11 +82,11 @@ describe("Devices tab", () => {
   test("in Apple II mode the cards are read in I/O space, where the CPU sees the Apple's", async () => {
     const port = new FakePort();
     port.memory.set(VIDEO + 0x7f, 0x60); // what the CPU reads at $C4FF now: the Apple's slot 4
-    port.io.set(VIDEO + 0x7f, 0x91);
+    port.io.set(VIDEO + 0x7f, 0x92);
     port.io.set(USB + 0x7f, 0xb1);
     const v = devicesView(port);
     await v.refresh();
-    expect(v.element.textContent).toContain("Video card ID $91");
+    expect(v.element.textContent).toContain("Video card ID $92");
     expect(v.element.textContent).toContain("USB card ID $B1");
   });
 
@@ -196,30 +161,15 @@ describe("Devices tab", () => {
     expect(sidFilter(r)).toBe("volume 10 · filter low+high-pass · cutoff 1031 · resonance 0 · voices ext · voice 3 off · OSC3 $A5 ENV3 $3C");
   });
 
-  test("the sound card: CTRL, the mailbox, RAMADDR and both SIDs", async () => {
-    const port = new FakePort();
-    const regs: Record<number, number> = { 0x00: 0xd6, 0x01: 0x1c, 0x04: 0x21, 0x18: 0x0f, 0x24: 0x11, 0x40: 0x1b, 0x41: 0x06, 0x42: 0x04, 0x43: 0x00, 0x44: 0x10, 0x47: 0x80, 0x7f: 0xa1 };
-    for (const [o, v] of Object.entries(regs)) port.memory.set(SOUND + Number(o), v);
-    const v = devicesView(port);
-    await v.refresh();
-    expect(v.element.textContent).toContain("Sound card running");
-    expect(text(v.element, "CTRL")).toBe("$1B  NTSC 1.023 MHz · 6510 running · SID B at $D500 · A to both");
-    expect(text(v.element, "Mailbox")).toBe("to card full · to host $80 waiting · interrupts");
-    expect(text(v.element, "RAMADDR")).toBe("$1000");
-    expect(text(v.element, "SID A")).toBe("volume 15 · filter off · OSC3 $00 ENV3 $00");
-    expect(text(v.element, "A1")).toBe("$1CD6 · saw · gate · ADSR 0 0 0 0");
-    expect(text(v.element, "B1")).toBe("$0000 · triangle · gate · ADSR 0 0 0 0");
-    expect(text(v.element, "B3")).toBe("$0000 · no waveform · ADSR 0 0 0 0");
-  });
-
   test("the card's 6510: registers, port, timer", async () => {
     const port = new FakePort();
-    port.memory.set(SOUND + 0x7f, 0xa1);
-    port.memory.set(SOUND + 0x40, 0x02);
+    port.memory.set(SOUND + 0x7f, 0xa3);
     const held: Envelope = { level: 0, phase: "release", held: true };
     const cpu: SoundCpu = {
       pc: 0x1023, a: 1, x: 2, y: 3, s: 0xfd, p: 0x24, jammed: false, cycles: 5000, ddr: 0x2f, port: 0x37, timer: 0x1234, latch: 0x4cf8, timerOn: true, frame: 1, frameEn: 3, raster: 0x123,
       envelopes: [{ level: 0x88, phase: "decay/sustain", held: false }, held, held, held, held, { level: 0x40, phase: "attack", held: false }],
+      sids: new Uint8Array(50),
+      device: { tune: 2, music: 0, stream0: 0, stream1: 0, storeFree: 4096 * 1024, store: 8192 * 1024, boot: false, beep: false, voices: "......................", notes: 0, image: 0 },
     };
     port.sound = cpu;
     const v = devicesView(port);
@@ -240,7 +190,7 @@ describe("Devices tab", () => {
 
   test("the sound card, revision 3: its registers, the firmware's objects, its 6510 and both SIDs' shadows", async () => {
     const port = new FakePort();
-    const regs: Record<number, number> = { 0x00: 0x01, 0x01: 0x1b, 0x04: 0xff, 0x06: 0x05, 0x08: 0x10, 0x09: 0x27, 0x0b: 0x40, 0x0c: 0x01, 0x0d: 0x09, 0x0e: 128, 0x0f: 0xff, 0x10: 1, 0x11: 0, 0x7f: 0xa3 };
+    const regs: Record<number, number> = { 0x00: 0x01, 0x01: 0x1b, 0x04: 0xff, 0x06: 0x05, 0x08: 0x10, 0x09: 0x27, 0x0b: 0x40, 0x0c: 0x01, 0x0d: 0x09, 0x0e: 128, 0x0f: 0xff, 0x10: 1, 0x11: 1, 0x7f: 0xa3 };
     for (const [o, v] of Object.entries(regs)) port.memory.set(SOUND + Number(o), v);
     const sids = new Uint8Array(50);
     sids[0] = 0xd6;
@@ -260,7 +210,7 @@ describe("Devices tab", () => {
     expect(text(v.element, "FIFOs")).toBe("CMD 255+ free · EVT 5 waiting");
     expect(text(v.element, "Transfer")).toBe("10000 bytes to go · tag $40 · DMA");
     expect(text(v.element, "IEN / ISR")).toBe("$01 / $09  EVT · READY");
-    expect(text(v.element, "Card")).toBe("firmware 1.0 · store 8 MB · features $FF");
+    expect(text(v.element, "Card")).toBe("firmware 1.1 · store 8 MB · features $FF");
     expect(text(v.element, "Tune")).toBe("playing");
     expect(text(v.element, "Music")).toBe("playing · 12 notes waiting");
     expect(text(v.element, "Streams")).toBe("0 playing · 1 idle");
@@ -296,8 +246,8 @@ describe("Devices tab", () => {
     expect(v.element.textContent).toContain("No sound card on this machine.");
   });
 
-  test("the sound card at any revision; another card's ID isn't it", async () => {
-    for (const [id, found] of [[0xa1, true], [0xa2, true], [0xaf, true], [0xb1, false], [0xff, false]] as const) {
+  test("$A3 is the sound card; any other ID isn't", async () => {
+    for (const [id, found] of [[0xa3, true], [0xa1, false], [0xa2, false], [0xaf, false], [0xb1, false], [0xff, false]] as const) {
       const port = new FakePort();
       port.memory.set(SOUND + 0x7f, id);
       const v = devicesView(port);
@@ -341,7 +291,7 @@ describe("Devices tab", () => {
     expect(clockTime(bytes(0x59, 0x30, 0x71, 0x07, 0x29, 0x02, 0x00))).toBe("2000-02-29 23:30:59 · Saturday · 12 h"); // 11 PM
     expect(clockTime(bytes(0, 0, 0, 0, 1, 1, 0))).toBe("2000-01-01 00:00:00 · day 0");
     expect(rtcctlText(0x00)).toBe("none");
-    expect(rtcctlText(0xc5)).toBe("TICK · TIE · LOST · BUSY");
+    expect(rtcctlText(0x85)).toBe("TICK · LOST · BUSY");
     expect(rtcctlText(0x03)).toBe("BUSY"); // SET reads 0: bit 1 is nothing
     expect(rtcctlText(0x01, true)).toBe("BUSY (SET)"); // the bridge's queue says a SET is pending
     expect(clockControl(0x00)).toBe("square wave 1 Hz");
@@ -359,24 +309,24 @@ describe("Devices tab", () => {
     chip[0x0f] = 0x09;
     chip[0x10] = 0x85;
     chip[0x11] = 25;
-    port.clock = { time: bytes(0x07, 0x45, 0x13, 0x02, 0x26, 0x10, 0x26), rtcctl: 0xe0, setPending: false, rtcreg: 0x0f, rtcdata: 0x09, chip };
+    port.clock = { time: bytes(0x07, 0x45, 0x13, 0x02, 0x26, 0x10, 0x26), rtcctl: 0xa0, setPending: false, rtcreg: 0x0f, rtcdata: 0x09, chip };
     await view.refresh();
     const rtc = view.element.querySelector('[data-testid="dev-rtc"]')!;
-    expect(rtc.previousElementSibling?.textContent).toBe("Real-time clock ticking");
+    expect(rtc.previousElementSibling?.textContent).toBe("Real-time clock running");
     expect(text(rtc, "Time")).toBe("2026-10-26 13:45:07 · Monday");
-    expect(text(rtc, "RTCCTL")).toBe("$E0  TICK · TIE · ALARM");
+    expect(text(rtc, "RTCCTL")).toBe("$A0  TICK · ALARM");
     expect(text(rtc, "RTCREG")).toBe("$0F · RTCDATA $09");
     expect(text(rtc, "Control")).toBe("$00  square wave 1 Hz");
     expect(text(rtc, "Status")).toBe("$09  EN32kHz · A1F");
     expect(text(rtc, "Alarms")).toBe("1: $80 $80 $80 $80 · 2: $00 $00 $00");
     expect(text(rtc, "Aging")).toBe("$85 · 25.00 °C");
-    port.clock = { ...port.clock, rtcctl: 0x41, setPending: true };
+    port.clock = { ...port.clock, rtcctl: 0x01, setPending: true };
     await view.refresh();
-    expect(text(rtc, "RTCCTL")).toBe("$41  TIE · BUSY (SET)");
+    expect(text(rtc, "RTCCTL")).toBe("$01  BUSY (SET)");
     port.clock = { ...port.clock, rtcctl: 0x04, setPending: false };
     await view.refresh();
     expect(rtc.previousElementSibling?.textContent).toBe("Real-time clock lost");
-    expect(rtc.querySelector('[data-reg="TBCTL"]')).toBeNull(); // no timebase before revision 3
+    expect(rtc.querySelector('[data-reg="TBCTL"]')).toBeNull(); // no timebase read: no rows
     port.clock = { ...port.clock, timebase: { tbctl: 0xb0, ms: 123456, mss: 7 } };
     await view.refresh();
     expect(text(rtc, "TBCTL")).toBe("$B0  MSF · MSIE · SYNC");

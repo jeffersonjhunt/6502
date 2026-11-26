@@ -38,7 +38,7 @@
  * another folder of tunes instead of fixtures/SIDs.
  *
  * SID_RECORD=path records each tune of the sample (the baseline the sound
- * device's corpus is compared with: hw/future/sound-device-build.md, S0 and
+ * device's corpus is compared with: hw/oodos.md, "Sound card revision 3, as built", S0 and
  * answer 2) into `path`, a line a tune, outside the repo since it names the
  * tunes. Over the run's first two seconds of the 6510's clock from its reset
  * (every run lasts that long unless it jams): a hash of the 6510's SID writes
@@ -50,7 +50,7 @@
  * seconds, which changes no result (a chip clocked with or without its
  * output stage runs alike).
  *
- * The device mode (hw/future/sound-device-build.md, S4): each tune of the
+ * The device mode (hw/oodos.md, "Sound card revision 3, as built", S4): each tune of the
  * sample played on the sound card's revision 3 (sound_card3.h) by its
  * records, TUNE_LOAD with the file through DATA and TUNE_PLAY, and judged by
  * the same rule. Both modes run the sample by default; SID_DEVICE=1 runs the
@@ -172,7 +172,7 @@ namespace
         }
     };
 
-    /// Under the spec's map (hw/future/sound-device.md, "How the firmware shares the chips"): with one SID,
+    /// Under the spec's map (hw/design.md, "How the firmware shares the chips"): with one SID,
     /// $D400-$D7FF all SID A; with two, the second at the header's address, the rest SID A. Today's decode
     /// (SoundCard::sid_at): SID B at $D420 (or $D500 for a header that names it) whatever the tune.
     bool spec_map_moves(const SidFile &f, uint16_t addr)
@@ -684,7 +684,7 @@ TEST(the_device_records_a_tune_as_the_register_path_does)
     CHECK_EQ(rd.frames, ra.frames);
     CHECK_EQ(rd.late, ra.late);
     CHECK_EQ(passes(f, rd), passes(f, ra));
-    CHECK(d.chip_hash[1] != a.chip_hash[1]); // SID B: BOTH's copy on revision 2, silent on the device
+    CHECK(d.chip_hash[1] != a.chip_hash[1]); // SID B: BOTH's copy on the register path, silent on the device
 }
 
 namespace
@@ -825,7 +825,7 @@ namespace
         all.erase(std::remove_if(all.begin(), all.end(), [&](const std::string &n) { return dev.count(n) != 0; }), all.end());
         std::printf("  %zu more on the device (sid_device_known_failures.txt)\n", dev.size());
     }
-    std::printf("  %s\n", device ? "on the device (revision 3, by its records)" : "on revision 2's registers");
+    std::printf("  %s\n", device ? "on the device (revision 3, by its records)" : "on the chips' registers (sound_card.h)");
     std::map<std::string, std::map<std::string, std::string>> baseline; // SID_COMPARE's, by name
     if (const char *path = std::getenv("SID_COMPARE"); device && path && *path)
     {

@@ -19,8 +19,8 @@ with this BIOS, the diagnostics ask "PRESS CONT OR Y WITHIN 5 S", having written
 nothing within 5 s, boots as below. With switch 19 up and no diagnostics in the flash (or another build's), the
 BIOS says so after its greeting. No RAM is used before the copy. The BIOS, version 0.19:
 
-1. Copies itself, `$C800–$FFFF`, into RAM block 63 through W2. Before the copy, at `BOOT2`, on a revision 2 north
-   bridge (ID `$D2`, *proposed*, B7) it sets WIN0H–WIN3H and VECH to 0 and writes MAP whole: AP8 1 with a revision 2
+1. Copies itself, `$C800–$FFFF`, into RAM block 63 through W2. Before the copy, at `BOOT2` (*proposed*, B7), it
+   sets WIN0H–WIN3H and VECH to 0 and writes MAP whole: AP8 1 with a revision 2
    video card (`VIDEO_ID` `$92`), else 0, so bank 8 is RAM on a machine with no aperture
    ([chapter 11](11-north-bridge-and-rtc.md#the-high-window-registers-and-map)). Break does the same.
 2. Points W3 and VEC at the copy, read-only (`$7F`). The copy sits at the same CPU addresses, so the CPU carries on
@@ -32,11 +32,11 @@ BIOS says so after its greeting. No RAM is used before the copy. The BIOS, versi
 6. Sets up the video card's 80×30 text screen, and lets the USB keyboard's Pause/Break pull /NMI, if those cards
    answer. The screen needs video card revision 2 (ID `$92`, *proposed*) and the DMA controller; with any other card
    the monitor is on the serial line alone ([chapter 6](06-video.md#the-bioss-text-screen)).
-7. Prints `BACKPLANE BIOS 0.19` on the serial line and the screen.
+7. Prints `BACKPLANE BIOS` and its version (0.22) on the serial line and the screen.
 8. Boots the SD card's `/BOOT.BIN` once the splash is over, if there is one; otherwise it enters the monitor
    ([below](#booting-from-the-sd-card)).
 
-<!-- listing: ../../backplane/bios/bios.s:119-198 -->
+<!-- listing: ../../backplane/bios/bios.s:116-195 -->
 ```
 RESET:
                 LDX     #$FF
@@ -89,7 +89,7 @@ BOOT:           LDA     #0
 MONBOOT:        LDA     #1
 BOOT2:          LDX     #$FF
                 TXS
-                NBSET                  ; revision 2 or more: WINnH and VECH 0, AP8 by the video card (A kept)
+                NBSET                  ; WINnH and VECH 0, AP8 by the video card (A kept)
                 STZ     NB_WIN0        ; as at a hard reset, for C800R
                 STA     BOOTMODE
                 LDA     #1
@@ -174,15 +174,15 @@ ENTRY:          JMP     START          ; $C800: reset, as the vector does
 
 | Address | Entry | What it does |
 |---|---|---|
-| `$C800` | reset | Starts again as a hard reset does: W3 and VEC go back to the flash and the CPU takes the flash's reset vector, so the BIOS is copied afresh. After a /BOOTSEL boot there is no flash to go back to, and the RAM copy starts again. The way back runs a short stub in zero page through W0, so on a revision 2 north bridge (*proposed*, B7) `START` first sets WIN0H to 0, whatever a program left there |
-| `$C803` | the video demo | Tiles, sprites, scrolling and a palette fade, run from ROM A block 29, on video card revision 2 (*proposed*; with any other card it goes straight back). Any key goes back to the monitor |
+| `$C800` | reset | Starts again as a hard reset does: W3 and VEC go back to the flash and the CPU takes the flash's reset vector, so the BIOS is copied afresh. After a /BOOTSEL boot there is no flash to go back to, and the RAM copy starts again. The way back runs a short stub in zero page through W0, so (*proposed*, B7) `START` first sets WIN0H to 0, whatever a program left there |
+| `$C803` | the video demo | Tiles, sprites, scrolling and a palette fade, run from ROM A block 29, on the video card (*proposed*; with none it goes straight back). Any key goes back to the monitor |
 | `$C806` | Apple II mode | Copies the first good IIe ROM image in ROM A, of images 0–3, with its own character set, and enters the mode ([chapter 13](13-apple-ii-mode.md)); refuses without video card revision 2 (*proposed*). Since BIOS 0.16 (*proposed*); BIOS 0.15 and before took the cartridge's IIe ROM. Only a hard reset comes back |
 | `$C809` | the SD card's directory | The card's name and size, then its root directory, one entry a line |
 | `$C80C` | boot the SD card | `/BOOT.BIN`, as [below](#booting-from-the-sd-card) |
 | `$C80F` | ECHO | Prints the character in A on the serial line and the text screen. Keeps A and X. Uses `$E0–$E7` |
 | `$C812` | the diagnostics | Since BIOS 0.14 ([chapter 15](15-diagnostics.md)): asks for `Y`, since they overwrite all of memory, then runs the ROM's diagnostics from flash block 23, with the panel's switches 16–18 as their options. With no diagnostics in the flash it says `NO DIAGNOSTICS IN THE FLASH` (or that they are another build's) and goes back to the monitor. It never returns |
 | `$C815` | the diagnostics, for a program | Since BIOS 0.14: A = `$A5` and Y = `$5A`, X the options (bit 0 full, bit 1 interactive; the switches don't count), with no `Y` asked; anything else is `$C812`. With no diagnostics in the flash it returns, carry set, A, X, Y and W2 as they were. OODOS's `DIAG` reaches it through function 75 with A = 2. The last of the eight; the functions after it go through `$C818` |
-| `$C818` | the dispatching entry | Since BIOS 0.16 (*proposed*; on BIOS 0.15 and before `$C818` was the first byte after the table, so a call there restarted the machine). A program asks with a two-byte token, Y = `$5A` and X = `$A0` + the function, and A the function's argument. Function `$A1` is Apple II mode with image A, 0–3: the card and DMA checks as `$C806`'s, then `NO APPLE IIE ROM IN FLASH IMAGE n` and the monitor if that image isn't good. Since BIOS 0.21, functions `$A2` and `$A3` drive a revision 3 sound card ([chapter 7](07-sound.md)): `$A2` beeps at 800 Hz for A × 10 ms (A = 0: 250 ms) and `$A3` stops every sound on it (STOPALL); each waits for the card's READY (250 ms) and for its reply (100 ms), and returns carry clear, or carry set at once with no revision 3 card or when a wait runs out, with A, X, Y and the windows as they were. With the token and A over 3, function `$A0` (the flash update, reached only from the menu in BIOS 0.16) or a function `$A4–$AF` (reserved), it returns, carry set, with A, X, Y and the windows as they were. Without the token, as `C818R` from the monitor (which leaves X 0), it prints a menu, `ROM: F FLASH UPDATE, 0-3 APPLE II MODE, ANY OTHER KEY MONITOR`, and takes a key: `F` is [the flash update](#the-flash-update), a digit 0–3 Apple II mode with that image, any other key the monitor. OODOS's `APPLE2 n` reaches function `$A1` through function 75 with A = 3. No entry is added after it |
+| `$C818` | the dispatching entry | Since BIOS 0.16 (*proposed*). A program asks with a two-byte token, Y = `$5A` and X = `$A0` + the function, and A the function's argument. Function `$A1` is Apple II mode with image A, 0–3: the card and DMA checks as `$C806`'s, then `NO APPLE IIE ROM IN FLASH IMAGE n` and the monitor if that image isn't good. Since BIOS 0.21, functions `$A2` and `$A3` drive a revision 3 sound card ([chapter 7](07-sound.md)): `$A2` beeps at 800 Hz for A × 10 ms (A = 0: 250 ms) and `$A3` stops every sound on it (STOPALL); each waits for the card's READY (250 ms) and for its reply (100 ms), and returns carry clear, or carry set at once with no revision 3 card or when a wait runs out, with A, X, Y and the windows as they were. With the token and A over 3, function `$A0` (the flash update, reached only from the menu in BIOS 0.16) or a function `$A4–$AF` (reserved), it returns, carry set, with A, X, Y and the windows as they were. Without the token, as `C818R` from the monitor (which leaves X 0), it prints a menu, `ROM: F FLASH UPDATE, 0-3 APPLE II MODE, ANY OTHER KEY MONITOR`, and takes a key: `F` is [the flash update](#the-flash-update), a digit 0–3 Apple II mode with that image, any other key the monitor. OODOS's `APPLE2 n` reaches function `$A1` through function 75 with A = 3. No entry is added after it |
 
 ## The monitor
 
@@ -219,7 +219,7 @@ Status: **emulated**
 2. The card mounts `/BOOT.BIN` as unit 1 ([chapter 10](10-storage.md)).
 3. Its sectors are read to `$1000` by DMA channel 0, whose CARD names the SD card (module 7): 88 at most, 44 KB,
    `$1000–$BFFF`. The BIOS selects channel 0 for the read and puts CONTROL back as it found it afterwards, so
-   `/BOOT.BIN` starts with the BIOS's own CONTROL: `$71` with a revision 2 video card, `$70` without one, since BIOS
+   `/BOOT.BIN` starts with the BIOS's own CONTROL: `$71` with the video card, `$70` without one, since BIOS
    0.15 (*proposed*).
 4. The BIOS calls `$1000` with JSR. A program that returns comes back to the monitor.
 

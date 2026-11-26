@@ -31,8 +31,6 @@ using namespace oodos_rig::ccp;
 
 namespace
 {
-    const bool REV3 = (sound_revision() = 3, true); ///< every rig here: revision 3
-
     struct Header
     {
         bool rsid{false};

@@ -86,8 +86,8 @@ SE_LOAD         = 13                   ; the file's load or its play refused (th
 ; error (GE_*) for a refusal. Every routine changes A, X and Y, and W1.
 ;
 ;   GX_INIT     A/X the event area the program opened (0 none: no slots,
-;               so no GX_PALSHOW or GX_SPRSHOW): OODOS's interface checked
-;               (8 at least, with DMA, and a revision 2 card), the W1 map
+;               so no GX_PALSHOW or GX_SPRSHOW): DMA and the video card
+;               checked (GE_VERSION without them), the W1 map
 ;               and the card's room read (function 83's DM_INFO), the
 ;               program's card memory all free. Slot 1's window is block 33
 ;               ($84000, MAP's AP8 left as it is): the old mode, always, as
@@ -96,10 +96,9 @@ SE_LOAD         = 13                   ; the file's load or its play refused (th
 ;               $80000-$8FFFF, the program's RAM until the warm boot
 ;               (function 83's DM_BANK8), slot 1's window WIN1H $0E with
 ;               block 1 ($E04000), and blocks 32-39 in the W1 map. Carry
-;               clear, with no revision 2 card too (bank 8 RAM, no window).
-;               GE_VERSION, nothing changed and the old mode kept: OODOS's
-;               interface below 12, no DMA, a revision 1 north bridge or a
-;               ROM BIOS older than 0.17. A program that loads card memory
+;               clear, with no video card too (bank 8 RAM, no window).
+;               GE_VERSION, nothing changed and the old mode kept: no DMA,
+;               or DM_BANK8 refused. A program that loads card memory
 ;               by DMA through $84000 (slot 1's old window) must not call it:
 ;               that address is then RAM, and a DMA address can't name
 ;               $E04000
@@ -144,9 +143,7 @@ SE_LOAD         = 13                   ; the file's load or its play refused (th
 ;               cleared)
 ;   GX_SPRFULL  (since OODOS 0.13, interface version 14; hw/sprites640.md)
 ;               A 1: full-resolution sprites on (SPRCTL's FULL), A 0: off;
-;               carry clear. Under an OODOS below interface 14 (whose warm
-;               boot doesn't clear SPRCTL), carry set and A GE_VERSION,
-;               SPRCTL untouched
+;               carry clear (OODOS's warm boot clears SPRCTL)
 ;   GX_SPRFPOS  (interface version 14) A a sprite (0-63): X and Y from GX_X,
 ;               GX_Y (0-1023) in the screen's 640 x 480, and the entry's
 ;               byte 3 bit 7 set: full resolution while GX_SPRFULL has it
@@ -161,8 +158,7 @@ SE_LOAD         = 13                   ; the file's load or its play refused (th
 ;   GX_SCROLL   A a layer: its scrolls GX_X and GX_Y (0-1023)
 ;   GX_BMP      A the bitmap (GB_*), GX_V its first card page: what GX_PLOT
 ;               and the rest draw on; carry clear. A past GB_DIRECT: carry
-;               set, A GE_FORMAT, the bitmap as it was (interface 13);
-;               GB_DIRECT under an OODOS below interface 13: GE_VERSION
+;               set, A GE_FORMAT, the bitmap as it was (interface 13)
 ;               On GB_DIRECT every colour below is a word, A low and X high
 ;               ($0RGB; $8000 transparent, $0000 black); on the others X is
 ;               not read
@@ -235,7 +231,7 @@ GB_640          = 3                    ;   bitmap 640 (layer type 6: 1,024 x 480
 GB_DIRECT       = 4                    ;   direct 640 (type 7: 640 x 480, a $0RGB word a pixel, bit 15
                                        ;   transparent, 1,280 bytes a row): colours are words, A/X
 
-GE_VERSION      = 1                    ; OODOS's interface below 8, no DMA area, or no revision 2 card
+GE_VERSION      = 1                    ; no DMA, or no video card (the name kept)
 GE_MAP          = 2                    ; a block the W1 map hasn't
 GE_MEMORY       = 3                    ; no card memory free, or not the program's
 GE_DMA          = 4                    ; function 83 refused

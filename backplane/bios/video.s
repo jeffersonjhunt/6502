@@ -13,9 +13,8 @@
 ;   $002000  the text: 80 x 30 cells of character + attribute
 ;
 ; VPUTC writes cells through aperture slot 0, which it points at card page 0
-; for the moment and puts back, through W2, borrowed the same way: on a $D2+
-; north bridge, WIN2H $0E and block 0 (the aperture at $E00000, whatever AP8
-; says), and on a $D1 one, block 32 (physical $80000, bank 8). Everything else goes
+; for the moment and puts back, through W2, borrowed the same way: WIN2H $0E
+; and block 0 (the aperture at $E00000, whatever AP8 says). Everything else goes
 ; through the card's data port: VINIT writes the font and the palette into
 ; PDATA, and clearing and scrolling are port transfers by DMA on channel 1,
 ; which serves the card (CARD 9) when it asks, each waited for (so whole
@@ -31,7 +30,7 @@
 ; blinks (bit 7, with CONFIG's blink on), so the card blinks it and the BIOS
 ; does nothing.
 ;
-; With no revision 2 video card, or no DMA controller, VINIT leaves VOK clear
+; With no video card, or no DMA controller, VINIT leaves VOK clear
 ; and VPUTC does nothing. Break (NMI) puts W2 back and calls VSCREEN, which
 ; sets VOK again from the ID bytes, so one during VPUTC, or a program that
 ; moved the screen or wrote VOK, leaves the monitor on the text screen as
@@ -55,8 +54,7 @@ ATTR    = $07                          ; light grey on black
 CURSOR  = '_'
 CURATTR = $87                          ; light grey, blinking
 
-VBLOCK  = 32                           ; on a $D1 bridge: physical $80000, the aperture's slot 0, through W2
-VBLOCK2 = 0                            ; revision 2 or more: with WIN2H $0E, physical $E00000, slot 0
+VBLOCK  = 0                            ; with WIN2H $0E, physical $E00000, the aperture's slot 0, through W2
 VWIN    = $8000
 PAL_CARD  = $000000                    ; card addresses
 FONT_CARD = $000400
@@ -131,7 +129,7 @@ VINIT:
                 BRA     VSCREEN
 @done:          RTS
 
-; VOK from the ID bytes: $FF (N set) with a revision 2 video card and the
+; VOK from the ID bytes: $FF (N set) with the video card and the
 ; DMA controller, else 0.
 PROBE:
                 STZ     VOK
@@ -191,9 +189,7 @@ DEMO:
 
 ; Write A to the screen at the cursor: CR starts a new line, backspace backs
 ; up one, other control characters do nothing. A, X and Y are kept, and so
-; are W2 (and WIN2H) and aperture slot 0, which it borrows. NB_ID is read
-; each time, on the way in and out, not kept with VOK, which a program may
-; write.
+; are W2 (and WIN2H) and aperture slot 0, which it borrows.
 VPUTC:
                 BIT     VOK
                 BMI     @on
@@ -209,17 +205,12 @@ VPUTC:
                 PHX
                 STZ     VIDEO_SLOT0    ; slot 0 on card page 0, where the text is
                 STZ     VIDEO_SLOT0 + 1
-                LDX     NB_ID
-                CPX     #NB_ID_V2
-                BCC     @v1
-                LDX     NB_WIN2H       ; revision 2 or more: W2 on $E00000, slot 0
+                LDX     NB_WIN2H       ; W2 on $E00000, slot 0
                 PHX
                 LDX     #VIDEO_APER_H
                 STX     NB_WIN2H
-                LDX     #VBLOCK2
-                BRA     @w2
-@v1:            LDX     #VBLOCK
-@w2:            STX     NB_WIN2
+                LDX     #VBLOCK
+                STX     NB_WIN2
                 CMP     #$0D
                 BEQ     @cr
                 CMP     #$08
@@ -246,12 +237,9 @@ VPUTC:
 @cursor:        LDA     #CURSOR
                 LDX     #CURATTR
                 JSR     PUTAT
-                LDX     NB_ID
-                CPX     #NB_ID_V2
-                BCC     @back
                 PLX
                 STX     NB_WIN2H
-@back:          PLX
+                PLX
                 STX     VIDEO_SLOT0 + 1
                 PLX
                 STX     VIDEO_SLOT0

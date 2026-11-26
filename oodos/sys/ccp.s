@@ -794,24 +794,21 @@ DMATCH:         STX     DSAVE
 
 DIAGQ:          .byte   "The ROM's diagnostics test all of memory and overwrite it: OODOS stops,", 13, 10
                 .byte   "M:'s files are lost, and the machine boots again at the end. Go on (Y/N)?$"
-NODIAG:         .byte   "No diagnostics for this BIOS in the flash (BIOS 0.14 or later)$"
+NODIAG:         .byte   "No diagnostics for this BIOS in the flash$"
 DWORDS:
 DFULL:          .byte   "FULL", 0
 DASK:           .byte   "ASK", 0
 
 ; APPLE2 [n] (ours, 2026-11-03; n since B5): leave OODOS for the ROM BIOS by
 ; function 75, which writes back the changed buffers first, and restart in
-; Apple II mode, if the revision 2 video card and the DMA controller are
+; Apple II mode, if the video card and the DMA controller are
 ; there and ROM A's images hold a IIe ROM: with no tail the first good image
 ; (75 with A = 1, as the ROM's $C806 takes it), with one digit n, 0-3, image
 ; n (A = 3, X = n: the ROM's $C818, interface 11). Otherwise it says which
-; is missing (75's X: $FD no revision 2 card, $FE no DMA controller, $FB a ROM
-; BIOS before 0.16, which has no $C818; $FF no IIe ROM, the message chosen by
-; the ROM BIOS's version, function 77, as 75 chooses where to look), the
-; return code $FF00, and OODOS goes on. Any other tail is the command and
-; '?', as DIAG's is, with nothing done. In segment RES2 (sys.cfg), with its
-; text, so that nothing before it moves: the old APPLE2's bytes in RES are
-; filler now (OLDAPPLE, OLDNOIIE).
+; is missing (75's X: $FD no video card, $FE no DMA controller, $FF no IIe
+; ROM), the return code $FF00, and OODOS goes on. Any other tail is the
+; command and '?', as DIAG's is, with nothing done. In segment RES2
+; (sys.cfg), with its text.
 B_APPLE2:       JSR     BIENTER
                 JSR     A2TAIL
                 BCS     @bad
@@ -821,29 +818,14 @@ B_APPLE2:       JSR     BIENTER
                 BEQ     @nocard
                 CPX     #$FE
                 BEQ     @nodma
-                PHX                    ; $FF or $FB
-                JSR     A2TAIL         ; A and X as typed again (the tail is as it was)
-                PLY
+                JSR     A2TAIL         ; $FF, no IIe ROM: A and X as typed again (the tail is as it was)
                 CMP     #3
                 BEQ     @image
-                LDY     #O_ROMVER      ; no IIe ROM where 75 looked: the flash, or
-                JSR     BDOS           ; under a ROM BIOS before 0.16 the cartridge
-                CMP     #$FF
-                BEQ     @cart          ; not found: as 75 counts it, old
-                CMP     #1
-                BCS     @flash         ; 1.0 and on
-                CPX     #16
-                BCS     @flash         ; 0.16 and on
-@cart:          LDA     #<NOIIEC
-                LDX     #>NOIIEC
-                JMP     FAILSAY
-@flash:         LDA     #<NOIIEF
+                LDA     #<NOIIEF
                 LDX     #>NOIIEF
                 JSR     STRING
                 BRA     @emuset
 @image:         PHX                    ; n
-                CPY     #$FB
-                BEQ     @old
                 LDA     #<NOIIEN
                 LDX     #>NOIIEN
                 JSR     STRING
@@ -852,15 +834,6 @@ B_APPLE2:       JSR     BIENTER
                 JSR     PUTC
 @emuset:        LDA     #<EMUSET
                 LDX     #>EMUSET
-                JMP     FAILSAY
-@old:           LDA     #<A2OLD
-                LDX     #>A2OLD
-                JSR     STRING
-                PLA
-                ORA     #'0'
-                JSR     PUTC
-                LDA     #<A2OLD2
-                LDX     #>A2OLD2
                 JMP     FAILSAY
 @nodma:         LDA     #<NODMA
                 LDX     #>NODMA
@@ -905,7 +878,6 @@ A2BLANK:        CPY     TAILLEN
                 BRA     A2BLANK
 @done:          RTS
 
-NOIIEC:         .byte   "No IIe ROM: this ROM BIOS looks in the cartridge (Settings: Use built-in)$"
 NOIIEN:         .byte   "No IIe ROM in flash image $"
 .segment "RES"
 
@@ -921,22 +893,13 @@ B_CLS:          JSR     CLEARSCR
 ; WOZMON (ours, 2026-11-03): leave OODOS for the ROM BIOS by function 75,
 ; which writes back the changed buffers first: the screen cleared, then the
 ; Woz Monitor, as Break; it doesn't come back. Its tail is ignored. APPLE2 is
-; in RES2 since B5 (B_APPLE2, with its tail); its old code's 39 bytes here,
-; and its old message's 59 below (OLDNOIIE), keep their size, so that
-; nothing after them moves (the interrupt dispatcher's addresses and timing,
-; irq.s's, among them): they hold some of the new APPLE2's text now, and
-; filler.
+; in RES2 since B5 (B_APPLE2, with its tail).
 B_WOZMON:       JSR     BIENTER
                 JSR     CLEARSCR
                 LDA     #0             ; the monitor
                 LDY     #O_ROM
                 JSR     BDOS
                 JMP     BIOK           ; never: 75 with A = 0 doesn't return
-OLDAPPLE:                              ; the old APPLE2's 39 bytes: two of its messages, and filler
-A2OLD:          .byte   "APPLE2 $"
-A2OLD2:         .byte   " needs ROM BIOS 0.16 or later$"
-                .res    OLDAPPLE + 39 - *, $FF
-.assert * - OLDAPPLE = 39, error, "RES keeps its size: the old APPLE2's code was 39 bytes"
 
 
 ; DIR and DIRSYS (DIRS).
@@ -2200,13 +2163,10 @@ SYSINS:         .byte   "SYS,"
 SYSADD:         .byte   " [SYS]"
 SEP:            .byte   " : $"
 CLEARS:         .byte   27, 'E', '$'   ; ESC E: the screen's clear
-OLDNOIIE:                              ; the old APPLE2's message's 59 bytes: the new one's, and filler
 NOIIEF:         .byte   "No IIe ROM in the flash$"
 EMUSET:         .byte   " (the emulator: Settings, ROMs)$" ; after NOIIEF and NOIIEN
-                .res    OLDNOIIE + 59 - *, $FF
-.assert * - OLDNOIIE = 59, error, "RES keeps its size: the old APPLE2's message was 59 bytes"
 NODMA:          .byte   "Apple II mode needs the DMA controller$"
-NOCARD:         .byte   "Apple II mode needs the revision 2 video card$"
+NOCARD:         .byte   "Apple II mode needs the video card$"
 NOPROG:         .byte   "NO PROGRAM$"
 BADPROG:        .byte   "BAD PROGRAM HEADER$"
 NOMEM:          .byte   "Insufficient Memory$"

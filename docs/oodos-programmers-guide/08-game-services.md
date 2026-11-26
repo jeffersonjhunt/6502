@@ -27,7 +27,7 @@ A program that uses these services asks first, once: function 80's `FT_INFO`, wi
         jsr     BDOS            ; A = OOLIB's interface version, X = the service areas
 ```
 
-A is OOLIB's interface version: 1 from L1, 2 from L2, 3 from L3, 4 from L4, 5 from L4b (function 82's hold, go and volume), 6 from L5a (the mailbox's stamp), 7 from OODOS 0.8 (`EV_SFLAGS`; the hold, the stamp and `EV_SFLAGS` went at 18), 8 from OODOS 0.9 (video card revision 2: function 83's card operations and the W1 contract on the aperture, [below](#video-memory)), 9 from OODOS 0.10 ([function 77](07-function-reference.md#bdos-77), the ROM BIOS's version: from 9 the number marks OODOS's own additions a program needs to detect too), 10 from OODOS 0.10 ([function 75](07-function-reference.md#bdos-75)'s A = 2, the ROM's diagnostics), 11 from OODOS 0.11 (function 75's A = 3, Apple II mode with ROM A's image X), 12 from OODOS 0.11 (function 83's `DM_BANK8` and WIN1H in the W1 contract, [below](#video-memory)), 13 from OODOS 0.12 (function 83's `DM_VFILLW` and the 640x480 colour layers), 14 from OODOS 0.13 (the full-resolution pointer), 15 from OODOS 0.14 (nothing a program uses), 16 from OODOS 0.15 ([function 85](07-function-reference.md#bdos-85), the serial line's receive buffer, and the event area's `EV_RXCNT`, [below](#the-serial-line)), 17 from OODOS 0.16 ([function 78](07-function-reference.md#bdos-78), the random source, `FC_T1` and `FT_CLOCK`), 18 from OODOS 0.17 (sound card revision 3: function 82 numbered afresh, [below](#sound)); each step that adds to the services
+A is OOLIB's interface version: 1 from L1, 2 from L2, 3 from L3, 4 from L4, 5 from L4b (function 82's hold, go and volume), 6 from L5a (the mailbox's stamp), 7 from OODOS 0.8 (`EV_SFLAGS`; the hold, the stamp and `EV_SFLAGS` went at 18), 8 from OODOS 0.9 (the video card: function 83's card operations and the W1 contract on the aperture, [below](#video-memory)), 9 from OODOS 0.10 ([function 77](07-function-reference.md#bdos-77), the ROM BIOS's version: from 9 the number marks OODOS's own additions a program needs to detect too), 10 from OODOS 0.10 ([function 75](07-function-reference.md#bdos-75)'s A = 2, the ROM's diagnostics), 11 from OODOS 0.11 (function 75's A = 3, Apple II mode with ROM A's image X), 12 from OODOS 0.11 (function 83's `DM_BANK8` and WIN1H in the W1 contract, [below](#video-memory)), 13 from OODOS 0.12 (function 83's `DM_VFILLW` and the 640x480 colour layers), 14 from OODOS 0.13 (the full-resolution pointer), 15 from OODOS 0.14 (nothing a program uses), 16 from OODOS 0.15 ([function 85](07-function-reference.md#bdos-85), the serial line's receive buffer, and the event area's `EV_RXCNT`, [below](#the-serial-line)), 17 from OODOS 0.16 ([function 78](07-function-reference.md#bdos-78), the random source, `FC_T1` and `FT_CLOCK`), 18 from OODOS 0.17 (sound card revision 3: function 82 numbered afresh, [below](#sound)); each step that adds to the services
 raises it. X has a bit for each service area OODOS has, one BDOS function each from 80: `OA_FRAME` (`$01`, 80, frame
 and timing), `OA_INPUT` (`$02`, 81, input), `OA_SOUND` (`$04`, 82, sound), `OA_DMA` (`$08`, 83, DMA and loading)
 and `OA_SERIAL` (`$20`, 85, the serial line, since interface 16) now; `OA_VIDEO` (84) isn't needed (the program has its video memory whole) and stays unassigned. An OODOS without the services answers 80 as a
@@ -36,8 +36,8 @@ says so and ends, rather than calling it. [Function 72](07-function-reference.md
 as before.
 
 Whether a card is there is another question, the program's own, by the card's ID byte, as the BIOS asks. `FT_INFO`
-with a block says which clocks run: the frame counter needs the video card, the millisecond counter the serial
-card's VIA.
+with a block says which clocks run: the frame counter needs the video card; the millisecond counter is the north
+bridge's, and always runs; `FC_T1` says the serial card's VIA is there, its timer 1 the program's.
 
 ## Calling function 80
 
@@ -64,8 +64,7 @@ Two counters, 32 bits each, low byte first, from the cold boot on:
 Both run whatever the program does, in a BDOS call or out of one: the BDOS runs with interrupts on. The rate is
 fixed, so a millisecond is always one count. **Timer 1 of the VIA is the program's** since OODOS 0.16 (interface 17:
 `FT_INFO`'s `FC_T1`), polled: its counter, its latches, ACR's bits 7–6 (keep the rest of ACR as you read it) and its
-IFR flag, never its IER bit, which stays OODOS's; a timed call goes through the tick hook instead. A program that
-may run on an older OODOS checks `FC_T1` first: there timer 1 is OODOS's tick.
+IFR flag, never its IER bit, which stays OODOS's; a timed call goes through the tick hook instead.
 
 **The time of day to the millisecond.** `FT_CLOCK` (interface 17) fills a block with the date and time as
 [function 105](07-function-reference.md#bdos-105) gives them, the seconds, and the milliseconds into that second,
@@ -422,7 +421,16 @@ behind. `EV_SBUFS` alone is written at once, as each stream buffer is taken or s
 | +122–123 | `EV_MWAIT` | the notes waiting, every voice, not yet begun |
 | +124–127 | | reserved, 0 |
 
-A part not claimed leaves its fields as they were.
+A part not claimed leaves its fields as they were. Three writes don't wait for a frame, so the state an earlier run
+ended in isn't read as the new one's; each is made before the call returns, and the card's own figures follow from
+the next frame:
+
+- an `SN_PLAY` that succeeds sets `EV_TSTATE` to 1 (starting, as the card has it then) and `EV_TMS` to 0;
+- an `SN_STREAM` that succeeds sets `EV_SSTATE` to 1 (buffering) and +98–115 to 0 (no request for data yet, nothing
+  played); `EV_SBUFS` shows both buffers free;
+- an `SN_MUSIC` that plays sets `EV_MSTATE` to 1 (playing); one queued behind music playing or paused leaves it.
+
+A refused call leaves the fields as they were.
 
 ### Tunes
 
@@ -537,8 +545,9 @@ A block is a header, an instrument for each voice it uses, and its entries:
 | The entries | 2–12 each | +0 the kind in the high nibble and the voice in the low; then by kind: 0 a note (+1 the note, 0–127, 69 the A at 440 Hz; +2–5 the length and +6–9 the gate, µs), 1 a frequency (+1–3 Hz × 16; +4–7 the length, +8–11 the gate), 2 a rest (+1–4 the length), 3 an instrument (+1–8), 4 a volume (+1), 5 a marker (+1, 0–254) |
 
 Each voice keeps its own time, so the voices' entries may be interleaved. The gate is how long the note sounds before
-its release, at most its length; equal is legato. The card checks the whole block as it comes and refuses one that
-doesn't parse (6, DATA).
+its release, at most its length; equal is legato. The tone generator's voice goes no higher than BEEP's 20,000 Hz:
+a frequency entry above that on it is silent for its length, a rest, and the voice's next entry comes on time. The
+card checks the whole block as it comes and refuses one that doesn't parse (6, DATA).
 
 **The library.** OOLIB's music routines build the blocks for a program (`oodos/lib/mu.s`, `munote.s` and `mutone.s`;
 `include/oolib.inc` has the calls), on six logical voices, for a program's music. (GW-BASIC's SOUND and PLAY build
@@ -744,9 +753,6 @@ does, at 4 rows in every 64 (rows 12, 25, 38 and 51 of each 64 from a base on 16
 by its own address, so its draws are right there, but a program that writes along a row through `GX_VMAP`'s window
 itself must map the next page at the slot's end.
 
-Before interface version 8, on revision 1, the card drew from banks 8–B in 1 KB units: the library's `GX_ALLOC`,
-`GX_FREE` and `GX_UNIT`, which `GX_VALLOC`, `GX_VFREE` and `GX_VADDR` replace.
-
 ### Loading
 
 `DM_LOAD` loads a count of a file's records, up to 512 (64 KB), from a record of an open FCB, to a physical address:
@@ -823,17 +829,17 @@ SPRCTL says; OOUI's pointer is doubled.
 
 ### The library
 
-`GX_INIT` first, with the event area's address (or 0): it checks OODOS's interface (8 at least, with `OA_DMA`, and a
-revision 2 card; `GE_VERSION` otherwise), reads the W1 map and the card's room (`DM_INFO`), and marks the program's
+`GX_INIT` first, with the event area's address (or 0): it checks for DMA (`OA_DMA`) and the video card
+(`GE_VERSION` without them), reads the W1 map and the card's room (`DM_INFO`), and marks the program's
 card memory all free. Then:
 
 - **`GX_BANK8`** (`gxmem.s`, since OODOS 0.11, interface version 12), after `GX_INIT`: asks for function 83's
   `DM_BANK8` ([chapter 7](07-function-reference.md#bdos-83)) and takes slot 1's window from it.
-  - With a revision 2 card: carry clear; bank 8, `$80000–$8FFFF`, is the program's RAM until the warm boot, slot 1
+  - With the video card: carry clear; bank 8, `$80000–$8FFFF`, is the program's RAM until the warm boot, slot 1
     is mapped by WIN1H `$0E` with block 1, and blocks 32–39 join the W1 map.
-  - With no revision 2 card: carry clear; bank 8 is RAM, and there is no window (`GX_INIT` had said `GE_VERSION`).
-  - `GE_VERSION`, with nothing changed and the old mode kept (block 33, WIN1H never written): OODOS's interface
-    below 12, no DMA, a revision 1 north bridge or a ROM BIOS older than 0.17.
+  - With no video card: carry clear; bank 8 is RAM, and there is no window (`GX_INIT` had said `GE_VERSION`).
+  - `GE_VERSION`, with nothing changed and the old mode kept (block 33, WIN1H never written): no DMA, or
+    `DM_BANK8` refused.
   - `GX_INIT` always takes the old mode, so a `GX_INIT` after `GX_BANK8` needs `GX_BANK8` again.
 - **Layers and memory** (`gxmode.s`, `gxmem.s`): `GX_LAYER` a layer's type (X, its CONFIG), its map's card page
   (`GX_V`) and its tiles' or font's (`GX_R`), its scrolls and PALOFS 0; `GX_PALOFS` (since OODOS 0.9) a layer's palette
@@ -851,8 +857,8 @@ card memory all free. Then:
   its card page, bit 15 set for 8 bits a pixel), `GX_SPRATTR`,
   `GX_SPRSHOW` (refused with no event area, as `GX_PALSHOW` and `GX_FADE` are); `GX_COLL` the groups that collided, from the card's STATUS and ISR.
   Since OODOS 0.13 (interface version 14; `gxsctl.s` and `gxsprf.s`, modules of their own, so a program that doesn't
-  call them links what it did): `GX_SPRFULL` (A = 1 full-resolution sprites on, the card's SPRCTL; A = 0 off; `GE_VERSION` below
-  interface 14, SPRCTL untouched) and `GX_SPRFPOS` (A a sprite: X and Y from `GX_X` and `GX_Y` in the screen's
+  call them links what it did): `GX_SPRFULL` (A = 1 full-resolution sprites on, the card's SPRCTL; A = 0 off; carry
+  clear) and `GX_SPRFPOS` (A a sprite: X and Y from `GX_X` and `GX_Y` in the screen's
   640 × 480, the entry's byte 3 bit 7 set). `GX_SPRPOS` writes the bit clear, so the position call chooses the size:
   a sprite moved by `GX_SPRFPOS` is full resolution, by `GX_SPRPOS` doubled. The groups and `GX_COLL` work at both
   sizes, in screen pixels. The warm boot sets SPRCTL to 0 again.
@@ -865,9 +871,7 @@ card memory all free. Then:
   its high, `$0RGB` as a palette entry is (`$8000` transparent, `$0000` black; bits 12–14 written 0), and
   `GX_POINT` returns A/X; on the other bitmaps X isn't read; a program sets the high bytes it uses (`GX_FGH`,
   `GX_BGH` included: OODOS doesn't clear a program's BSS). `GX_BMP` refuses a type past `GB_DIRECT` (carry set,
-  `GE_FORMAT`, the bitmap as it was; before interface version 13 it took any A), and `GB_DIRECT` under an OODOS
-  whose interface is below 13 (`GE_VERSION`: its fills need function 83's `DM_VFILLW`); `GB_640` needs nothing
-  new. `GX_FRECT` says a fill function 83 refused (carry set, `GE_DMA`), carry clear otherwise. `GX_PLOT`, `GX_POINT`,
+  `GE_FORMAT`, the bitmap as it was). `GX_FRECT` says a fill function 83 refused (carry set, `GE_DMA`), carry clear otherwise. `GX_PLOT`, `GX_POINT`,
   `GX_LINE`, `GX_RECT`, `GX_FRECT`, `GX_CIRCLE`, `GX_FLOOD` (a fill of a region, by spans: GW-BASIC's PAINT) and
   `GX_BCOPY`. Draws are clipped to the bitmap (one wholly off it draws nothing); a copy whose rectangle leaves it is
   refused (`GE_BOUNDS`, as is a copy on a mono bitmap or at an odd x or width at 4 bits), and one of no width or
@@ -894,8 +898,7 @@ palette, a bitmap, tiles and their map, sprite images and a sprite table, a font
 a card page, a multiple of 4 in the program's part or `$FFFF` for any, the first record, the records, the bytes, a
 width and height); each part starts on a 1 KB boundary of the file, so it loads in whole sectors. Sprite images are
 each padded to 256 bytes, a card page, and a sprite table's entries count them in pages from the images' part, which
-`GX_ASSET` moves on by where that part went. The library reads format 4 alone: format 3, revision 1's (a unit, one
-byte, at +2), is refused (`GE_FORMAT`). `oodos/tools/mkasset.py` makes them from PNG images on Linux (`bitmap256`, `bitmap512`, `tiles`,
+`GX_ASSET` moves on by where that part went. The library reads format 4 alone: an older format is refused (`GE_FORMAT`). `oodos/tools/mkasset.py` makes them from PNG images on Linux (`bitmap256`, `bitmap512`, `tiles`,
 `sprites`, `palette`, and since OODOS 0.12 `bitmap640`, a PNG up to 1,024 × 480 in 256 colours, its palette part
 first, and `direct640`, a PNG up to 640 × 480 in its own 12-bit colours, alpha below 128 the transparent `$8000`, no
 palette part), puts the parts of several into one file so a program loads them in one call (`combine`: a

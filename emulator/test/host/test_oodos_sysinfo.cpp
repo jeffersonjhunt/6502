@@ -17,13 +17,13 @@
  *     the console card): its CARDS line says "not found" and its own
  *     section says there is none, and nothing else changes (each its
  *     golden file, and the lines that differ from sysinfo.txt counted);
- *   - a revision changed: the video card at revision 1;
  *   - the floating bus (review CC5): no Disk II card, and a device in its
  *     block that answers each read with the last byte the CPU fetched, as
  *     an empty slot might: HW_PROBE's two reads disagree, so no Disk II is
  *     found;
- *   - function 77 (interface 9): the ROM BIOS's version, $FF $FF with no greeting found, and SYSINFO on an
- *     OODOS that reports interface 8; function 72 as it was (VERTEST);
+ *   - a card at a revision no build knows yet (a fake ID register, DMA $83, bridge $D4): its CARDS line
+ *     says "(not known to SYSINFO)", and nothing else changes;
+ *   - function 77: the ROM BIOS's version, $FF $FF with no greeting found; function 72 as it was (VERTEST);
  *   - A:'s free space, exact, worked out from the card's directory (the golden files hold "#K free");
  *   - one section alone, and the usage line for a word that isn't one.
  *
@@ -203,8 +203,8 @@ namespace
     /// A rig with the build's SYSINFO on M:.
     struct InfoRig : CcpRig
     {
-        explicit InfoRig(const std::string &machine_text = {}, unsigned video_revision = 2)
-            : CcpRig({}, machine_text, {}, video_revision)
+        explicit InfoRig(const std::string &machine_text = {})
+            : CcpRig({}, machine_text)
         {
             if (ok)
                 put_util("sysinfo", UTILS);
@@ -261,19 +261,6 @@ namespace
             s += (i && (d.size() - i) % 3 == 0 ? "," : "") + std::string(1, d[i]);
         return s;
     }
-
-    /// FT_INFOX's LDA #18 in OODOS's block 60 made LDA #`v`: an OODOS that reports interface `v`.
-    void report_interface(CcpRig &r, uint8_t v)
-    {
-        const uint32_t base = 60u * BLOCK - 0x4000u + sym("FT_INFOX");
-        uint32_t p = base;
-        while (p < base + 64 && !(r.phys(p) == 0xA9 && r.phys(p + 1) == 18 && r.phys(p + 2) == 0xA2 && r.phys(p + 3) == 0x2F))
-            ++p;
-        REQUIRE(p < base + 64);
-        r.poke(p + 1, v);
-    }
-    /// As before function 77.
-    void report_interface_8(CcpRig &r) { report_interface(r, 8); }
 
     std::string full_golden() { return read_text(std::string(EMU_GOLDEN_DIR) + "/sysinfo.txt"); }
 } // namespace
@@ -499,17 +486,58 @@ TEST(the_random_line_says_what_rn_info_says)
     CHECK(full_golden().find("  RANDOM     ATECC608B on the north bridge\n") != std::string::npos);
 }
 
-TEST(a_revision_changed_changes_its_lines)
+namespace
 {
+    /// A card's ID register answering `id`, mapped over the card's own: one byte, which writes leave alone.
+    struct FixedId : Device
     {
-        std::printf("  the video card at revision 1\n");
-        InfoRig r({}, 1);
+        uint8_t id{0};
+        size_t size() const override { return 1; }
+        uint8_t read(uint32_t) override { return id; }
+        uint8_t peek(uint32_t) const override { return id; }
+        void write(uint32_t, uint8_t) override {}
+    };
+} // namespace
+
+TEST(a_card_at_a_revision_this_build_doesnt_know_is_said_so)
+{
+    // HW_KNOWN (hwname.s): a card whose ID names a revision not in its table, a future one, gets
+    // " (not known to SYSINFO)" after its revision on the CARDS line. A fake ID register over the card's own,
+    // mapped before OODOS boots, answers a revision no build knows yet: the DMA controller's $83 (OODOS then
+    // drives no DMA, as with none fitted) and the north bridge's $D4. That line alone changes from sysinfo.txt
+    // (two in differing()'s count). Must fail if HW_KNOWN takes an ID it hasn't (its fall-through SEC made CLC):
+    // the line would end at the revision.
+    struct Case
+    {
+        uint16_t at;
+        uint8_t id, module;
+        const char *line, *known;
+    };
+    for (const Case &c :
+         {Case{0x47F, 0x83, 8, "  $C400  $83  DMA controller                3 (not known to SYSINFO)",
+               "  $C400  $82  DMA controller                2"},
+          Case{0x6FF, 0xD4, 0xD, "  $C680  $D4  north bridge                  4 (not known to SYSINFO)",
+               "  $C680  $D3  north bridge                  3"}})
+    {
+        std::printf("  ID $%02X\n", c.id);
+        static FixedId f; // before_boot() takes no captures
+        static Mapping m;
+        f.id = c.id;
+        m = {};
+        m.first = bus_address(Space::Io, c.at);
+        m.last = m.first;
+        m.device = &f;
+        m.module = c.module;
+        before_boot() = [](Rig &b) { REQUIRE(b.machine->bus().map(m)); };
+        InfoRig r;
+        before_boot() = nullptr;
         REQUIRE(r.ok);
-        const std::string got = normal(run(r, "m:sysinfo /all"), false);
-        CHECK(golden("sysinfo_video1.txt", got));
-        CHECK(got.find("  $C480  $91  video") != std::string::npos);
-        CHECK(got.find("(not known to SYSINFO)") != std::string::npos);
-        CHECK(got.find("VIDEO      revision 1, which OODOS no longer drives") != std::string::npos);
+        const std::string got = normal(run(r, "m:sysinfo /all"));
+        CHECK(got.find(std::string(c.line) + "\n") != std::string::npos);
+        CHECK(full_golden().find(std::string(c.known) + "\n") != std::string::npos);
+        CHECK_EQ(differing(got, full_golden()), size_t{2});
+        if (got.find(c.line) == std::string::npos)
+            std::printf("  %s\n", vis(got).c_str());
     }
 }
 
@@ -535,19 +563,19 @@ TEST(a_floating_bus_in_an_empty_slot_is_no_card)
 
 TEST(function_77_gives_the_rom_bios_version_and_72_is_as_it_was)
 {
-    // VERTEST (oodos/sys/test/vertest.s): FT_INFO says interface 18, 77 the ROM BIOS 0.21 as bios.rom's greeting has
+    // VERTEST (oodos/sys/test/vertest.s): FT_INFO says interface 18, 77 the ROM BIOS 0.22 as bios.rom's greeting has
     // it, and 72's 10 bytes come as they always did, the two bytes after the block left alone.
     InfoRig r;
     REQUIRE(r.ok);
     r.put_util("vertest", EMU_OODOS_SYS_DIR);
     const std::string o = run(r, "m:vertest");
     CHECK(o.find("FINFO 12 2F\n") != std::string::npos);
-    CHECK(o.find("ROMV 00 15\n") != std::string::npos);
+    CHECK(o.find("ROMV 00 16\n") != std::string::npos);
     std::smatch m;
-    CHECK(std::regex_search(o, m, std::regex("V72 0011000200044001[0-9A-F]{4}A55A")));
-    if (o.find("ROMV 00 15") == std::string::npos || m.empty())
+    CHECK(std::regex_search(o, m, std::regex("V72 0012000200044001[0-9A-F]{4}A55A")));
+    if (o.find("ROMV 00 16") == std::string::npos || m.empty())
         std::printf("  %s\n", vis(o).c_str());
-    CHECK(normal(run(r, "m:sysinfo system /all")).find("  ROM BIOS   0.21\n") != std::string::npos);
+    CHECK(normal(run(r, "m:sysinfo system /all")).find("  ROM BIOS   0.22\n") != std::string::npos);
 }
 
 TEST(function_77_says_ff_ff_when_the_cold_boot_found_no_greeting)
@@ -579,18 +607,6 @@ TEST(function_77_says_ff_ff_when_the_cold_boot_found_no_greeting)
     CHECK(run(r, "m:sysinfo system /all").find("  ROM BIOS   not found by OODOS at its boot\n") != std::string::npos);
 }
 
-TEST(sysinfo_on_an_oodos_of_interface_8_says_it_has_no_function_77)
-{
-    InfoRig r;
-    REQUIRE(r.ok);
-    report_interface_8(r);
-    const std::string o = run(r, "m:sysinfo system /all");
-    CHECK(o.find("  ROM BIOS   not given by this OODOS (before interface 9)\n") != std::string::npos);
-    CHECK(o.find("OOLIB interface 8") != std::string::npos);
-    if (o.find("before interface 9") == std::string::npos)
-        std::printf("  %s\n", vis(o).c_str());
-}
-
 TEST(one_section_alone_and_a_wrong_word)
 {
     InfoRig r;
@@ -600,11 +616,11 @@ TEST(one_section_alone_and_a_wrong_word)
     CHECK_EQ(run(r, "m:sysinfo memory"), std::string("SYSINFO {section} {/ALL}"));
 }
 
-TEST(the_ram_line_takes_bank_8_from_maps_ap8_on_a_revision_2_north_bridge)
+TEST(the_ram_line_takes_bank_8_from_maps_ap8)
 {
-    // D6 (B7, b7-plan.md §4, as C18 left it): on a $D2 bridge SYSINFO reads MAP's AP8 to say what bank 8 is, with
-    // no new text. With the revision 2 video card and AP8 set (the golden's), the 960 KB clause; with MAP forced
-    // to 0 before it runs, bank 8 is RAM: the no-card text. With no revision 2 card and MAP forced to 1, the
+    // D6 (B7, b7-plan.md §4, as C18 left it): SYSINFO reads the north bridge's MAP's AP8 to say what bank 8 is, with
+    // no new text. With the video card and AP8 set (the golden's), the 960 KB clause; with MAP forced
+    // to 0 before it runs, bank 8 is RAM: the no-card text. With no video card and MAP forced to 1, the
     // no-card text too (DM_INFO says there is no card).
     const std::string fitted = "MEMORY     1,024 KB fitted";
     const auto clause = [&](const std::string &o) { // what follows "1,024 KB fitted" on its line
@@ -624,9 +640,9 @@ TEST(the_ram_line_takes_bank_8_from_maps_ap8_on_a_revision_2_north_bridge)
         CHECK_EQ(clause(run(r, "m:sysinfo system")), std::string());
     }
     {
-        InfoRig r({}, 1);
+        InfoRig r(no_video_machine());
         REQUIRE(r.ok);
-        r.machine->bus().write(0xC6A5, 1); // MAP: AP8 set, with no revision 2 card
+        r.machine->bus().write(0xC6A5, 1); // MAP: AP8 set, with no video card
         CHECK_EQ(clause(run(r, "m:sysinfo system")), std::string());
     }
 }

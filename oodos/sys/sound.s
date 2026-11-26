@@ -1,5 +1,5 @@
 ; OODOS's sound (hw/oolib.md, "The plan", L3), on sound card revision 3,
-; the card as a device (hw/future/sound-device.md and its interface details):
+; the card as a device (hw/design.md, "Sound card revision 3"):
 ; function 82, its claims, the card's command records and its events, the
 ; loads by DMA channel 2 into DATA, the stream's buffers sent when the card
 ; asks (NEED), the beep and the console's bell on the card, the event area's
@@ -86,6 +86,7 @@ WT0:            .res    3              ; the wait's start (MS0-MS2)
 WMS:            .res    3              ; and its time-out, ms
 RB:             .res    SSTLEN         ; the program's record: +0 the command, +1 n, +2 the tag, +3 on
                                        ;   (16 at most), and SN_STATUS's block (SSTLEN)
+SST:            .res    SSTLEN         ; SN_STATUS's block after +0, as SSMAP makes it (the frame's too)
 HB:             .res    8              ; the handler's
 EKIND:          .res    1              ; EVONE's: the record's kind,
 ELEFT:          .res    1              ;   the bytes of it still to read,
@@ -142,14 +143,19 @@ NEXTB:          .byte   0              ; the buffer the next SN_BUFFER takes: 0,
 SENDB:          .byte   0              ; the buffer to send next
 CUR:            .byte   0              ; the buffer moving (0, 1)
 SDPEND:         .byte   0              ; 1: STREAM_DATA sent, its REPLY not yet come
-NEEDP:          .byte   0              ; the streams that asked (NEED) and have had nothing: bit 0, bit 1
-ENDP:           .byte   0              ; the streams whose SN_END waits for their buffers: bit 0, bit 1
 SOPEN:          .byte   0              ; the streams open: bit 0, bit 1
 FEED:           .byte   0              ; the stream SN_BUFFER feeds (the last opened)
 SPLAY:          .byte   0              ; the stream playing, whose status the area has
 NROOM:          .res    2              ; the ring's room, 256-byte units, as the last NEED said
-NURG:           .byte   0              ; the streams whose last NEED was urgent (under 1 s buffered): bit 0, bit 1
-NMS:            .res    8              ; each stream's ms buffered, 4 bytes, as its last NEED said: 0's, then 1's
+NEEDP:          .byte   0              ; the streams that asked (NEED) and have had nothing: bit 0, bit 1
+ENDP:           .byte   0              ; the streams whose SN_END waits for their buffers: bit 0, bit 1
+NEEDS:                                 ; each stream's last NEED, 8 bytes (stream 0's, then 1's):
+NURG:           .byte   0              ;   +0 its flags (SNF_URGENT: under 1 s buffered),
+NMS:            .res    7              ;   +1-4 the ms it had buffered (+5-7 unused)
+                .res    8
+NCLRN           = NEEDS + 16 - NROOM   ; NCLR's bytes
+.assert NEEDP = NROOM + 2 && ENDP = NEEDP + 1 && NEEDS = ENDP + 1, error, "NCLR clears NROOM to the NEEDs in one run"
+.assert NMS = NEEDS + 1 && SNF_URGENT = 1, error, "a NEED's record: its flags (the urgent bit alone), then its ms"
 SANS:           .byte   0              ; SNDIRQ's: the IRQH bits it answered
 STMP:           .byte   0
 LDLEN:          .res    3              ; a load's length
@@ -219,12 +225,8 @@ SNDQUIET:       JSR     C2STOP
                 STZ     FPEND
                 STZ     XBUSY
                 STZ     SOPEN
-                STZ     NEEDP
-                STZ     ENDP
                 STZ     FEED
                 STZ     SPLAY
-                STZ     NROOM
-                STZ     NROOM + 1
                 JSR     NCLR
                 LDA     SON
                 BEQ     @done
@@ -645,26 +647,24 @@ EVENT:          LDY     #0
                 LDA     #$FF
                 STA     NROOM
                 STA     NROOM + 1
-@ask:           LDA     EB             ; the stream's ms buffered (+9-12) into NMS
+@ask:           LDA     EB + 13        ; the stream's record: its urgent bit (+13's bit 0)
+                AND     #SNF_URGENT    ;   over +8 (read), then +9-12 its ms buffered
+                STA     EB + 8
+                LDA     EB
+                ASL     A
                 ASL     A
                 ASL     A
                 TAY
                 LDX     #0
-@ms:            LDA     EB + 9,X
-                STA     NMS,Y
+@rec:           LDA     EB + 8,X
+                STA     NEEDS,Y
                 INY
                 INX
-                CPX     #4
-                BNE     @ms
-                LDX     EB             ; and its urgent bit (+13's bit 0) into NURG
-                LDA     EB + 13
-                LSR     A
+                CPX     #5
+                BNE     @rec
+                LDX     EB
                 LDA     BUFBIT,X
-                BCS     @urg
-                TRB     NURG
-                BRA     @asks
-@urg:           TSB     NURG
-@asks:          TSB     NEEDP
+                TSB     NEEDP
                 JSR     SFEED
                 BRA     @sk
 @track:         CMP     #SOUND_EV_TRACK
@@ -797,44 +797,40 @@ SSMAP:          LDA     RR,X
                 INY
                 CPY     #8
                 BNE     @c
-                LDX     SPLAY          ; the last NEED's, of the stream playing
-                LDA     BUFBIT,X
-                AND     NURG
-                BEQ     @u
-                LDA     #SNF_URGENT
-@u:             STA     SST + 14
-                TXA
+                LDA     SPLAY          ; the last NEED's record, of the stream playing
+                ASL     A
                 ASL     A
                 ASL     A
                 TAX
                 LDY     #0
-@m:             LDA     NMS,X
-                STA     SST + 15,Y
+@m:             LDA     NEEDS,X
+                STA     SST + 14,Y
                 INX
                 INY
-                CPY     #4
+                CPY     #5
                 BNE     @m
                 RTS
-SST:            .res    SSTLEN
 
-; The last NEEDs forgotten: both streams' (NCLR), or stream X's (NCLRX),
-; urgent and ms buffered 0. Keeps nothing.
-NCLR:           STZ     NURG
-                LDX     #7
-@z:             STZ     NMS,X
-                DEX
-                BPL     @z
+; The streams afresh (NCLR): the ring's room, the asks (NEEDP), the ends
+; waiting (ENDP) and both streams' last NEEDs 0; or from X on (NCLRQ, X
+; NEEDP - NROOM: all but the room). Keeps nothing.
+NCLR:           LDX     #0
+NCLRQ:          STZ     NROOM,X
+                INX
+                CPX     #NCLRN
+                BNE     NCLRQ
                 RTS
-NCLRX:          LDA     BUFBIT,X
-                TRB     NURG
-                TXA
+; Stream X's last NEED forgotten. Keeps nothing.
+NCLRX:          TXA
+                ASL     A
                 ASL     A
                 ASL     A
                 TAX
-                STZ     NMS,X
-                STZ     NMS + 1,X
-                STZ     NMS + 2,X
-                STZ     NMS + 3,X
+                LDY     #5
+@z:             STZ     NEEDS,X
+                INX
+                DEY
+                BNE     @z
                 RTS
 
 ; --- the handler ---------------------------------------------------------------
@@ -976,7 +972,13 @@ SENDS:          LDA     ENDP
                 BCS     @next          ; no room: the next frame's
                 LDA     BUFBIT,X
                 TRB     ENDP
-                TRB     NURG           ; no more data coming: not urgent
+                TXA                    ; no more data coming: not urgent
+                ASL     A
+                ASL     A
+                ASL     A
+                TAY
+                LDA     #0
+                STA     NEEDS,Y
 @next:          DEX
                 BPL     @s
 @x:             RTS
@@ -1257,6 +1259,11 @@ SNTAB:          OWN     SN_INFOX                                        ; 0
 ; unless DF_NOBLK, the part claimed, a revision 3 card; the record from the
 ; command, the stream playing (DF_STREAM) and the block's parameters; its
 ; REPLY's results put in the block after them, or the first in A (DF_ARES).
+; A tune played (SN_PLAY's REPLY OK): a layout-2 area's tune fields show it
+; starting, as the card has it then (EV_TSTATE 1, EV_TMS 0; EVFLD), not the
+; last run's until a frame's reply; the card answers in order, so a
+; TUNE_STATUS asked before the play has been written already. A refusal
+; leaves them.
 GENERIC:        STA     T0             ; the flags
                 BIT     #DF_NOBLK
                 BNE     @blk
@@ -1294,8 +1301,50 @@ GENERIC:        STA     T0             ; the flags
                 LDA     #1
 @put:           INC     A
                 STA     RMODE
-                BRA     RUN            ; (X = 3 + n)
+                JSR     RUN            ; (X = 3 + n)
+                LDY     RB
+                CPY     #SOUND_TUNE_PLAY
+                BNE     @ret
+                TAY
+                BNE     @ret           ; refused, or no answer
+                LDY     #EV_TSTATE
+                LDA     #1             ; T_STARTING,
+                LDX     #3             ; the ms played 0
+                CLC
+                JSR     EVFLD
+                JMP     SN00
+@ret:           RTS
+.assert EV_TMS = EV_TSTATE + 1, error, "GENERIC: the tune's ms follow its state"
+
 @ff:            JMP     RETFF
+
+; A part's fields in a layout-2 area at a start: +Y set to A and the X bytes
+; after it to 0 (X 0: none), through W1 with interrupts off; with carry set,
+; only if +Y reads 0 now. Nothing with no area. Keeps nothing.
+EVFLD:          BIT     EVON
+                BPL     @ret           ; no area with a sound part
+                PHP
+                SEI
+                STA     STMP
+                LDA     NB_WIN1
+                PHA
+                LDA     EVBLK
+                STA     NB_WIN1
+                BCC     @put
+                LDA     (EVP),Y
+                BNE     @done          ; (carry set: +Y not 0, left)
+@put:           LDA     STMP
+                STA     (EVP),Y
+                LDA     #0
+@z:             DEX
+                BMI     @done
+                INY
+                STA     (EVP),Y
+                BRA     @z
+@done:          PLA
+                STA     NB_WIN1
+                PLP
+@ret:           RTS
 
 ; RB's record (X = its length: 3 + n) sent and its REPLY awaited: A = X = 0;
 ; refused, SN_REFUSED and X its error; no answer, SN_BUSY. DF_ARES: A the
@@ -1385,10 +1434,6 @@ SN_CLAIMX:      BLOCK
                 AND     #SC_STREAM
                 BEQ     @set
                 JSR     C2STOP
-                STZ     NEEDP
-                STZ     ENDP
-                STZ     NROOM
-                STZ     NROOM + 1
                 JSR     NCLR
 @set:           LDA     T0
                 TSB     SCLAIM
@@ -1421,9 +1466,8 @@ PQUIET:         LDA     T0
                 PHP
                 SEI
                 JSR     C2STOP
-                STZ     NEEDP
-                STZ     ENDP
-                JSR     NCLR
+                LDX     #NEEDP - NROOM ; (the room kept)
+                JSR     NCLRQ
                 PLP
                 JSR     SCLOSE
 @music:         LDA     T0
@@ -1622,7 +1666,10 @@ SN_EFFECTSX:    BLOCK
 .segment "BIOS"
 
 ; +1 a slot, +2-4 a note block's address, +5-7 its length, +8 MUSIC_PLAY's
-; flags: MUSIC_LOAD (the block checked: XFERDONE), then MUSIC_PLAY.
+; flags: MUSIC_LOAD (the block checked: XFERDONE), then MUSIC_PLAY. Played
+; (its REPLY OK), a layout-2 area's EV_MSTATE shows it playing at once (1),
+; not the last run's until a frame's reply; queued behind music playing or
+; paused, it is left. A refusal leaves it.
 SN_MUSICX:      BLOCK
                 NEED    SC_MUSIC
                 JSR     PGET
@@ -1645,9 +1692,20 @@ SN_MUSICX:      BLOCK
                 STA     RB + 3
                 LDA     T1
                 STA     RB + 4
+                PHA                    ; the flags
                 STZ     RMODE
                 LDX     #5
-                JMP     RUN
+                JSR     RUN
+                PLY
+                CMP     #0
+                BNE     @ret           ; refused, or no answer
+                TYA
+                LSR     A              ; carry: queued (bit 0), so only if stopped
+                LDA     #1             ; M_PLAYING
+                LDY     #EV_MSTATE
+                LDX     #0
+                JSR     EVFLD
+                JMP     SN00
 @ret:           RTS
 @no:            JMP     RETFF
 
@@ -1727,22 +1785,34 @@ SN_FIRMX:       BLOCK
 
 ; +1 the codec, +2-3 the rate, +4 the format: channel 2 stopped, both
 ; buffers free, both streams closed, then stream 0 opened (STREAM_OPEN with
-; OODOS's chunk and prebuffer).
+; OODOS's chunk and prebuffer). Opened, a layout-2 area shows it starting at
+; once: EV_SSTATE 1 (buffering, as the card has it then), +98-115 0 (no NEED
+; yet, nothing played); EV_SBUFS as SBUFS wrote it. A refusal leaves them.
 SN_STREAMX:     BLOCK
                 NEED    SC_STREAM
                 JSR     SPARM
                 PHP
                 SEI
                 JSR     C2STOP
-                STZ     NEEDP
-                STZ     ENDP
-                STZ     NROOM
-                STZ     NROOM + 1
                 JSR     NCLR
                 PLP
                 JSR     SCLOSE         ; (RB's parameters first kept in SG and T0-T1)
                 LDA     #0
-                ; fall through: stream 0 opened
+                JSR     SOPENA
+                CMP     #0
+                BNE     @ret           ; refused, or no answer
+                LDY     #EV_SFREE      ; A = 0: no NEED yet, nothing played,
+                LDX     #EV_SNEED + 7 - EV_SFREE ;   to +115
+                CLC
+                JSR     EVFLD
+                LDA     #1             ; and buffering
+                LDY     #EV_SSTATE
+                LDX     #0
+                CLC
+                JSR     EVFLD
+                JMP     SN00
+@ret:           RTS
+.assert EV_SFREE = EV_SSTATE + 2 && EV_SNEED + 7 = EV_TSTATE - 1, error, "SN_STREAM: the stream's fields after EV_SBUFS, to +115"
 
 ; Stream A opened with SPARM's parameters (SG, SG + 1-2 ... see SPARM).
 SOPENA:         PHA

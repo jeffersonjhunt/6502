@@ -36,7 +36,7 @@ ST_W0           = ST_WIN
 ST_W1           = ST_WIN + 1
 ST_W2           = ST_WIN + 2
 ST_W3           = ST_WIN + 3
-ST_W1H          = $FE                  ; its WIN1H (B7; 0 on a revision 1 bridge, which has none): the BDOS
+ST_W1H          = $FE                  ; its WIN1H (B7): the BDOS
                                        ; runs with WIN1H 0, and refuses an address in W1 while this isn't 0
 ; The BIOS's word parameters, beside A, X and Y (bios.s's header): function
 ; 50's +4-5 and +6-7.

@@ -2354,12 +2354,11 @@ when the record moves for 17 and 18.
 
 A record read (17, 18, 20, 33) is refused too, when it moves, if it would touch an aperture window that shows
 OODOS's card memory, while the north bridge's AP8 is set for the program (as OODOS leaves it; after function 83's
-`DM_BANK8`, since interface version 12, bank 8 is the program's RAM and none of it is refused): on video card
-revision 2 (since OODOS 0.9, interface version 8) bank 8 is then the card's aperture, and
+`DM_BANK8`, since interface version 12, bank 8 is the program's RAM and none of it is refused): with the video
+card (since OODOS 0.9, interface version 8) bank 8 is then the card's aperture, and
 its slot 0's window, `$80000–$83FFF` (the console's), and slots 2 and 3's, `$88000–$8FFFF`, are OODOS's. Slot 1's,
 `$84000–$87FFF`, shows the program's own card memory, and banks 9–B are ordinary RAM ([chapter
-5](05-memory-and-banking.md#video-memory-on-revision-2)). From OODOS 0.5 to interface version 7, on revision 1,
-the refused range was the console's video memory, units 0–12 (`$80000–$833FF`).
+5](05-memory-and-banking.md#video-memory-on-revision-2)).
 
 The segment lasts until the program sets another or ends: each warm boot sets it back to `$FFFF`. Function 13 sets
 the DMA address to `$0280` and keeps the segment.
@@ -2930,38 +2929,30 @@ OODOS's own: CP/M 3 has no function 74. It does what the loader does for each li
   run, bit 1 the interactive tests; the other bits 0. The front panel's switches don't count.
 - A = 3 (since OODOS 0.11, interface version 11): Apple II mode with ROM A's image X, 0–3, through the ROM's
   dispatching entry `$C818`, function `$A1` ([the Technical Reference, chapter 3](../oo1-technical-reference/03-boot.md#the-bioss-entry-points)).
-  It needs ROM BIOS 0.16 or later. A = 1 takes the first good image of the four, as the ROM's `$C806` does.
+  A = 1 takes the first good image of the four, as the ROM's `$C806` does.
 
 #### Exit
 
-- A = 0, A = 1 with video card revision 2, the DMA controller and a IIe ROM in the flash, A = 2 with the
-  diagnostics in the flash, and A = 3 with the card, the controller, ROM BIOS 0.16 or later and a IIe ROM in image
-  X: it doesn't return. For A = 2 that holds even if the ROM's `$C815` refuses them after
+- A = 0, A = 1 with the video card, the DMA controller and a IIe ROM in the flash, A = 2 with the
+  diagnostics in the flash, and A = 3 with the card, the controller and a IIe ROM in image X: it doesn't return. For A = 2 that holds even if the ROM's `$C815` refuses them after
   all (their own build version, which OODOS can't check, isn't the running BIOS's): OODOS has gone by then, and the
   machine restarts at `$C800`, as `C800R` does, and boots OODOS from the card.
-- A = 1 or 3 without video card revision 2 (since OODOS 0.9: the card's ID register, `VIDEO_ID` at `$C4FF`, doesn't read
-  `$92`; a revision 1 card, or none): A = `$FF`, X = `$FD`, and OODOS goes on. The ROM no longer starts Apple II
-  mode on a revision 1 card.
+- A = 1 or 3 without the video card (its ID register, `VIDEO_ID` at `$C4FF`, doesn't read `$92`): A = `$FF`,
+  X = `$FD`, and OODOS goes on.
 - A = 1 or 3 without the DMA controller (its ID register, `DMA_ID` at `$C47F`, doesn't read `$82`, revision 2's ID):
   A = `$FF`, X = `$FE`, and OODOS goes on. Apple II mode clears the Apple's memory by DMA, so the ROM won't start it
   without one.
-- A = 1 with no IIe ROM where the running ROM BIOS's `$C806` looks for one: under ROM BIOS 0.16 or later, none of ROM
-  A's images 0–3 (flash blocks 0–3; an image's `$FBB3` isn't `$06`); under an older one ([function 77](#bdos-77)'s
-  version, `$FF $FF` counting as older), the cartridge, flash block 32, as before OODOS 0.11. A = X = `$FF`, and
-  OODOS goes on.
+- A = 1 with no IIe ROM where the ROM's `$C806` looks for one, none of ROM A's images 0–3 (flash blocks 0–3; an
+  image's `$FBB3` isn't `$06`): A = X = `$FF`, and OODOS goes on.
 - A = 3 with image X not a IIe ROM: A = X = `$FF`, and OODOS goes on.
-- A = 3 with X of 4 or more: A = X = `$FF`, with nothing written back. A = 3 under a ROM BIOS before 0.16, which has
-  no `$C818` (there it is the first byte after its table of entries, so a jump there would restart the machine):
-  A = `$FF`, X = `$FB`, with nothing written back.
-- Any other A (4 or more): A = X = `$FF`, and OODOS goes on. An OODOS before interface version 11 answers A = 3 as
-  any other A.
+- A = 3 with X of 4 or more: A = X = `$FF`, with nothing written back.
+- Any other A (4 or more): A = X = `$FF`, and OODOS goes on.
 - A = 2 without the diagnostics in the flash: A = `$FF`, X = `$FC`, and OODOS goes on. OODOS looks at flash block 23
   through W2 for their signature and the ROM BIOS version they were linked with, which must be the one the cold
-  boot read from the ROM's greeting ([function 77](#bdos-77)): a flash with a BIOS before 0.14, with block 23
-  erased, or with another build's diagnostics has none. An OODOS before interface version 10 answers A = 2 as any
-  other A, A = X = `$FF`, so a program can tell the two apart; or it asks [function 80's](#bdos-80) `FT_INFO` first.
+  boot read from the ROM's greeting ([function 77](#bdos-77)): a flash with block 23 erased, or with another build's
+  diagnostics, has none.
 - Every return is a failure, A = `$FF`; X tells the cases apart. For A = 1 and 3 they are looked at in the ROM's
-  order: the video card first, then the DMA controller, then (for A = 3) the ROM BIOS's version, then the IIe ROM.
+  order: the video card first, then the DMA controller, then the IIe ROM.
   A = 3's X is looked at before all of them.
 - Y is not kept. The flags come back as they were before the call, the decimal flag clear.
 
@@ -2975,7 +2966,7 @@ As in Exit.
   go to. Without video card revision 2 or the DMA controller nothing is written back: OODOS looks for them
   before anything else (the card since OODOS 0.9), and OODOS's own card transfers need the DMA controller too.
   Without the diagnostics nothing is written back either: OODOS looks for them first; nor for A = 3 with X of 4 or
-  more, or under a ROM BIOS before 0.16. A file left open isn't closed: a program closes its files first. On O: and P: the disk is checked
+  more. A file left open isn't closed: a program closes its files first. On O: and P: the disk is checked
   before anything is written back, and a changed disk gets none of it
   ([removable drives](03-file-system.md#removable-drives-o-and-p)).
 - OODOS doesn't come back: the ROM's monitor, or a reset, is what follows. For A = 2 and 3, OODOS also stops the Disk II
@@ -3093,9 +3084,6 @@ Not measured.
 
 OODOS 0.10 (interface version 9, function 80's `FT_INFO`).
 
-An OODOS before it hasn't function 77 and answers it as any function it hasn't, A = X = `$FF`, the same as an unknown
-version: a program that must tell the two apart asks [function 80's](#bdos-80) `FT_INFO` first, as SYSINFO does.
-
 #### Status
 
 **built**
@@ -3152,9 +3140,6 @@ About 600 for the call and 20 a byte while the pool lasts; a refill about 26 ms.
 #### Since
 
 OODOS 0.16 (interface version 17, function 80's `FT_INFO`).
-
-An OODOS before it hasn't function 78 and answers it as any function it hasn't, A = X = `$FF`: a program checks
-[function 80's](#bdos-80) `FT_INFO` for interface 17 first.
 
 #### Status
 
@@ -3274,7 +3259,7 @@ Five dice: 2 3 3 6 3
 
 - `FT_INFO`: A = OOLIB's interface version (18: 1 was L1's, 2 L2's, 3 L3's, 4 L4's; 5 L4b's hold, go and
   volume; 6 L5a's mailbox stamp; 7 OODOS 0.8's `EV_SFLAGS` (the hold, the stamp and `EV_SFLAGS` gone at 18); 8 OODOS 0.9's,
-  video card revision 2: function 83's card operations and the W1 contract on the aperture,
+  the video card: function 83's card operations and the W1 contract on the aperture,
   [chapter 5](05-memory-and-banking.md#video-memory-on-revision-2); 9 OODOS 0.10's [function 77](#bdos-77), the ROM
   BIOS's version: the number marks OODOS's own additions a program needs to detect too; 10 OODOS 0.10's [function
   75](#bdos-75)'s A = 2, the ROM's diagnostics; 11 OODOS 0.11's function 75 A = 3, Apple II mode with an image;
@@ -3285,8 +3270,7 @@ Five dice: 2 3 3 6 3
   receive buffer, and the event area's `EV_RXCNT`; 17 OODOS 0.16's [function 78](#bdos-78), the random source,
   `FC_T1` and `FT_CLOCK`; 18 OODOS 0.17's sound card revision 3, the card as a device: [function 82](#bdos-82)
   numbered afresh as one table grouped by job, with its new operations (tunes, the sound bank, music, `SN_NEXT`, the
-  mix, IDENTIFY and the firmware), `SN_REFUSED`, and the event area's tune and music fields; a program written for
-  function 82 checks for 18),
+  mix, IDENTIFY and the firmware), `SN_REFUSED`, and the event area's tune and music fields),
   X = a bit for each service area OODOS
   has (`OA_FRAME`, `$01`: this function; `OA_INPUT`, `$02`: [function 81](#bdos-81); `OA_SOUND`, `$04`: [function
   82](#bdos-82); `OA_DMA`, `$08`: [function 83](#bdos-83); `OA_SERIAL`, `$20`: [function 85](#bdos-85), since
@@ -3324,9 +3308,6 @@ memory that isn't the program's (the I/O hole, flash), and:
   blank turned off) it waits on.
 - `FT_FRAMEHOOK`, `FT_TICKHOOK`: an address in the I/O hole or common memory (`$C000–$C7FF`, `$F800` up), or a
   call made with W0 on the system's block; a tick hook every 0 ms. The old hook is off either way.
-
-An OODOS before L1 answers 80 as a function it doesn't have: A = X = `$FF`. So `FT_INFO`'s A of `$FF` means no
-OOLIB services at all.
 
 #### Side effects
 
@@ -3405,8 +3386,8 @@ isn't the program's (the I/O hole, flash), and:
 - `IN_MOUSE`: a mode past 1. `IN_MOUSE`, `IN_LEDS`, `IN_REPEAT`: no USB card.
 - `IN_NEXT`: no event area of layout 2 open.
 
-`IN_FLUSH` with no layout-2 area open does nothing, A = 0. An OODOS before L2 answers 81 as a function it doesn't
-have, A = X = `$FF`: [function 80's](#bdos-80) `FT_INFO` says whether there is input (`OA_INPUT`).
+`IN_FLUSH` with no layout-2 area open does nothing, A = 0. [Function 80's](#bdos-80) `FT_INFO` says whether there is
+input (`OA_INPUT`).
 
 #### Side effects
 
@@ -3461,14 +3442,14 @@ OODOS's own: CP/M 3 has no function 81 (OODOS's range, 72 on). It is OOLIB's sec
   | 4 | `SN_FIRMWARE` | +1–3 a physical address, +4–6 the length, +7 the step: 0 a piece, 1 begin (+8–11 the image's length), 2 commit | sends a firmware image to the card | none held |
   | | **Tunes** | | | |
   | 5 | `SN_TUNE` | +1–3 a `.sid` file's physical address, +4–6 its length, +7 a tune slot, 0–3 | loads the file into the slot by DMA, its header checked | tune |
-  | 6 | `SN_PLAY` | +1 the slot, +2 the song (0 the file's start song), +3 bit 0 PAL, bit 1 NTSC (neither: the file's), +4–7 a length in ms (0 until stopped), +8–9 a fade at the end in ms | plays a song of it | tune |
+  | 6 | `SN_PLAY` | +1 the slot, +2 the song (0 the file's start song), +3 bit 0 PAL, bit 1 NTSC (neither: the file's), +4–7 a length in ms (0 until stopped), +8–9 a fade at the end in ms | plays a song of it; a layout-2 area shows it starting at once (`EV_TSTATE` 1, `EV_TMS` 0) | tune |
   | 7 | `SN_STOP` | none | stops the tune, its chips silenced | tune |
   | 8 | `SN_TPAUSE` | none | holds the tune, its chips silent | tune |
   | 9 | `SN_TRESUME` | none | lets it go on | tune |
   | 10 | `SN_TSTATUS` | 16 bytes to fill | the tune's state | |
   | 11 | `SN_TINFO` | +1 a slot, then 104 bytes to fill | the loaded file's header | |
   | | **Streams** | | | |
-  | 12 | `SN_STREAM` | +1 the codec (0 raw PCM, 1 MP3), +2–3 the rate (Hz), +4 the format (bit 0 stereo, bit 1 16-bit) | starts a stream afresh | stream |
+  | 12 | `SN_STREAM` | +1 the codec (0 raw PCM, 1 MP3), +2–3 the rate (Hz), +4 the format (bit 0 stereo, bit 1 16-bit) | starts a stream afresh; a layout-2 area shows it starting at once (`EV_SSTATE` 1, +98–115 0) | stream |
   | 13 | `SN_BUFFER` | +1–3 a physical address, +4–5 the length (2 bytes; 0: 65,536) | gives the stream a buffer | stream |
   | 14 | `SN_PAUSE` | none | holds the stream | stream |
   | 15 | `SN_RESUME` | none | lets it go on | stream |
@@ -3482,7 +3463,7 @@ OODOS's own: CP/M 3 has no function 81 (OODOS's range, 72 on). It is OOLIB's sec
   | 22 | `SN_EFFECT` | +1 the effect, +2 the volume (0–255), +3 the pan (0 left, 128 the centre, 255 right), +4 the priority (0–3), +5–6 a pitch offset in cents (signed), +7 the chip (0 any, 1 a SID, 2 the ES5503) | plays an effect on a voice | |
   | 23 | `SN_ESTOP` | +1 a voice handle, 0 every effect voice | stops it | |
   | | **Music** | | | |
-  | 24 | `SN_MUSIC` | +1 a music slot, 0–31, +2–4 a note block's physical address, +5–7 its length, +8 bit 0 queued behind what plays, bit 1 the slot freed when it is done | loads a note block by DMA and plays it | music |
+  | 24 | `SN_MUSIC` | +1 a music slot, 0–31, +2–4 a note block's physical address, +5–7 its length, +8 bit 0 queued behind what plays, bit 1 the slot freed when it is done | loads a note block by DMA and plays it; a layout-2 area shows it playing at once (`EV_MSTATE` 1), unless queued behind music playing or paused | music |
   | 25 | `SN_MCTL` | +1 0 stop, 1 pause, 2 resume, 3 the threshold (+2 n) | controls music | music |
   | 26 | `SN_MSTATUS` | 24 bytes to fill | music's state | |
   | | **The beep** | | | |
@@ -3647,16 +3628,16 @@ OODOS's own: CP/M 3 has no function 82 (OODOS's range, 72 on). It is OOLIB's thi
   | 11 | `DM_BANK8` | +1 and +2 to fill | makes bank 8 the program's RAM, the aperture then only at `$E00000` |
   | 12 | `DM_VFILLW` | +1–2 a word (low byte first), +3–5 the destination (card), +6–7 the length in bytes | fills card memory with a word: a direct 640 colour |
 
-  Operations 7–10, and card addresses for 4, are since OODOS 0.9, with revision 2 of the video card (interface
+  Operations 7–10, and card addresses for 4, are since OODOS 0.9, with the video card (interface
   version 8; [chapter 5](05-memory-and-banking.md#video-memory-on-revision-2)). Operation 11 is since OODOS 0.11
-  (interface version 12, B7), for a revision 2 north bridge (ID `$D2`); a program asks for it through OOLIB's
+  (interface version 12, B7), for the north bridge's MAP; a program asks for it through OOLIB's
   `GX_BANK8` ([chapter 8](08-game-services.md#video-memory)) rather than by itself. Operation 12 is since OODOS
   0.12 (interface version 13, [hw/video640.md](../../hw/video640.md)), for the direct 640 layer, whose pixels are
   words; OOLIB's `GX_FRECT` uses it on a `GB_DIRECT` bitmap.
 
 #### Exit
 
-- `DM_INFO`: A = the card's memory in 64 KB units, its MEMSIZE (32 for 2 MB; 0 with no revision 2 card), X = the
+- `DM_INFO`: A = the card's memory in 64 KB units, its MEMSIZE (32 for 2 MB; 0 with no video card), X = the
   vertical-blank slots (4: `DM_SLOTS`). With a block: +1 and +2 the same, +3 the slots' budget in 256-byte pages (4:
   `DM_BUDGET`, 1,024 bytes), +4 the pointer's sprite (`$FF` off), +5–12 the **W1 map**: bit n & 7 of byte n / 8 set
   for each block n that OOLIB may put in W1 now: block 1, the blocks the program has allocated by functions 53–56,
@@ -3666,7 +3647,7 @@ OODOS's own: CP/M 3 has no function 82 (OODOS's range, 72 on). It is OOLIB's thi
   that is sooner); both 0 with no card. After `DM_BANK8`, byte +9 of the map is `$FF`: blocks 32–39 join it, bank
   8 being the program's RAM.
 - `DM_BANK8`: A = 0, X = 0. +1 and +2 get slot 1's window as WIN1H and WIN1: `$0E` and 1 (the aperture's slot 1 at
-  `$E04000`) with a revision 2 video card, or 0 and 0 with none, where there is no slot and bank 8 was RAM already.
+  `$E04000`) with the video card, or 0 and 0 with none, where there is no slot and bank 8 was RAM already.
 - `DM_LOAD`: A = 0, X = 0, every record loaded; A = 1 if the file ended first (a record past the extent's count, a
   block never written, or an extent never written), its records before that loaded. The block's +6–7 get the records
   loaded, either way.
@@ -3675,7 +3656,7 @@ OODOS's own: CP/M 3 has no function 82 (OODOS's range, 72 on). It is OOLIB's thi
 
 #### Errors
 
-A = X = `$FF`, and nothing done, for an operation past 12 (past 11 below interface version 13, past 10 below 12), one that needs a
+A = X = `$FF`, and nothing done, for an operation past 12, one that needs a
 block given none (`DM_BANK8` among them), a block in memory that
 isn't the program's (the I/O hole, flash), and:
 
@@ -3687,24 +3668,18 @@ isn't the program's (the I/O hole, flash), and:
 - **A card destination** outside the program's part, `$040000–$1BFFFF` (OODOS's `$000000–$03FFFF`, Apple II
   mode's `$1C0000–$1FFFFF`, past the fitted memory, or wrapping past `$FFFFFF`). A card source may be anywhere in
   the fitted memory: the console's font at `$000400`, for text on a bitmap.
-- **The card operations** (4, 7–10 and 12) with no revision 2 video card or no DMA controller: every byte they move
+- **The card operations** (4, 7–10 and 12) with no video card or no DMA controller: every byte they move
   goes by DMA.
 - `DM_LOAD`: a count of 0 or past 512. Function 33's errors otherwise, as its error mode says ([function
   45](#bdos-45)): 3 (an extent that can't be closed) and 6 (past 32 MB) returned in A, a physical error said. An FCB
   that was never opened has no blocks: A = 1, no records.
 - `DM_VBSET`: a slot past 3; a length past 1,024, or that takes the four slots' past 1,024.
-- `DM_POINTER`: a +1 of 128–254 (before OODOS 0.13, interface version 14: past 63); no layout-2 event area open ([chapter 8](08-game-services.md#the-mouse)); no video
-  card of revision 2 or no DMA controller. `$FF` (off) is always taken.
-- `DM_BANK8`: a revision 1 north bridge (ID `$D1`), which has no MAP, or a ROM BIOS before 0.17
-  ([function 77](#bdos-77)), the first that knows AP8: Break into an older ROM's monitor would write its screen into
-  bank 8's RAM. Nothing is changed: bank 8 stays as it was, the aperture with a revision 2 video card and RAM
-  without one.
+- `DM_POINTER`: a +1 of 128–254; no layout-2 event area open ([chapter 8](08-game-services.md#the-mouse)); no video
+  card or no DMA controller. `$FF` (off) is always taken.
 - `DM_VWRITE`, `DM_VREAD`, `DM_VFILL`, `DM_VFILLW`: a piece through the port that didn't end (no DMA controller answering, or one
   starved): A = X = `$FF`, the pieces before it done and none after.
 
-An OODOS before L4 answers 83 as a function it doesn't have, A = X = `$FF`: [function 80's](#bdos-80) `FT_INFO` says
-whether there is DMA and loading (`OA_DMA`, interface version 4). Below interface version 8 there are no operations
-7–10, and `DM_INFO`'s A was the first video memory unit a program might use (13), on revision 1's banks 8–B.
+[Function 80's](#bdos-80) `FT_INFO` says whether there is DMA and loading (`OA_DMA`).
 
 #### Side effects
 
@@ -3748,8 +3723,8 @@ whether there is DMA and loading (`OA_DMA`, interface version 4). Below interfac
   SPRBASE, the layers; since OODOS 0.13 SPRCTL 0, every sprite doubled): its text, font and palette are where they were, so what was printed meanwhile shows.
 - The warm boot frees the slots, turns the pointer off, and shows the console's screen as `DM_CONSOLE` does. It also
   turns the port's DMA request off and puts the aperture's slots 0–3 on card banks 0, 16, 2 and 3: slot 1 on the
-  program's first bank (`VM_PROG_BANK`), so block 33 never shows OODOS's part. On a `$D2` north bridge it sets
-  WIN0H–WIN3H and VECH to 0 and AP8 again where there is a revision 2 video card, so `DM_BANK8` lasts until the
+  program's first bank (`VM_PROG_BANK`), so block 33 never shows OODOS's part. It sets
+  WIN0H–WIN3H and VECH to 0 and AP8 again where the video card is fitted, so `DM_BANK8` lasts until the
   program ends.
 - `DM_BANK8` clears the north bridge's AP8 (MAP, `$C6A5`) with a revision 2 card, so bank 8, blocks 32–35, is RAM
   for the CPU and DMA alike, and OODOS lets every bank 8 address through as the program's (DMA segments, function
@@ -3807,9 +3782,8 @@ OODOS's own: CP/M 3 has no function 83 (OODOS's range, 72 on). It is OOLIB's fou
 
 #### Errors
 
-A = X = `$FF`, and nothing done, for an operation past 2 or a port that isn't there (any but 0). An OODOS before
-0.15 (interface version 16) answers 85 as a function it doesn't have, the same: [function 80's](#bdos-80) `FT_INFO`
-says whether there is a receive buffer (`OA_SERIAL`, `$20`).
+A = X = `$FF`, and nothing done, for an operation past 2 or a port that isn't there (any but 0).
+[Function 80's](#bdos-80) `FT_INFO` says whether there is a receive buffer (`OA_SERIAL`, `$20`).
 
 #### Side effects
 

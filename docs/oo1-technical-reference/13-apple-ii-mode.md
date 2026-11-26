@@ -46,18 +46,16 @@ are written by [the flash update](03-boot.md#the-flash-update) (or, in the emula
 Status: **emulated**
 
 `APPLE` (`backplane/bios/apple.s`) checks for what it needs, and goes back to the monitor, still in the native
-map and with nothing changed but WIN0H (0 on a revision 2 bridge), if any of it is missing. On a revision 2 north
-bridge (ID `$D2`, *proposed*, B7) it first sets WIN0H to 0, whatever a program left in it, since the checks keep
-their image number in W0's zero page and FINDIMG's return address on its stack:
+map and with nothing changed but WIN0H (0), if any of it is missing. It first sets WIN0H to 0 (*proposed*, B7),
+whatever a program left in it, since the checks keep their image number in W0's zero page and FINDIMG's return
+address on its stack:
 
-<!-- listing: ../../backplane/bios/apple.s:57-87 -->
+<!-- listing: ../../backplane/bios/apple.s:56-81 -->
 ```
 APPLE:          LDA     #$FF           ; no image named: the first good one
-APPLEN:         LDX     NB_ID          ; revision 2 or more: W0 below 1 MB, whatever a program
-                CPX     #NB_ID_V2      ; left, since IMAGE, FINDIMG's stack and a refusal's
-                BCC     @w0            ; WOZMON all use it
-                STZ     NB_WIN0H
-@w0:            STA     IMAGE          ; image A, 0-3 ($C818's $A1, which checked it)
+APPLEN:         STZ     NB_WIN0H       ; W0 below 1 MB, whatever a program left, since IMAGE,
+                                       ; FINDIMG's stack and a refusal's WOZMON all use it
+                STA     IMAGE          ; image A, 0-3 ($C818's $A1, which checked it)
                 LDA     VIDEO_ID
                 CMP     #VIDEO_ID_V2
                 BEQ     @card
@@ -77,19 +75,16 @@ APPLEN:         LDX     NB_ID          ; revision 2 or more: W0 below 1 MB, what
                 CMP     #IIE_ID
                 BEQ     @rom
                 JMP     NOROMN_SAY
-@rom:           LDX     NB_ID          ; revision 2 or more: W1-W2 under 1 MB, whatever a program
-                CPX     #NB_ID_V2      ; left (after the checks: a refusal changes nothing but
-                BCC     @low           ; WIN0H; the images are flash, which WIN1H doesn't move)
-                STZ     NB_WIN1H
-                STZ     NB_WIN2H
-@low:
+@rom:           STZ     NB_WIN1H       ; W1-W2 under 1 MB, whatever a program left (after the
+                STZ     NB_WIN2H       ; checks: a refusal changes nothing but WIN0H; the images
+                                       ; are flash, which WIN1H doesn't move)
 ```
 
-- **Video card revision 2** must answer, its ID `$92` (`VIDEO_ID_V2`): the character ROM goes in through its data
-  port, and BIOS 0.13 doesn't drive revision 1 ([chapter 6](06-video.md#revision-2-card-memory)). On any other card,
-  or none, the BIOS prints `APPLE II MODE NEEDS THE REVISION 2 VIDEO CARD`. *Proposed*, with revision 2.
-- **The DMA controller** must answer with its ID, `$82` (`DMA_ID_V2`, revision 2, *proposed*; since BIOS 0.15 a
-  revision 1 controller, `$81`, counts as none). Without it the BIOS prints `APPLE II MODE NEEDS THE
+- **The video card** must answer, its ID `$92` (`VIDEO_ID_V2`): the character ROM goes in through its data
+  port ([chapter 6](06-video.md#revision-2-card-memory)). With no card the BIOS prints `APPLE II MODE NEEDS THE
+  VIDEO CARD`. *Proposed*, with the card.
+- **The DMA controller** must answer with its ID, `$82` (`DMA_ID_V2`, revision 2, *proposed*; any
+  other ID counts as none). Without it the BIOS prints `APPLE II MODE NEEDS THE
   DMA CONTROLLER`.
 - **A IIe ROM** must be in ROM A (since BIOS 0.16, *proposed*): image *n* is flash block *n*, 0–3
   (`$F00000 + n × $4000`), 16 KB as the ROM sits at `$C000–$FFFF`. An image is good when the byte at its `$FBB3` is
@@ -98,14 +93,14 @@ APPLEN:         LDX     NB_ID          ; revision 2 or more: W0 below 1 MB, what
   IMAGE n`. (BIOS 0.15 and before looked in the cartridge, flash block 32, and printed `NO APPLE IIE ROM IN THE
   CARTRIDGE`.)
 
-With all three there, on a revision 2 north bridge (ID `$D2`, *proposed*, B7) it sets WIN1H and WIN2H to 0 too,
+With all three there, it sets WIN1H and WIN2H to 0 too (*proposed*, B7),
 whatever a program left in them, so W0–W2 reach the first 1 MB; the IIe images it has checked are flash, which the
 high registers don't move. Then, in order:
 
 1. **The ROM image.** It copies image *n*'s 16 KB, ROM A block *n* through W1, by the CPU, to RAM block 59:
    `$EC000–$EFFFF`, bank E's `$C000–$FFFF`.
 2. **The character ROM.** It puts 2 KB into the video card's own memory at card address `$1E0000`, for its Apple
-   text (*proposed*, [video card revision 2](06-video.md#revision-2-card-memory), BIOS 0.13), writing them to the
+   text (*proposed*, [the video card's memory](06-video.md#revision-2-card-memory), BIOS 0.13), writing them to the
    port's PDATA in turn: PADDR `$1E0000`, PSTEP 1, no DMA. If the image's own set *n*, at ROM A's
    `$10000 + $2000 × n` (blocks 4–5), holds anything (its first 8 bytes aren't all `$FF`), it copies the 2 KB from
    there; it never takes another image's set. If not, it makes a set from the
@@ -114,7 +109,6 @@ high registers don't move. Then, in order:
    In the emulator set *n* comes from `--apple-chars [N=]FILE` (a 4 or 8 KB file, set 0 without the number) or,
    for set 0, the WebUI's Settings. (BIOS 0.15 and before took the cartridge's block 33.) Card memory outlives the
    /RESET that enters the mode, and nothing in system RAM is written for it.
-   (BIOS 0.12, on revision 1, put the 2 KB at `$BE000` in the video banks instead.)
 3. **Interrupts off** (SEI), and a zero byte at `$EBFFF`, the top of block 58.
 4. **The clear,** by DMA, from that zero byte held as the source: banks 0–3 (four fills of 64 KB), then
    `$D000–$DFFF` of banks 4 and 5 (two of 4 KB). Before the first, it aborts every channel (ABORT `$FF`, all
@@ -125,7 +119,7 @@ high registers don't move. Then, in order:
    about 75 ms.
 5. **MODE:**
 
-<!-- listing: ../../backplane/bios/apple.s:158-160 -->
+<!-- listing: ../../backplane/bios/apple.s:152-154 -->
 ```
                 LDA     #NB_MODE_APPLE
                 STA     NB_MODE        ; Apple II mode: the north bridge pulses /RESET
@@ -144,9 +138,9 @@ Status: **emulated**
 The pulse that enters the mode is the same /RESET as Ctrl-Reset's ([below](#ctrl-reset-and-the-hard-reset)). It
 isn't a hard reset: APPLE survives it. What it resets:
 
-- **The north bridge:** the windows and VEC to their reset values, and on a revision 2 bridge WINnH, VECH and MAP
+- **The north bridge:** the windows and VEC to their reset values, and WINnH, VECH and MAP
   too (*proposed*, B7; the mode doesn't use any of them), the wait states to 0,
-  TICK and TIE cleared ([chapter 11](11-north-bridge-and-rtc.md)), and the IIe's switches to the state below. The
+  TICK cleared ([chapter 11](11-north-bridge-and-rtc.md)), and the IIe's switches to the state below. The
   real-time clock keeps its time.
 - **The DMA controller:** every channel cleared, its CARD back to its reset value, REQ cleared and any hold-off
   ended, and CONTROL back to `$70`: master enable off and SELECT 0. With the master enable off it neither polls nor
@@ -416,9 +410,9 @@ Page 2 is shown only with 80STORE off. The colours and their rules are in
 
 Status: **proposed**
 
-BIOS 0.13 enters the mode only with revision 2 of the video card ([chapter 6](06-video.md#apple-ii-mode-on-revision-2),
-[above](#what-the-bioss-entry-does)). What revision 2 changes is where the card keeps its copy of the display and
-the character ROM; the mode works as this chapter describes:
+The BIOS enters the mode only with the video card, revision 2 (ID `$92`) ([chapter 6](06-video.md#apple-ii-mode-on-revision-2),
+[above](#what-the-bioss-entry-does)). Where the card keeps its copy of the display and the character ROM is its own
+memory; the mode works as this chapter describes:
 
 - **The display.** The card watches the writes to banks 0 and 1 and the display switches on the backplane, as
   hw/design.md has it, and keeps its copy of the two banks in its own memory, card addresses `$1C0000–$1DFFFF`.
@@ -426,7 +420,7 @@ the character ROM; the mode works as this chapter describes:
   The emulator draws from banks 0 and 1 of its RAM directly instead, so it keeps no such copy.
 - **The character ROM** is in card memory at `$1E0000`, put there through the card's data port by the BIOS's entry,
   from ROM A's set *n* or made from the VGA font. Nothing of the mode is in bank B any more: its banks are 0–5 and E,
-  and system RAM is left as it was in banks 6–D and F whole. (BIOS 0.12, on revision 1, used `$BE000`.)
+  and system RAM is left as it was in banks 6–D and F whole.
 - **Card memory survives /RESET.** The pulse that enters the mode, and every Ctrl-Reset, reset the card's registers
   but never its memory, so the character ROM is still there after each ([above](#the-reset-pulse)).
 - **The rest of the card is out of reach.** Its registers can't be reached, it ignores the aperture (at `$E00000`,

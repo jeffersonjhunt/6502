@@ -31,7 +31,7 @@
  *     IRQ that returns;
  *   - B7's WIN1H (W1HTEST): kept across the BDOS stub and an IRQ no card
  *     asserts, a W1 address refused while it isn't 0, cleared by the warm
- *     boot and Break, and never written on a revision 1 north bridge.
+ *     boot and Break.
  */
 
 #include "harness.h"
@@ -74,7 +74,7 @@ TEST(oodos_sys_is_built_to_its_format)
     const SysFile s = SysFile::parse(f);
     CHECK_EQ(s.error, std::string());
     CHECK_EQ(s.major, 0);
-    CHECK_EQ(s.minor, 17); // 0.17: the sound card as a device, function 82 renumbered (interface 18)
+    CHECK_EQ(s.minor, 18); // 0.18: the cleanup pass (superseded revisions and version gates gone)
     CHECK_EQ(s.entry, sym("COLD"));
     CHECK(s.entry >= 0xC800);
     REQUIRE(s.segments.size() == 4u);
@@ -115,7 +115,7 @@ TEST(cold_boot_says_who_it_is_with_the_time_and_prompts)
 {
     Booted r;
     REQUIRE(r.ok);
-    CHECK(r.out.find("\r\nOODOS 0.17  2026-10-27 12:00:00\r\n" + boot_status() + "\r\nA>") != std::string::npos);
+    CHECK(r.out.find("\r\nOODOS 0.18  2026-10-27 12:00:00\r\n" + boot_status() + "\r\nA>") != std::string::npos);
     // Waiting for a line, in the BDOS: the system's windows.
     CHECK_EQ(r.nb(0), 31);
     CHECK_EQ(r.nb(1), 60);
@@ -130,7 +130,7 @@ TEST(cold_boot_says_who_it_is_with_the_time_and_prompts)
     CHECK_EQ(r.phys(0xBFFD), 0x4C);
     CHECK_EQ(r.phys(0xBFFE) | r.phys(0xBFFF) << 8, sym("STUB"));
     // The banner on the screen too, and the status under it.
-    CHECK_EQ(r.row(1), std::string("OODOS 0.17  2026-10-27 12:00:00"));
+    CHECK_EQ(r.row(1), std::string("OODOS 0.18  2026-10-27 12:00:00"));
     CHECK_EQ(r.row(2), "BIOS " + bios_version() + "   47K TPA");
     CHECK_EQ(r.row(3), std::string("A: 8M   B: 8M   M: 128K   O: 128K   P: 128K")); // O: and P:, the Disk II's, disk in or not (6c)
     CHECK_EQ(r.row(4), std::string("Cards: video, sound, SD, Disk II, USB keyboard, DMA, panel"));
@@ -417,7 +417,7 @@ TEST(farcall_maps_blocks_by_hand_nests_and_keeps_the_registers)
             t3 = now;
     };
     const std::string o = r.go("fartest.com");
-    CHECK_EQ(field(o, "OODOS"), "001100020004" "4001" + hex(far & 0xFF, 2) + hex(far >> 8, 2));
+    CHECK_EQ(field(o, "OODOS"), "001200020004" "4001" + hex(far & 0xFF, 2) + hex(far >> 8, 2));
     CHECK_EQ(field(o, "FARCALL"), hex(far, 4));
     // Block 20 got 11 22 33, P $CD (B and U pushed), in block 20; block 21's came back to it
     // with 20 in W3 again; 21 got 44 55 66 in block 21; the caller got 77 88 99, P $C3, in 62.
@@ -477,7 +477,7 @@ TEST(a_clock_past_2155_is_no_time)
     REQUIRE(r.mount(1, "/OODOS/A.IMG") == 0);
     r.set_time(2156, 3, 1, 10, 20, 30);
     REQUIRE(r.boot());
-    CHECK(r.out.find("\r\nOODOS 0.17  \r\nBIOS ") != std::string::npos); // no date, then the status
+    CHECK(r.out.find("\r\nOODOS 0.18  \r\nBIOS ") != std::string::npos); // no date, then the status
     std::string o = r.go("timetest.com");
     const std::string t = field(o, "TIME");
     CHECK_EQ(t.substr(t.size() - 2), std::string("FF"));
@@ -762,7 +762,7 @@ TEST(the_hole_is_on_at_the_prompt)
 {
     // O-H1 (N16; hw/design.md, "The common hole"): HOLE reads $BE at A>, and a far call into
     // block 20, whose top 2 KB is all $00 (BRKs), makes a BDOS call there and takes 100 ticks there, and comes back.
-    // Must fail with NB3CHK's write left out.
+    // Must fail with HOLEON's write left out.
     Booted r;
     REQUIRE(r.ok);
     CHECK_EQ(r.nb(0x26), 0xBE);
@@ -853,7 +853,7 @@ TEST(a_warm_boot_resets_the_banks_and_function_50_wont_boot)
     CHECK_EQ(field(b, "BOOT"), std::string("FFFF"));
     CHECK_EQ(r.phys(0xC0000 + 33), 'K');
     size_t banners = 0;
-    for (size_t at = r.out.find("OODOS 0.17"); at != std::string::npos; at = r.out.find("OODOS 0.17", at + 1))
+    for (size_t at = r.out.find("OODOS 0.18"); at != std::string::npos; at = r.out.find("OODOS 0.18", at + 1))
         ++banners;
     CHECK_EQ(banners, size_t{1});
 }
@@ -3242,7 +3242,7 @@ TEST(function_74_mounts_and_unmounts_b_to_g_as_drives_txt_has_paths)
     CHECK(!c.entries_of(d, 0, "Y       DAT").empty());
 }
 
-// --- B7: WIN1H across OODOS's ways in (b7-plan.md §2.3, §4 O1, O4, O6, O7, O11; proposed) ------------------
+// --- B7: WIN1H across OODOS's ways in (b7-plan.md §2.3, §4 O1, O4, O6, O11; proposed) ------------------
 //
 // W1HTEST (oodos/sys/test/w1htest.s) puts WIN1H on $0E itself, with W1 on block 1, so its $4000 shows the video
 // card's aperture slot 1 at $E04000 (the program's first card bank) instead of RAM block 1's $4000. A byte is put
@@ -3260,30 +3260,6 @@ namespace
         if (card)
             r.poke(0xE04000, B_CARD);
     }
-
-    /// backplane.machine with its north bridge at revision=`n` (unchanged if it has no northbridge line: the
-    /// test's ID check then fails).
-    std::string revision_machine(unsigned n)
-    {
-        std::string text = read_text(EMU_MACHINE_DIR "/backplane.machine");
-        const std::string line = "northbridge  backplane";
-        const size_t at = text.find(line);
-        if (at != std::string::npos)
-            text.insert(at + line.size(), " revision=" + std::to_string(n));
-        return text;
-    }
-
-    /// Every CPU write to the SD card's CMD or DATA ($C383, $C38C), counted: a command or a sector's byte. (The
-    /// ROM's Break, QUIET, writes IEN and CTRL, which change nothing on the card.)
-    struct SdWrites : CycleObserver
-    {
-        unsigned writes = 0;
-        void on_cycle(const BusCycle &c) override
-        {
-            if (!c.dma && c.write && (c.addr == 0xC380 + SdCard::CMD || c.addr == 0xC380 + SdCard::DATA))
-                ++writes;
-        }
-    };
 }
 
 TEST(the_bdos_stub_keeps_the_programs_win1h_and_runs_the_bdos_with_win1h_0)
@@ -3408,48 +3384,11 @@ TEST(break_reaches_the_monitor_with_win0h_left_set_or_w0_read_only)
     }
 }
 
-TEST(oodos_refuses_an_older_bridge)
+TEST(w1htest_runs_on_the_d3_bridge)
 {
-    // O7 (hw/oodos.md, "Revision 3 required"). On a revision 1 or 2 bridge OODOS's cold boot reads
-    // NB_ID first and stops: the line naming the bridge it found, on the ROM's console and the serial line, then the
-    // monitor's prompt. Nothing of OODOS's was turned on: the VIA's IER, TBCTL (none there: $FF), the video card's
-    // IEN and the 6551's command register are as the ROM BIOS left them, and no CPU cycle wrote the SD card. Must
-    // fail with the check accepting $D2 and up, or with the check after BINIT (the card's IEN written first).
-    const std::string want = "OODOS 0.17 NEEDS NORTH BRIDGE REVISION 3 ($D3). THIS ONE IS $D"; // (the version: N20)
-    for (const unsigned rev : {1u, 2u})
-    {
-        std::printf("  revision %u\n", rev);
-        Rig r(sd_image("oodos.sparse"), {}, revision_machine(rev));
-        REQUIRE(r.ok);
-        REQUIRE(r.bridge().id() == 0xD0 + rev);
-        REQUIRE(r.mount(1, "/OODOS/A.IMG") == 0);
-        Decoder &bus = r.machine->bus();
-        const uint8_t ier = bus.peek(0xC34E), tbctl = bus.peek(0xC6A8), vien = bus.peek(0xC484),
-                      acia = bus.peek(0xC302);
-        SdWrites sd;
-        r.cpu->set_observer(&sd);
-        const size_t from = r.out.size();
-        CHECK(!r.boot()); // no A>
-        r.cpu->set_observer(nullptr);
-        const std::string o = r.out.substr(from);
-        const size_t at = o.find(want + std::to_string(rev) + ".");
-        if (at == std::string::npos)
-            std::printf("  the serial line: %s\n", ccp::vis(o).c_str());
-        CHECK(at != std::string::npos);
-        CHECK(at != std::string::npos && o.find("\\", at) != std::string::npos); // the monitor's prompt after it
-        CHECK_EQ(bus.peek(0xC34E), ier);
-        CHECK_EQ(bus.peek(0xC6A8), tbctl);
-        CHECK_EQ(bus.peek(0xC484), vien);
-        CHECK_EQ(bus.peek(0xC302), acia);
-        CHECK_EQ(sd.writes, 0u);
-    }
-}
-
-TEST(w1htest_runs_on_a_revision_3_bridge)
-{
-    // N1, the sweep: on a $D3 bridge W1HTEST's W1HON writes WIN1H, as on $D2 (its NB_ID test is "revision 2 or
-    // more"), and OODOS's stub keeps it across C_WRITESTR: O1 again on revision 3.
-    Rig r(sd_image("oodos.sparse"), {}, revision_machine(3));
+    // N1, the sweep: on the $D3 bridge W1HTEST's W1HON writes WIN1H, and OODOS's stub keeps it across
+    // C_WRITESTR.
+    Rig r(sd_image("oodos.sparse"), {});
     REQUIRE(r.ok);
     CHECK_EQ(r.bridge().id(), 0xD3);
     REQUIRE(r.mount(1, "/OODOS/A.IMG") == 0);
@@ -3568,22 +3507,18 @@ TEST(after_dm_bank8_oodos_itself_never_reaches_bank_8)
     CHECK_EQ(seen.hits, 0u);
     if (seen.hits)
         std::printf("  first bank 8 cycle at $%06X\n", static_cast<unsigned>(seen.first));
-    CHECK_EQ(r.bridge().map(), 1); // the warm boot's WINH0: the revision 2 video card
+    CHECK_EQ(r.bridge().map(), 1); // the warm boot's WINH0: the video card
 }
 
-TEST(after_dm_bank8_break_sets_ap8_again_before_the_rom_and_leaves_bank_8_ram_alone)
+TEST(after_dm_bank8_break_sets_ap8_again_and_leaves_bank_8_ram_alone)
 {
-    // D7. W1HTEST's L: DM_BANK8, then a spin; Break. OODOS's NMI sets AP8 again (common.s's WINH0) before its
-    // trampoline at TRAMP ($0A00) leaves for the ROM's BREAK, as an older ROM's BREAK needs, and the monitor
+    // D7. W1HTEST's L: DM_BANK8, then a spin; Break. The ROM's BREAK sets AP8 again (its NBSET), and the monitor
     // draws its screen on the card (at $E00000) while bank 8's RAM keeps its pattern.
     Booted r;
     REQUIRE(r.ok);
     const std::vector<uint8_t> ram = pattern(0x10000, 8);
     put_bank8_ram(r, ram);
     const uint16_t bspin = labels(SYS + "/w1htest.lbl").at("BSPIN");
-    constexpr uint16_t TRAMP = 0x0A00;
-    bool at_tramp = false;
-    uint8_t map = 0xEE, winh1 = 0xEE;
     const size_t from = start(r, "w1htest.com", " L");
     bool spun = false;
     for (int i = 0; i < 400 && !spun; ++i)
@@ -3596,23 +3531,12 @@ TEST(after_dm_bank8_break_sets_ap8_again_before_the_rom_and_leaves_bank_8_ram_al
     for (unsigned n = 0; n < 30; ++n)
         REQUIRE(r.row(n).rfind("\\", 0) != 0);
     REQUIRE(r.bridge().map() == 0);
-    r.watch = [&](uint16_t pc) {
-        if (!at_tramp && pc == TRAMP)
-        {
-            at_tramp = true;
-            map = r.bridge().map();
-            winh1 = r.bridge().winh(1);
-        }
-    };
     UsbCard *usb = r.machine->usb_card();
     usb->key(UsbCard::PAUSE, true);
     r.run(ms(20));
     usb->key(UsbCard::PAUSE, false);
     CHECK(r.until("\\\r", ms(1000), from));
-    r.watch = nullptr;
-    CHECK(at_tramp);
-    CHECK_EQ(map, 1); // before the ROM: AP8 set again (the revision 2 video card)
-    CHECK_EQ(winh1, 0);
+    CHECK_EQ(r.bridge().winh(1), 0);
     CHECK_EQ(r.bridge().map(), 1);
     CHECK(bank8_ram(r) == ram);
     // The monitor's prompt on the card's screen (slot 0 at $E00000), where its cursor was: a row that starts

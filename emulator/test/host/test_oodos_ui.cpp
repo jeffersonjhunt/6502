@@ -3003,9 +3003,6 @@ TEST(ui_load_s_refusals_leave_nothing_taken)
     f[0] = 'X';
     refused(&f, "uitest", 'N', UX_LOAD_, "not an OOUI.BNK");
     f = bnk();
-    f[4] = 0;
-    refused(&f, "uitest", 'N', UX_VERSION_, "an older interface");
-    f = bnk();
     f[6] = 0x01;
     f[7] = 0x06; // 1,537 bytes of UISTATE: more than the program's 1,536
     refused(&f, "uitest", 'N', UX_VERSION_, "too little UISTATE");

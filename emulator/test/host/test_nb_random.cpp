@@ -144,7 +144,7 @@ namespace
         return v;
     }
 
-    /// A revision 3 bridge on 1 MB of RAM, `chip` its rng_chip= ("" for the default, locked), powered on.
+    /// The bridge on 1 MB of RAM, `chip` its rng_chip= ("" for the default, locked), powered on.
     struct Bridge
     {
         /// `fitted`: a chip of the test's own in place of the option's, before the power-on reset.
@@ -153,7 +153,7 @@ namespace
             MachineOptions opt;
             opt.rtc = std::make_shared<Ds3231>(Ds3231::Time{2026, 11, 22, 9, 30, 0, 1});
             std::string error;
-            m = Machine::build("cpu w65c02s\nnorthbridge backplane bootsel revision=3" +
+            m = Machine::build("cpu w65c02s\nnorthbridge backplane bootsel" +
                                    (chip.empty() ? "" : " rng_chip=" + chip) + "\nram 00000-FFFFF name=ram\n",
                                "rng.machine", opt, error);
             if (!m)

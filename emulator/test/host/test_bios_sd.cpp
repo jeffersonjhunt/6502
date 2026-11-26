@@ -51,36 +51,7 @@ namespace
         return dir.file(name);
     }
 
-    /// backplane.machine with its video line at revision 2, written as `name` in the scratch directory. The BIOS
-    /// is built for revision 2 (hw/video-rev2.md, proposed), and the file still says rev=1 until the BIOS, OODOS
-    /// and the demo move together; once it says rev=2 this copies it as it is.
-    std::string rev2_machine(const std::string &name)
-    {
-        std::ifstream in(EMU_MACHINE_DIR "/backplane.machine");
-        std::string text((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
-        const size_t line = text.find("\nvideo ");
-        const size_t rev = line == std::string::npos ? line : text.find(" rev=1", line);
-        if (rev != std::string::npos && rev < text.find('\n', line + 1))
-            text.replace(rev, 6, " rev=2");
-        const std::string path = tmp(name);
-        std::ofstream(path) << text;
-        return path;
-    }
-    const std::string MACHINE = rev2_machine("test_bios_sd_rev2.machine");
-
-    /// The same with the sound card at revision 3, the device (its sound line given rev=3), as `name`.
-    [[maybe_unused]] std::string sound3_machine(const std::string &name)
-    {
-        std::ifstream in(MACHINE);
-        std::string text((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
-        const std::string line = "sound     500-57F  space=io  name=sound  irq  drq";
-        const size_t at = text.find(line);
-        if (at != std::string::npos)
-            text.insert(at + line.size(), "  rev=3");
-        const std::string path = tmp(name);
-        std::ofstream(path) << text;
-        return path;
-    }
+    const std::string MACHINE = EMU_MACHINE_DIR "/backplane.machine";
 
     bool run_until(Session &s, std::string &out, const std::string &want, int frames = 120)
     {
@@ -124,7 +95,7 @@ namespace
             return nullptr;
         }
         std::string out;
-        if (!run_until(*s, out, "BACKPLANE BIOS 0.21\r\\\r"))
+        if (!run_until(*s, out, "BACKPLANE BIOS 0.22\r\\\r"))
             return nullptr;
         if (!image.empty() && !s->insert_sd(sd_image(image), image, error))
         {
@@ -144,7 +115,7 @@ namespace
             std::printf("  %s\n", error.c_str());
             return nullptr;
         }
-        if (!run_until(*s, out, "BACKPLANE BIOS 0.21\r"))
+        if (!run_until(*s, out, "BACKPLANE BIOS 0.22\r"))
             return nullptr;
         return s;
     }
@@ -208,7 +179,7 @@ TEST(at_power_on_a_card_without_boot_bin_is_the_monitor_saying_nothing)
     auto s = powered_on_with("fat16.sparse", out);
     REQUIRE(s != nullptr);
     REQUIRE(run_until(*s, out, "\\\r"));
-    CHECK_EQ(out.substr(out.find("BACKPLANE")), std::string("BACKPLANE BIOS 0.21\r\\\r")); // no error, no wait
+    CHECK_EQ(out.substr(out.find("BACKPLANE")), std::string("BACKPLANE BIOS 0.22\r\\\r")); // no error, no wait
     s->send("C809R\r");                                // and C809R still says what it finds
     REQUIRE(run_until(*s, out, "\\\r"));
 }
@@ -965,8 +936,7 @@ TEST(the_flash_update_runs_quiet_and_sets_its_windows_however_it_was_entered)
     // Case 23c (Q18, critic 12): entered with W2 on ROM A block 31, read-only, and a sound playing on the sound card
     // (revision 3: a 60 s beep), the update stages in RAM blocks 58-59 all the same, writes image 0 right, and has
     // stopped the sound (QUIET's CTRL RESET).
-    auto s = with_files({{"/APPLE2E0.ROM", NEW_ROM}, {"/APPLE2E0.CHR", chars(0x1000, 5, 1)}},
-                        sound3_machine("test_bios_sd_sound3.machine"));
+    auto s = with_files({{"/APPLE2E0.ROM", NEW_ROM}, {"/APPLE2E0.CHR", chars(0x1000, 5, 1)}});
     REQUIRE(s != nullptr);
     Flash *a = rom_a(*s);
     REQUIRE(a != nullptr);

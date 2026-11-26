@@ -1334,7 +1334,7 @@ CARDS
   $C700  $E1  console (front panel)           1
 
 VIDEO      2,048 KB of card memory (MEMSIZE 32); the program's 1,536 KB
-SOUND      revision 3, firmware 1.0 build 1 (image A)
+SOUND      revision 3, firmware 1.1 build 1 (image A)
              8,192 KB of store, 8,192 KB free (MEMSIZE 128)
              two SIDs (6581, 6581), the 6510, an ES5503
              raw PCM, MP3, EQ, the vis page
@@ -1425,7 +1425,7 @@ block 1 back. It writes no window itself.
 | V5 | past MEMSIZE: the program can't map it, so this is the ROM core's | | |
 | V6 (`/I`) | a test card on layer 1 (colour bars, a grid), the user answers Y or N | Y | |
 | **Sound** (claims the 6510, the stream and the ES5503; skipped if any is held) | | | |
-| S1 | ID `$A1` or `$A2`; `SN_INFO` agrees; CODECS `$83` on revision 2 | | |
+| S1 | ID `$A1` or `$A2`; `SN_INFO` agrees; CODECS `$83` on revision 2. *Since BIOS 0.21 the ROM's stage 10 drives the card: its S1 reads `$A3`, the only card; `$A1` and `$A2` went with revisions 1 and 2 ([below](#the-rom-bios-021-sound-card-revision-3))* | | |
 | S2 | the 6510 test program (below) runs and answers its first byte within 0.5 s | | the 6510, its reset vector, the mailbox to the host |
 | S3 | the mailbox both ways: 256 bytes sent with `SN_SEND`, each echoed | all 256 | a mailbox bit |
 | S4 | the card's RAM, tested by the 6510 itself, apart from its code and the vectors | no error | the card address and bits, sent back |
@@ -2177,3 +2177,39 @@ The changes, beside the random source's (NB9, `$D3` in stage 7, `hwname.s`, the 
   NUMBER CHIP"); CHIP without LOCKED, FAIL ("NOT LOCKED"); otherwise read 32 bytes and FAIL if they are all one
   value or one 4-byte group repeated; then DRAW, and BUSY must clear and READY return within 150 ms; FAIL on FAULT.
 
+## The ROM BIOS 0.21: sound card revision 3 ##
+
+Status: **built** (2026-11-24: the sound device's units S18 and S19, in branch B). Moved from the card's spec and
+build plan as built (hw/future/, removed in the cleanup pass, 2026-11-25); the card is [design.md, "Sound card
+revision 3"](design.md#sound-card-revision-3), stage 10 itself [above](#plan2-card-tests), its tests
+[hw/testing.md](testing.md#sound-card-revision-3s-tests). The ROM drives revision 3 only (the owner's
+[Q12](design.md#the-drafts-questions-decided)); with any other card QUIET leaves it alone and the splash is silent.
+
+- **QUIET** (Break, BRK, the demo's end, START) is one write of CTRL's RESET, with no record and no wait (the owner's
+  ruling 5). BIOS 0.20's QUIET zeroed `$C500-$C53C`; on a revision 3 card that would write a `$00` into CMD, the
+  start of a record that then swallows the next writer's first bytes, and a Break can land inside OODOS's own
+  record. The strobe stops every sound, empties both FIFOs and drops a half-written record. The diagnostics' copy,
+  QUIETM, is the same write; OODOS's cold boot strobes it too, before its first record.
+- **The splash's BOOTSOUND:** the splash writes CTRL's RESET, waits for READY (250 ms at most, else it runs
+  silent), and at the vertical blank its frame 0 begins on sends one BOOTSOUND record (tag `$FE`), its reply not
+  waited for ([design.md, "The splash's sound"](design.md#the-splashs-sound)). Both 6510 players (`splash/bootsnd.s`
+  and `splash/docsnd.s`), the ES5503 sample copy, the oscillator halt and the 80 KB wave image went: flash blocks
+  24-28 (bios.cfg's WAVE) are a fill now. The image and the sequence's tables moved to `tools/sndflash/`, the input of
+  `tools/mksndflash.py`.
+- **`$C818`'s entries:** X = `$A2` BEEP, 800 Hz (the PC's beep) for A × 10 ms (A = 0: 250 ms; any other pitch is the
+  BEEP record itself), and X = `$A3` STOPALL, which still sends the record (the owner's rulings 5 and 6: `$C818`
+  gives a function only A). Both go through SNDCALL: no card (the ID not `$A3`), carry set at once; else READY
+  awaited (250 ms), CMDRDY (100 ms), the record written whole under SEI (tag `$FF`), its REPLY awaited (100 ms), any
+  other record read and dropped; A, X, Y and the windows kept, only the stack used. `$A0` and `$A4-$AF` are still
+  refused.
+- **The diagnostics' stage 10** drives the card by its records (`diagsnd.inc`): S1-S6 and S10 as [above](#plan2-card-tests).
+  The old stage's S2-S8 (the host's walks of the card's RAM and wave RAM, the 6510 program `card6510.s`, the
+  mailbox, the SIDs' OSC3 and ENV3) and S10's host writes to the chips went with revision 2's registers; DOCREGS and
+  DOCN went from `diag21.s` in the review. The emulator's card faults for its tests: a card that never comes READY,
+  a SELFTEST bit, a dropped or corrupted DMA byte, a dead interrupt.
+- **`hwname.s`** names `SOUND_ID_V3` and no other sound card.
+- **The ROM's console has no bell** (no BEL handling in `video.s`, `wozmon.s`, `bios.s` or `input.s`), so the spec's
+  "the monitor's bell calls BEEP" had nothing to change.
+- **Room:** ROM block 31 5,007 bytes free before, 8,479 after (the players went; QUIET shrank to one write; the
+  sender, BEEP and STOPALL came); block 22 682 before, 1,219 after (D22ZP 67 to 63); block 21 7,891 to 7,713. DIAG
+  with BIOS 0.21: a quick run 60.3 s, a full run 171.6 s.

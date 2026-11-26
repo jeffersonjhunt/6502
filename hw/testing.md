@@ -109,7 +109,12 @@ they tested. New: the firmware alone (`test_sound_fw`), the card on the bus (`te
 (`test_sound_stream3`), its sound bank (`test_sound_bank`) and its music (`test_sound_music`), labelled `sound`;
 `test_oodos_sndfw` (SNDFW, `oodos bios sd sound dma backplane`); and the tools' `test_mksndflash` and `test_mksndfw`.
 `test_oodos_sound`, `test_oodos_playsid`, `test_oodos_pb`, `test_oodos_mu`, `test_oodos_sysinfo`, `test_bios` and
-`test_bios_diag` were rewritten for revision 3. The list is `emulator/test/host/CMakeLists.txt`'s.
+`test_bios_diag` were rewritten for revision 3 ([Sound card revision 3's tests](#sound-card-revision-3s-tests)). In
+the cleanup pass (2026-11-25) the suites of revisions moved past went too: `test_video` (video card revision 1; its
+splash and Apple screen cases ported to `test_video_rev2` first) and `test_sound_pcm`, `test_sound_mix`,
+`test_sound_mp3`, `test_sound_eq` and `test_sound_doc` (the sound card's revision 2 host interface; their EQ, vis
+and MP3 cases ported to `test_sound_dsp` and `test_sound_stream3`). The list is
+`emulator/test/host/CMakeLists.txt`'s.
 
 `web` is chosen by everything in the page: `emulator/apps/web/`, `web_build.sh`, and what `oo1.wasm` embeds or
 runs (every backplane card, the card media, `.sid` files and `components/debug`; the BIOS, its ROM and labels;
@@ -182,7 +187,8 @@ other fast-build suite was over 40 s, the next being `test_oodos_sys` and `test_
 A share can't be shorter than its longest case; splitting those cases would change the tests, so they stay.
 
 `test_session` is split for the sanitizers (the owner's decision on question 2): its long case,
-`the_speaker_and_the_sids_mix_into_the_same_stream`, has an entry of its own, and the other 21 cases two shares.
+`the_speaker_and_the_sound_card_mix_into_the_same_stream` (`the_speaker_and_the_sids_mix_into_the_same_stream`
+until sound card revision 3), has an entry of its own, and the other 21 cases two shares.
 Under `dev`, in `check.sh changed main` at 4 jobs with the host's load about 12 (2026-11-11): the long case's
 entry 71.8 s, the shares 31.3 and 40.1 s, against 120 s each (the whole suite had been 104-120 s, and timed out
 once at 120.1 under load 17).
@@ -231,7 +237,8 @@ each and 970 s in all, the other 23 60 s. So `set(EMU_SLOW_<name> case...)` with
 `EMU_SLOW_LABEL_<name>` (the split's code, item 6) puts 37 of the long cases (904 s) in four entries,
 `test_bios_diag_slow_1of4` to `_4of4`, labelled `diagslow` only; the suite's own two shares take the 23 short
 cases and four whole runs that cover the most: the golden quick run, the card stages on a good machine, bank 8's
-stuck bit on a revision 2 bridge, and block 0's stuck bit (126 s). `check_split.py` still holds every case to
+stuck bit (on a revision 2 bridge then; on revision 3, the only one, since the cleanup pass), and block 0's stuck
+bit (126 s). `check_split.py` still holds every case to
 exactly one entry.
 
 What chooses the slow share: a rule naming the suite (`test_bios_diag`: its golden reports, `fault_devices.h`) or
@@ -309,7 +316,7 @@ bridge logic, wiring or hand-written 6502 code ([hw/testing.md](#): the new suit
 | B4 | `a_tick_under_dma_is_counted`: a 64 KB copy holding the CPU 18 ms: MS +18 exactly, MSF and OVR set, one interrupt | a missed tick under DMA | the counter stepped by the acknowledge, not the tick; OVR never set |
 | B5 | `mss_restarts_with_each_second`: the chip skewed +1,000 and -1,000 ppm, 30 s: at each SEC change MSS 0 or 1; never past 999; SEC and MSS from one latch never the old second with 0 | the ms-into-second not reset; a torn time | MSS from the free-running tick modulo 1,000 (not reset); MSSL/MSSH read live, not from SEC's latch |
 | B6 | `the_tick_needs_no_clock_chip`: SQW stopped: SYNC clear 1.1 s after the last edge, MSS 999, the tick and MS unaffected; SYNC clear from power-on to the first edge | a bridge whose tick or MSS hangs on the DS3231 | the tick taken from SQW's divider; SYNC never cleared |
-| B7 | `tie_is_gone_on_revision_3`: TICK set each second and cleared by 1; TIE written 1 reads 0, no interrupt; revision 2 as before | an unexpected 1 Hz interrupt in the tick's fast path | TIE kept on revision 3 |
+| B7 | `tie_is_gone_on_revision_3`: TICK set each second and cleared by 1; TIE written 1 reads 0, no interrupt (its revision 2 half went in the cleanup pass) | an unexpected 1 Hz interrupt in the tick's fast path | TIE kept on revision 3 |
 | B8 | `resets_and_apple_ii_mode`: a hard reset: MS 0 at the first instruction, MSIE off; a /RESET pulse: MS runs on, MSIE off; in Apple II mode MS gains 1,000 a second | a counter that slows sevenfold in Apple II mode, or restarts on Ctrl-Reset | the divider counting PHI2; the pulse clearing MS |
 | B9 | `a_peek_latches_nothing`: the debugger reads MS0 and SEC; a CPU read of MS1 still gives the CPU's latch | the WebUI's memory view tearing OODOS's reads | `peek()` calling `read()` |
 
@@ -324,14 +331,14 @@ revision 3):
 | O4 | `a_disk_ii_read_keeps_exact_time` (and the write's): a sector read and a write on O:; the frame counter within two frames. The ms are a record only (review r1's T8): the counter is the bridge's, which no OODOS defect can lose, so its half was removed | frames lost under the masked fields | (none for the ms: CATCHUP's removal can't show in the bridge's count) |
 | O5 | `timer_1_is_the_program_s`: a program runs timer 1 one-shot and free-running with PB7, polling IFR bit 6, through 10 s; it sees every flag, OODOS's tick loses none; the warm boot puts ACR to 0, IER off | the program's flag cleared under it by OODOS | the dispatcher's VIASRV still taking timer 1's flag as the tick (reading `T1CL`) |
 | O6 | the tick's cost (`test_oodos_input`): the measured figures, no area, layout 1, layout 2, pinned | a regression in the fast path | (the pin) |
-| O7 | `oodos_refuses_an_older_bridge` (`test_oodos_sys`): `revision=1` and `revision=2`: the line naming `$D1` or `$D2`, then the monitor's prompt; no OODOS interrupt on (VIA IER, TBCTL, VIDEO_IEN, ACIA_CMD as the BIOS left them), the card not written | OODOS half-running on a bridge without the tick | the ID check accepting `$D2` and up; the check after CLKINIT (an interrupt turned on first) |
-| O8 | `ft_clock_reads_the_time_to_the_ms`: no block refused; two calls 250 ms apart are 250-300 ms apart by their own seconds and ms (they happen to fall across a second; the latch at the change isn't checked); the day and hour; `FK_SYNC` set, `FK_LOST` clear; 2156 refused. The revision 2 refusal is O7's | a torn or wrong time to the ms | MSSL read before SEC (no latch) |
+| O7 | `oodos_refuses_an_older_bridge` (`test_oodos_sys`): `revision=1` and `revision=2`: the line naming `$D1` or `$D2`, then the monitor's prompt; no OODOS interrupt on, the card not written. *Removed in the cleanup pass (2026-11-25), with the older bridges and OODOS's refusal* | OODOS half-running on a bridge without the tick | the ID check accepting `$D2` and up |
+| O8 | `ft_clock_reads_the_time_to_the_ms`: no block refused; two calls 250 ms apart are 250-300 ms apart by their own seconds and ms (they happen to fall across a second; the latch at the change isn't checked); the day and hour; `FK_SYNC` set, `FK_LOST` clear; 2156 refused | a torn or wrong time to the ms | MSSL read before SEC (no latch) |
 | O9 | `hook_costs_by_the_bridge` (`test_oodos_clock_debug`): the tick hook measured within 4 cycles of OODOS 0.15's 479 less the tick's saving, timer 1 untouched | a debug build that disturbs the program's timer 1 | TBSUB read without MS0's latch |
 
 The existing hook, stick, paddle, delay and "loses no tick" cases run on revision 3 unchanged.
 
-**The diagnostics** (`test_bios_diag`): NB10 PASS on revision 3, SKIP on revision 2, FAIL with a bridge fault option
-(MSS not restarted; MSF not cleared by a 1). Mutant: NB10's MSS compare removed, so the fault passes, and the case
+**The diagnostics** (`test_bios_diag`): NB10 PASS on revision 3 (`nb10_passes`; its revision 2 SKIP went in the
+cleanup pass), FAIL with a bridge fault option (MSS not restarted; MSF not cleared by a 1). Mutant: NB10's MSS compare removed, so the fault passes, and the case
 must fail.
 
 **Expectation changes (need approval):**
@@ -340,7 +347,8 @@ must fail.
   tolerance (`test_oodos_clock_disk2`), made exact; `FT_INFO`'s interface 17 and its clocks byte; the tests'
   `ms_count()` and `sym("MS")` reads taking the bridge's counter;
 - `test_rtc`'s `tick_with_tie_interrupts_as_irqh_bit_5` and `a_program_reads_the_time_and_takes_the_tick_interrupt`
-  pinned to `revision=2` (the bridge's behaviour there is unchanged);
+  pinned to `revision=2` (the bridge's behaviour there is unchanged); both removed in the cleanup pass, with
+  revision 2's bridge;
 - **retired, with the VIA tick:** `test_oodos_clock`'s `a_stopped_timer_ends_a_delay_and_the_warm_boot_starts_it_again`
   and `a_changed_acr_is_put_back_by_the_warm_boot_losing_no_tick` (the second replaced by O5's ACR check), and
   `without_the_via_the_6551_s_interrupt_is_served_and_its_key_kept`'s expectation of no ms counter (it keeps its
@@ -349,8 +357,9 @@ must fail.
   `on_a_revision_1_north_bridge_its_row_says_d1_and_revision_1`, `test_gwbasic_screen`'s
   `a_revision_1_bridge_has_peek_and_poke_but_not_bload`, and the `revision=1` cases of `test_oodos_video`,
   `test_oodos_gfx` and `test_oodos_sys` (each helper that inserts ` revision=1`);
-- **unchanged:** the ROM's and the emulator's own revision 1 and 2 cases (`test_bios`, `test_bios_diag`,
-  `test_video_rev2`, `test_session`, `test_machine`), since the BIOS keeps all three revisions;
+- **unchanged** then: the ROM's and the emulator's own revision 1 and 2 cases (`test_bios`, `test_bios_diag`,
+  `test_video_rev2`, `test_session`, `test_machine`), since the BIOS kept all three revisions; they went in the
+  cleanup pass (2026-11-25), when the bridge became revision 3 only;
 - the random source's O5 (`an_old_bridge_has_no_source`, `revision=2`) becomes O7's refusal.
 
 Anything else that changes output is a finding to bring back.
@@ -382,9 +391,9 @@ wiring, bridge logic or hand-written 6502 code.
 | O2 | `rn_fill_waits_for_ready`: n 64 straight after n 32, never `$00`s | an empty pool's `$00`s handed out | the READY wait removed |
 | O3 | `rn_fill_recovers_from_a_fault`: one draw's three tries failed, DRAW written, bytes right; two draws failed, refused, no hang | a game hanging on a flaky chip, or given garbage | DRAW not written; the give-up removed |
 | O4 | `rn_info_says_what_there_is`: locked; unlocked `RS_UNLOCKED`, RN_FILL refused; none 0, refused | a program unable to tell why it has no numbers | RS_UNLOCKED's test inverted |
-| O5 | `an_old_bridge_has_no_source`: `revision=2`, RN_INFO 0, RN_FILL refused at once | `$FF` from unused offsets taken as READY, CHIP and data | the NB_ID check removed |
-| O6 | `the_interface_is_17`: FT_INFO; every existing function's cases unchanged | a program unable to tell whether 78 exists | (the pin) |
-| O7 | SYSINFO's goldens: locked, unlocked, none, revision 2 | a wrong RANDOM line | the line's RS bit tested wrongly |
+| O5 | `an_old_bridge_has_no_source`: `revision=2`, RN_INFO 0, RN_FILL refused at once. *Gone: it became O7's refusal, and that went in the cleanup pass with the older bridges* | `$FF` from unused offsets taken as READY, CHIP and data | the NB_ID check removed |
+| O6 | `the_interface_is_17`: FT_INFO; every existing function's cases unchanged. *Now `test_oodos_sound`'s `the_interface_is_18` (OOLIB interface 18)* | a program unable to tell whether 78 exists | (the pin) |
+| O7 | SYSINFO's goldens: locked, unlocked, none (revision 2's went in the cleanup pass) | a wrong RANDOM line | the line's RS bit tested wrongly |
 
 **The diagnostics** (`test_bios_diag`): NB9 PASS on a good machine; FAIL with `rng_chip=unlocked` and with the
 injector making the chip answer a constant; SKIP with no chip. Mutant: NB9's byte compare removed, so the constant
@@ -392,6 +401,119 @@ chip passes, and the case must fail.
 
 **Expectation changes (need approval):** NB_ID `$D2` to `$D3` in goldens; the version pins; SYSINFO's new line.
 Anything else that changes output is a finding to bring back.
+
+## Sound card revision 3's tests ##
+
+Status: **built** (2026-11-24, the sound device's branches A, B and C; [hw/oodos.md, "Sound card revision 3, as
+built"](oodos.md#sound-card-revision-3-as-built)). The card's spec's acceptance and its build plan's test cases, moved
+here as built (hw/future/, removed in the cleanup pass, 2026-11-25): each must-fail case was seen failing under its
+mutant, on its own case; each mutant is a defect plausible in a real card's logic or in hand-written 6502 code.
+
+**The suites:** the firmware alone (`test_sound_fw`), the card on the bus (`test_sound_device`), its streams
+(`test_sound_stream3`), its sound bank (`test_sound_bank`), its music (`test_sound_music`), the EQ and the vis page
+alone (`test_sound_dsp`, from the cleanup pass), all labelled `sound`; `test_oodos_sndfw` (SNDFW); the tools'
+`test_mksndflash` and `test_mksndfw`. `test_oodos_sound`, `test_oodos_playsid`, `test_oodos_pb`, `test_oodos_mu`,
+`test_oodos_sysinfo`, `test_bios`, `test_bios_diag` and `test_gwbasic_sound` were rewritten for revision 3.
+`test_usb`'s speaker cases and `test_iie`'s bell are as they were.
+
+### The acceptance ###
+
+| The spec's acceptance | Met by |
+|---|---|
+| The corpus plays identically: for every one of the 61,201 tunes, the 6510's SID writes (address, value, SID-clock cycle), the play calls and each chip's own output the same as revision 2's register path's, the known failures the same 148 | `test_sid_corpus`'s device mode (`SID_DEVICE=1`, `SID_COMPARE`) against S0's recorder (`SID_RECORD`), the full sweep at S11: 60,610 of 60,610 alike; by default a sample of 12, both ways (`a_sample_of_the_tunes_plays_on_the_device`, `the_device_records_a_tune_as_the_register_path_does`) |
+| A stream bigger than card memory: from an OODOS program, 60 s of 44.1 kHz 16-bit stereo raw PCM (10.6 MB) on an 8 MB card, fed in chunks on NEED, plays with no underrun, byte for byte at the card's tap | `test_sound_stream3`'s `a_stream_bigger_than_the_store_plays_with_no_underrun`; `test_oodos_sound`'s `a_file_bigger_than_the_store_streams_from_b_with_no_underrun` |
+| Gapless: two streams queued by STREAM_NEXT give exactly one stream's frames (raw PCM); an MP3 pair with gapless headers the trimmed frames | `two_streams_queued_are_one_stream_at_the_tap`, `a_join_s_output_is_one_stream_s`, `an_mp3_pair_with_gapless_headers_is_trimmed`; `test_oodos_sound`'s `two_files_queued_by_sn_next_join_with_no_gap` |
+| Underrun: a feeder held back makes UNDERRUN events whose count and positions match STREAM_STATUS; the sound back at the next frame due | `underruns_counted_as_status_says_and_sound_back_at_the_next_frame_due`, `each_underrun_end_counts_its_own_frames` |
+| Sharing: a one-SID tune with effects on SID B and samples on the ES5503 writes what it writes alone | `test_sound_bank`'s `a_tune_s_writes_are_the_same_with_effects_on_sid_b_and_the_es5503` |
+| Music: 10,000 notes in one transfer end with one MUSIC_DONE; PLAY(n) and ON PLAY(n) exact; a 3,600 s SOUND one entry | `test_sound_music`'s `ten_thousand_notes_in_one_block_end_with_one_done`, `notes_waiting_are_exact_and_the_threshold_fires_once_below_n`, `a_3600_s_note_is_one_entry`; `test_gwbasic_sound`'s `sound_s_ranges_by_hand`, `play_mb_runs_in_the_background_and_play_n_counts`, `on_play_fires_when_the_buffer_falls_to_n_minus_1` |
+| The beep plays over a tune and a stream, at its pitch within 0.1% | `the_beep_is_at_its_pitch_within_0_1_percent_over_a_tune_and_a_stream`; `test_oodos_sound`'s `sn_beep_lasts_its_length_at_its_pitch_on_the_card` |
+| Time-independence: each feature's output the same at audio rate 0 and 48,000, however ticked | `each_source_s_output_is_the_same_at_rate_0_and_48000`, stream3's `the_same_at_rate_0_and_48000`, `a_record_runs_20_us_after_its_last_byte_wherever_in_a_sample_it_lands` |
+| Native and WebAssembly builds pass; the sanitizers clean on the release candidate | the full tier at each branch's end; `the_mixed_output_is_the_same_bits_natively_and_in_webassembly` (from the cleanup pass, the owner's answer: one second of the card's mix hashed and pinned, the same in both builds) |
+
+### The cases and their mutants ###
+
+**The firmware and the card** (`test_sound_fw`, `test_sound_device`):
+
+| Case | The real failure it guards | Must fail under |
+|---|---|---|
+| `every_command_gets_one_reply_in_order` | replies out of order under a waiting transfer | the reply of a command that waits for a transfer sent first |
+| `a_full_event_fifo_loses_events_never_replies` (an event flood, then 20 commands: every reply comes; EVLOST and LOSTCLR's count right) | a real card's event FIFO overflowing under a chatty stream | no room reserved for replies |
+| `a_record_with_the_wrong_n_is_refused_at_the_door` (ERROR, STATUS's ERR; the next record parses) | a parser that loses its place | the parser resyncing on the wrong byte |
+| `the_store_refuses_what_doesn_t_fit_at_each_size` (2, 4, 8 MB) | a store size misread | MEMSIZE's units read as KB |
+| `checksum_is_crc_32_of_what_came` (against a table computed in the test) | DMA's delivery not checked end to end | the last byte left out |
+| `a_load_s_bytes_go_in_by_channel_2_demand_dma_and_checksum` (DRQ falls when the transfer ends) | a request between transfers | revision 2's standing request (DRQ with no transfer open) |
+| `evt_is_a_level_and_no_event_is_lost_between_the_drain_and_the_clear` | an event arriving after the handler's last read, before its ISR write | EVT as an edge cleared by the write |
+| `xleft_latches_all_three_bytes_on_the_low_read` | a torn read across a byte carry | no latch |
+| `reset_abandons_a_transfer_and_empties_both_fifos_but_keeps_the_store`, `fwrestart_empties_the_store`, `a_byte_to_data_with_no_transfer_is_dropped`, `cmdfree_and_cmdrdy_hold_a_whole_record` | the resets and the door as the spec says | |
+| `pause_holds_the_6510_s_cycles_and_silences_its_chips` | a paused tune that runs on silently | the 6510 left running at volume 0 (its cycle count moves) |
+| `a_tune_plays_its_song_and_its_play_calls_are_counted`, `a_stalled_tune_says_so_after_2_s`, `a_jam_stops_the_tune_with_e_jam`, `the_length_and_fade_end_it_once`, `a_tune_takes_whole_chips_and_gives_them_back`, `a_one_sid_tune_s_read_of_d423_gives_sid_a_s_d403` | the tune player's events and chips | the read mirror removed (the last) |
+| `the_beep_is_at_its_pitch_within_0_1_percent_over_a_tune_and_a_stream` | the beep taking a tune's voice | the beep on a SID voice (the tune's SID writes change) |
+| `a_mono_tune_is_heard_in_both_ears`, `the_eq_and_vis_page_cover_the_sids`, `the_boot_sound_plays_from_the_card_s_flash` | the ADC path, the boot sound's sequence | |
+| `a_good_image_boots_after_fwrestart_and_says_its_version`, `a_bad_crc_or_another_card_s_image_leaves_the_old_one`, `a_restart_during_the_flash_write_keeps_the_old_image`, `selftest_names_the_part_that_fails` | a bad update that boots | the CRC not checked |
+
+**Streams, the bank, music** (`test_sound_stream3`, `test_sound_bank`, `test_sound_music`):
+
+| Case | Must fail under |
+|---|---|
+| `a_stream_bigger_than_the_store_plays_with_no_underrun` | a NEED sent while one is outstanding (the feeder sends twice, `E_MEMORY`) |
+| `two_streams_queued_are_one_stream_at_the_tap` | one frame of silence at the join |
+| `underruns_counted_as_status_says_and_sound_back_at_the_next_frame_due` | a new prebuffer after an underrun |
+| `a_tune_s_writes_are_the_same_with_effects_on_sid_b_and_the_es5503` | an effect allowed onto a tune's chip |
+| `stealing_takes_the_lowest_priority_oldest_voice` | the newest stolen |
+| `a_bank_bigger_than_wave_ram_plays_each_sample` (300 KB of samples) | |
+| `ten_thousand_notes_in_one_block_end_with_one_done` | a done each note |
+| `notes_waiting_are_exact_and_the_threshold_fires_once_below_n` | fired at n, not below |
+| `a_3600_s_note_is_one_entry` | the length cut to 16 bits |
+| `music_is_refused_e_busy_when_a_tune_holds_its_chips`, `a_block_that_doesn_t_parse_is_refused_at_xferdone` | |
+
+The MP3 cases ported from revision 2's suite in the cleanup pass (`sixty_four_kb_with_no_frame_is_error_81` through
+`damaged_frames_mid_stream_play_as_minimp3_with_the_end_at_once_or_late`) run through the firmware's stream decoder,
+their reference minimp3 trimmed by an encoder's header where a file has one.
+
+**OODOS** (`test_oodos_sound`, on CcpRig):
+
+| Case | The real failure it guards | Must fail under |
+|---|---|---|
+| `a_program_s_record_and_the_handler_s_never_mix` (a stream's NEED lands while a program's IDENTIFY is being written; both get their replies; an interrupt anywhere inside the record write counts) | two records interleaved on CMD | the sender without SEI (`E_PARAM`) |
+| `a_card_that_never_answers_is_sn_busy_in_100_ms` (and a late reply during the next call) | a call that hangs on a dead card | no time-out |
+| `the_cold_boot_clears_a_half_record_left_by_the_rom` (a stray `$00` in CMD before the boot) | a record half written by a program before Break | no RESET strobe |
+| `the_warm_boot_quiets_the_card_and_puts_back_its_defaults_by_wboot_ctrl_c_and_break` | a program's sound playing on | |
+| `sn_beep_lasts_its_length_at_its_pitch_on_the_card` | GW-BASIC's BEEP not waiting | SN_BEEP returning at the REPLY |
+| `a_bel_rings_the_card_s_bell`, `a_bel_while_the_frame_sends_its_records_reaches_the_card_whole` | the bell lost, or mixed with the handler's records | BEL dropped; HRECT's store before SEI |
+| `each_load_s_address_is_checked_as_function_51_s_segment` | a load over OODOS's own memory | a block past memory accepted |
+| `a_stream_s_buffers_chain_across_needs_with_no_gap`, `acceptance_44_1_khz_16_bit_stereo_raw_pcm_from_b_with_no_underrun`, `acceptance_an_mp3_from_b_plays_as_minimp3_decodes_it`, the review's stream cases (`with_no_area_a_full_ring_is_fed_at_each_need` through `sn_status_s_block_is_its_own_reply_s_with_the_frame_s_between`) | the stream on NEED | each review fix's own mutant |
+| one case a group of the new operations: `tunes_load_play_pause_status_and_info`, `the_bank_sample_effects_play_and_stop`, `music_block_control_and_status`, `the_mix_eq_vis_sidregs_and_levels`, `sn_firmware_updates_the_card_s_image` | | |
+
+`test_oodos_pb` (the stall rule on +116-119, `PB_LEVELS` the card's own, `PB_DOC` refused, no card or one never
+ready), `test_oodos_mu` (MU_* on blocks, a note's count exact from the card), `test_oodos_playsid` (RSIDs play, the
+overlay cases kept) and `test_oodos_sndfw` (an image from M: written, marked to boot and run after FWRESTART; a bad
+one refused; the short files) follow.
+
+**The ROM** (`test_bios`, `test_bios_diag`):
+
+| Case | Must fail under |
+|---|---|
+| `break_stops_every_sound_on_the_card` (a tune and a stream playing; nothing at the tap after Break) | QUIET's write removed |
+| `the_splash_sends_bootsound_at_frame_0_s_blank` | BOOTSOUND sent before the blank |
+| `c818_beep_and_stopall` (carry clear with a card; set with none, and with a card that never comes READY, inside 250 ms + 100 ms; another's REPLY waiting is dropped) | no time-out; SREAD taking any REPLY |
+| `stage_10_names_a_selftest_failure`, `stage_10_s_checksum_catches_a_dropped_byte`, `stage_10_s_checksum_catches_a_corrupted_byte`, `stage_10_s_event_path_catches_a_dead_interrupt`, `a_card_that_never_comes_ready_fails_s1_and_skips_the_rest` (the slow share) | each one's compare removed |
+
+**The session and the page:** `test_session`'s `a_sid_tune_plays_on_the_card_changes_song_stops_and_goes_with_a_power_cycle`
+(the firmware model's tune player; mutant: `soundRunning` left on revision 2's CTRL RUN, so the tune bar ends a
+tune at once), `the_speaker_and_the_sound_card_mix_into_the_same_stream` and
+`in_apple_ii_mode_the_sound_card_keeps_the_apple_clock_s_time`; vitest's wasm-port sound cases and the Devices
+pane's revision 3 view; `e2e/sound.spec.ts`'s smoke case (a BEEP record typed into `$C503` at WOZMON, EVT's REPLY
+read back).
+
+**GW-BASIC** (`test_gwbasic_sound`, branch C's block F): `sound_plays_its_tone_on_the_tone_generator`,
+`sound_s_ranges_by_hand`, `beep_and_ctrl_g_sound_the_bell`, the play_* cases in Hz and µs,
+`on_play_given_after_the_notes_fires_as_the_count_falls_to_n_minus_1`, `stop_end_and_break_with_background_music`;
+mutants: the instrument a SID voice's, the µs cut to 16 bits, 32,767 sent as a tone, the tick 55,000 µs, PLAY's µs
+rounded to the ms, the threshold set to n.
+
+**Measurement records** (not guards; each brought to the owner once): `play_s_note_cost_is_timed` (8,243 to 3,481
+cycles, its bound 1,000-9,000), `the_stream_s_cost_to_the_host`, the full budget's end line with a stream playing,
+the diagnostics' quick run (60.3 s), `pb_vis_costs`.
 
 ## Open questions ##
 
@@ -414,7 +536,7 @@ Anything else that changes output is a finding to bring back.
    sanitizers (about 13-15 times at -O2). Neither suite does anything odd: both spend their time running machine
    time at the emulator's -O0, ASan speed. In `test_bios_sd` three cases each wait out the BIOS's 5 s splash (or its
    2 s without a video card), 152 of the 189 s; in `test_session` one case,
-   `the_speaker_and_the_sids_mix_into_the_same_stream`, runs 5.1 s of machine time with the speaker and the SIDs
+   `the_speaker_and_the_sids_mix_into_the_same_stream` (now `..._the_sound_card_mix_...`), runs 5.1 s of machine time with the speaker and the SIDs
    mixed, 50 of the 106 s, and a few others power-cycle through the splash at 4-6 s each. Alone they fit their
    limits (88% and 63%); with 16 suites at once on the builder they didn't. Under this plan `test_bios_sd` (a BIOS
    suite) no longer runs under the sanitizers at all, and `test_session` (`emu`) does. Ways on, for the owner (none

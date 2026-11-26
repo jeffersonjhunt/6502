@@ -134,13 +134,13 @@ export interface SoundCpu {
   raster: number;
   /** Each voice's envelope, SID A's three then SID B's. */
   envelopes: Envelope[];
-  /** Both SIDs' 25 registers as last written, A's then B's (revision 3's shadows: its SIDs aren't on the bus). */
+  /** Both SIDs' 25 registers as last written, A's then B's (the firmware's shadows: the SIDs aren't on the bus). */
   sids?: Uint8Array;
-  /** Revision 3's firmware (the card as a device); absent on revision 1 or 2. */
+  /** The card's firmware (the card as a device); absent without the card. */
   device?: SoundDevice;
 }
 
-/** Sound card revision 3's firmware as a debugger sees it (readSound). */
+/** The sound card's firmware as a debugger sees it (readSound). */
 export interface SoundDevice {
   /** TUNE_STATUS's state, MUSIC_STATUS's, and each stream's (STREAM_STATUS's). */
   tune: number;
@@ -179,7 +179,7 @@ export interface ClockState {
   rtcdata: number;
   /** The DS3231's own registers, $00-$12. */
   chip: Uint8Array;
-  /** The timebase, on a revision 3 bridge (none before): TBCTL, the millisecond counter and MSS, read with no latch. */
+  /** The north bridge's timebase (none without a bridge): TBCTL, the millisecond counter and MSS, read with no latch. */
   timebase?: TimebaseState;
   /** The random source, on a revision 3 bridge: RNGST and the bytes in its pool. */
   random?: { rngst: number; count: number };
@@ -426,15 +426,15 @@ export interface MachinePort {
    */
   readMemory(addr: number, length: number, space: "cpu" | "physical" | "io"): Promise<Uint8Array>;
   /**
-   * A revision 2 video card's own memory (hw/video-rev2.md), the debugger's
+   * The video card's own memory (hw/video-rev2.md), the debugger's
    * `vram`: `length` bytes from a 24-bit card address, with no bus cycle and
    * the card's port untouched; $FF past what is fitted. null without one
-   * (no video card, or revision 1, which has none).
+   * (no video card).
    */
   readCardMemory(addr: number, length: number): Promise<Uint8Array | null>;
   /** Bytes into card memory there, as readCardMemory() reads it; past what is fitted they are dropped. */
   writeCardMemory(addr: number, bytes: Uint8Array): void;
-  /** What A0-A23 carry for a CPU address now: the CPU card's view (the flash at $F00000; WINnH's A20-A23 on a revision 2 north bridge; bank 8 at the aperture, $E00000, while its MAP's AP8 is set, or on a revision 1 bridge with a revision 2 card). */
+  /** What A0-A23 carry for a CPU address now: the CPU card's view (the flash at $F00000; WINnH's A20-A23; bank 8 at the aperture, $E00000, while the north bridge's MAP has AP8 set). */
   physical(cpuAddr: number): Promise<number>;
   /** A label or hex ("C800", "$C800") to a CPU address; null if neither. */
   resolve(text: string): Promise<number | null>;

@@ -33,8 +33,8 @@
  *
  * Inspection never takes a bus cycle: registers, peek() (CPU address, with
  * the windows) and peek_physical() (A0-A23, the CPU card's view: bank 8 is
- * the aperture while the north bridge sends it there, by MAP's AP8 on
- * revision 2, or a revision 2 video card on revision 1), the lamps, and a ring of the
+ * the aperture while the north bridge sends it there, by MAP's AP8), the
+ * lamps, and a ring of the
  * latest bus cycles in the bus trace's terms (docs/BUS_TRACE.md), recorded
  * only while turned on.
  */

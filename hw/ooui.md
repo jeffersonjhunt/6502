@@ -328,7 +328,7 @@ one's after it, and the console's screen comes back. The event area stays the ap
 | `ui_suspend` | | OOUI stops drawing; `ui_poll` returns every key, button and wheel event as `UE_RAW`; the layers are the app's. The sliders' sprite thumbs go out of sight; a key repeating, a first click and a press held are dropped (U2 review, X1, X3, X9, X10) |
 | `ui_resume` | | the layers and the pointer set again; everything drawn again |
 
-Errors (`UX_*`, *provisional numbers*): `UX_VERSION` 1 (OODOS's interface below 8, or no input or DMA), `UX_AREA` 2
+Errors (`UX_*`, *provisional numbers*): `UX_VERSION` 1 (no input or DMA; OODOS's interface below 8 until the cleanup, 2026-11-25), `UX_AREA` 2
 (no event area, or layout 1), `UX_MEMORY` 3 (no video memory), `UX_TABLE` 4 (an unknown type, a parent after its
 child, a menu item outside a menu, more than 240 records), `UX_HANDLE` 5 (a handle past the table, or a call the
 type doesn't take), `UX_BUSY` 6 (`ui_open` while open; a box or the picker up), `UX_LAYER` 7 (`UO_BASE` past 1,
@@ -1009,8 +1009,8 @@ questions say where it leans on them.
   The loader's code, its FCB and its buffer are all outside `$4000-$7FFF`.
 - **Its refusals** (carry set, A the error):
   - `UX_LOAD` (10, new): no file, a short read, or a file that isn't an `OOUI.BNK`.
-  - `UX_VERSION`: an interface older than the one the program was built for, or a file that needs more
-    `UISTATE` or more imports than the program gives.
+  - `UX_VERSION`: a file that needs more `UISTATE` or more imports than the program gives, or lacks a call it
+    has (an interface older than the program's too, until the cleanup, 2026-11-25).
   - `UX_MEMORY`: no block free.
   - `UX_GX` (11, new): `GX_BLOCK` refused a block (`GE_MAP`, `gxmem.s`). That is what happens when `GX_INIT`
     wasn't called first, or refused (D8). The program must call `GX_INIT` first. OOLIB's state is in the
@@ -1380,7 +1380,7 @@ program's 320 KB.
     one crossing (E3).
 - **Must-fails:**
   - *(retired at OODOS 0.16, nb-rev3's N17: ui_load makes no copy, the north bridge's hole shows common memory in
-    every block; NB3CHK's write of HOLE left out fails `a_window_with_labels_buttons_and_a_check_box` instead)* the
+    every block; HOLEON's write of HOLE left out fails `a_window_with_labels_buttons_and_a_check_box` instead)* the
     copy of common memory left out: the first call never comes back, and the case fails on its time limit;
   - a kind of fixup skipped: the frames differ;
   - in `test/check_tools.py`:

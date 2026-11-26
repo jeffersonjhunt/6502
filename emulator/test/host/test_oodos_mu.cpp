@@ -30,8 +30,6 @@ using namespace oodos_rig::ccp;
 
 namespace
 {
-    const bool REV3 = (sound_revision() = 3, true); ///< every rig here: revision 3
-
     constexpr uint32_t MBOX = 0x3900, BUF = 0x3A00, NBLK = 0x3D00, LOGN = 0x3B00, LOG = 0x3C00; ///< mutest.s's
     constexpr uint8_t PE_RANGE = 2, PE_STATE = 3, PE_REFUSED = 4, PE_FULL = 5;                   ///< oolib.inc's
     constexpr uint8_t MV_NONE = 0, MV_DONE = 1, MV_MARK = 3, MV_COUNT = 6;

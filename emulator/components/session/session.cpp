@@ -406,7 +406,7 @@ namespace ooe::emu
                 return false;
             if (d->firmware().host_tune(bytes, song, error) != SoundFw::OK)
             {
-                if (sid_) // the old tune again, as revision 2's keeps playing it
+                if (sid_) // the old tune again: a refused one leaves it playing
                 {
                     std::string ignored;
                     d->firmware().host_tune(sid_bytes_, sid_song_, ignored);

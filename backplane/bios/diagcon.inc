@@ -5,7 +5,7 @@
 ; stack (stage 3 on); stages 0-2 and the prompt are diag23.s's macros.
 ;
 ; The output goes to the serial line (19,200 baud, as the BIOS sets it) and,
-; with a revision 2 video card, to the text screen's form: PUTC writes A to
+; with the video card, to the text screen's form: PUTC writes A to
 ; both, the screen's cell at DG_ROW, DG_COL through the card's port (DG_SCR
 ; bit 6 says whether the screen takes it now). A CR is the next line on
 ; both. X and Y are kept by PUTC, PUTS, HEX2 and PUTDEC.

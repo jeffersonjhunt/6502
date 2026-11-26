@@ -6,15 +6,15 @@ a controller and its firmware. The host never touches the chips: it writes comma
 event records back, and sends data through one port by DMA.
 
 The design record, for the reasons: [hw/design.md, "Sound"](../../hw/design.md#sound), and the card's spec,
-[hw/future/sound-device.md](../../hw/future/sound-device.md).
+[hw/design.md, "Sound card revision 3"](../../hw/design.md#sound-card-revision-3), which has the records' layouts too.
 
 ## The card as a device
 
 Status: **emulated**
 
 The card's registers fill `$C500–$C511`, with its ID at `$C57F` ([Registers](#registers)); the rest of the block
-reads `$FF`. The emulator models the card on the machine file's sound line (`rev=3`, the only revision, may be said;
-`memsize=2`, `4` or `8`, 8 the default).
+reads `$FF`. The emulator models the card on the machine file's sound line (revision 3, the only one: the line takes
+no `rev=`; `memsize=2`, `4` or `8`, 8 the default).
 
 - **A command** is a record written to [CMD](#reg-c503) (`$C503`), a byte at a time: +0 the command, +1 n (the
   parameter bytes after +2), +2 a tag of the host's own choosing, +3 on the parameters, low byte first. The card
@@ -75,7 +75,7 @@ One write stops everything: CTRL's RESET ([`$C500`](#reg-c500)) stops every soun
 transfer, empties both FIFOs and clears IEN; the store keeps what it holds. The BIOS's QUIET does it on Break, BRK
 and the demo's end:
 
-<!-- listing: ../../backplane/bios/bios.s:606-610 -->
+<!-- listing: ../../backplane/bios/bios.s:603-607 -->
 ```
 @sound:         LDA     SOUND_ID
                 CMP     #SOUND_ID_V3
@@ -123,7 +123,9 @@ Status: **emulated**
 
 The tone generator plays a band-limited square, one note at a time, beside everything else. BEEP gives it a pitch
 (20–20,000 Hz), a length in ms and a volume (0 the default), and BEEP_DONE says it ended; BELL plays the console's
-bell, the firmware's own short tone.
+bell, the firmware's own short tone. Music can have the tone generator as one of its voices (an instrument whose source
+is 2); there, as for BEEP, 20,000 Hz is the top, and a tone entry above it is silent for its length, as a rest is, with
+the voice's next entry on time.
 
 On the bare machine the ROM has both through its dispatching entry `$C818` ([chapter 3](03-boot.md)), Y = `$5A`:
 X = `$A2` is BEEP, 800 Hz for A × 10 ms (A = 0: 250 ms), and X = `$A3` is STOPALL. Each waits for the card's READY
@@ -701,4 +703,4 @@ R. Writes are ignored.
 #### Notes
 
 `SOUND_ID_V3` (`$A3`) is the value, and `SOUND_TYPE` (`$A0`) its high nibble. The BIOS and OODOS check for `$A3`
-before they touch the card. The offsets with no register, `$12–$7E`, read `$FF` and ignore writes.
+before they touch the card. The offsets with no register, `$12–$7E`, read 0 and ignore writes.

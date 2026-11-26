@@ -43,8 +43,6 @@ using namespace oodos_rig::ccp;
 
 namespace
 {
-    const bool REV3 = (sound_revision() = 3, true); ///< every rig here: sound card revision 3, the card as a device
-
     const std::string BUILD = std::getenv("GWBASIC_BUILD") ? std::getenv("GWBASIC_BUILD") : EMU_GWBASIC_BUILD;
 
     std::vector<uint8_t> file(const std::string &name)

@@ -9,8 +9,9 @@
  *
  * @copyright Copyright (c) 2024-2026 Jefferson J. Hunt (MIT)
  *
- * Playing a tune on revision 2's card, through its host registers: the
- * header and the plan are sid_plan.h's.
+ * Playing a tune on the sound card's chips (sound_card.h), through their
+ * registers, as sidcheck and the tests do: the header and the plan are
+ * sid_plan.h's.
  */
 
 #include "sid.h"

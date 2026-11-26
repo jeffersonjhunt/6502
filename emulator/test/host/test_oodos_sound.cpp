@@ -1,14 +1,14 @@
 /**
  * @file test_oodos_sound.cpp
  * @brief OOLIB's L3 (hw/oolib.md, "The plan") on sound card revision 3, the card as a device
- * (hw/future/sound-device.md and its interface details; the build plan's S13-S16): function 82's clean table,
+ * (hw/design.md, "Sound card revision 3"; hw/oodos.md, "OODOS 0.17", the build's S13-S16): function 82's clean table,
  * its claims, OODOS's record sender and reply wait, the handler's events, the loads by DMA channel 2 into DATA,
  * the stream fed when the card asks (NEED), the beep and the console's bell on the card, the event area's sound
  * part and the warm and cold boots; and the acceptance items: a file on an SD drive streamed through function 82.
  * @copyright Copyright (c) 2024-2026 Jefferson J. Hunt (MIT)
  *
- * OODOS.SYS booted as test_oodos_input boots it (oodos_rig.h), on a machine whose sound card is revision 3 (the
- * rig's sound_revision). L3TEST (oodos/sys/test/l3test.s), run by GO, opens its area at $2000 and takes commands,
+ * OODOS.SYS booted as test_oodos_input boots it (oodos_rig.h), on backplane.machine, whose sound card is revision 3.
+ * L3TEST (oodos/sys/test/l3test.s), run by GO, opens its area at $2000 and takes commands,
  * a letter at $2100; function 82's blocks the test builds at $2110, and the data they name it puts in physical
  * memory itself. L3STRM (l3strm.s) streams a file from B: as a program would, refilling its two buffers with
  * ordinary BDOS reads. The MP3 is the repo's own (test/host/mp3, tools/make_mp3_fixtures.sh); the raw PCM is
@@ -42,8 +42,6 @@ using namespace oodos_rig::ccp;
 
 namespace
 {
-    const bool REV3 = (sound_revision() = 3, true); ///< every rig here: revision 3
-
     constexpr uint32_t AREA = 0x2000, MBOX = 0x2100, KBLK = 0x2110; ///< l3test.s's
     constexpr uint32_t PARMS = 0x2100, FCB = 0x2120;                 ///< l3strm.s's
     // oodos.inc's
@@ -813,7 +811,9 @@ TEST(a_layout_1_or_2_program_that_claims_nothing_is_unaffected)
     time_interrupts(r, costs, [&] { return r.cpu->cycles() >= until; }, ms(400));
     Costs::print("a frame, layout 2, nothing claimed", costs.frame);
     Costs::print("a tick", costs.tick);
-    CHECK_EQ(Costs::mode(costs.tick), 241u); // the bridge's tick, a layout-2 area (N16, code placement)
+    // The bridge's tick, a layout-2 area: 241 (N16), checked as a ceiling, that plus 4 (a page crossing or two: code
+    // moving in common memory moves it a cycle; the owner, 2026-11-26).
+    CHECK(!costs.tick.empty() && Costs::mode(costs.tick) <= 241u + 4);
     for (unsigned i = 96; i < 128; ++i)
         CHECK_EQ(area(r, i), 0); // the sound part: 0, as L2 reserved it
     CHECK_EQ(reg(r, SoundCard3::IEN), SoundCard3::INT_EVT); // the card's events: on whenever OODOS drives it
@@ -982,7 +982,7 @@ TEST(pause_resume_seek_end_and_status)
 
 TEST(the_card_s_urgent_need_and_its_ms_buffered_reach_the_area_and_sn_status)
 {
-    // The spec's low-water mark (hw/future/sound-device.md, "The low-water mark"): under 1 s buffered the card's NEED
+    // The spec's low-water mark (hw/design.md, "Gapless streaming", the low-water mark): under 1 s buffered the card's NEED
     // carries an urgent flag, which OODOS passes on with the ms buffered: the area's EV_SNEED and EV_SBUFMS, SN_STATUS's
     // +15 and +16-19, each the stream's last NEED's as the card sent it. A 48 kHz 16-bit stereo stream (192,000 bytes
     // a second) fed 64 KB buffers (341 ms each): urgent at the start, clear once fed past 1 s (and kept so while no
@@ -1086,6 +1086,48 @@ TEST(two_files_queued_by_sn_next_join_with_no_gap)
     CHECK_EQ(sv(r, "SPLAY"), 1);
     CHECK_EQ(area(r, EV_SSTATE), ST_ENDED);
     CHECK(queued(r, SoundFw::EV_TRACK, 1));
+}
+
+TEST(the_queued_stream_s_need_shows_after_track)
+{
+    // Each stream keeps its own last NEED. The first stream fed, SN_END, then SN_NEXT: the second opened and queued,
+    // given one buffer, and the card's NEED after it (urgent, its ms buffered) comes while the first still plays. Once
+    // TRACK says the second is playing, the area's EV_SNEED and EV_SBUFMS and SN_STATUS's +15-19 are the second's last
+    // NEED (no NEED of its own since). Must fail with one record for both streams (TRACK's clear of the first's would
+    // take the second's) or with the first's record always shown.
+    CcpRig r;
+    REQUIRE(r.ok);
+    streaming(r, 44100, FMT_16BIT | FMT_STEREO);
+    const std::vector<uint8_t> a = noise(40000, 63), b = noise(30000, 64);
+    r.poke(0x10000, a);
+    r.poke(0x20000, b);
+    CHECK_EQ(f82(r, buffer_block(0x10000, static_cast<unsigned>(a.size()))), std::string("00 00"));
+    CHECK_EQ(f82op(r, SN_END), std::string("00 00"));
+    CHECK_EQ(f82(r, stream_block(0, 44100, FMT_16BIT | FMT_STEREO, SN_NEXT)), std::string("00 00"));
+    const uint32_t n0 = fw(r).last_need(1).count;
+    CHECK_EQ(f82(r, buffer_block(0x20000, static_cast<unsigned>(b.size()))), std::string("01 00"));
+    for (int i = 0; i < 200 && !queued(r, SoundFw::EV_TRACK, 1); ++i)
+        r.run(ms(5));
+    REQUIRE(queued(r, SoundFw::EV_TRACK, 1));
+    const SoundFw::NeedSent n = fw(r).last_need(1);
+    CHECK(n.count > n0); // the premise: the second's NEED after its buffer, before TRACK,
+    CHECK(n.ms > 0);     //   with some ms buffered,
+    CHECK(n.urgent);     //   under 1 s
+    r.run(ms(40));
+    const std::string st = command(r, 'S', "ST");
+    REQUIRE(st.size() >= 44);
+    uint32_t st_ms = 0;
+    for (unsigned i = 0; i < 4; ++i)
+        st_ms |= static_cast<uint32_t>(std::stoul(st.substr(36 + 2 * i, 2), nullptr, 16)) << (8 * i);
+    std::printf("  the second's NEED %u, %u ms%s; the area %02X, %u ms; SN_STATUS %s, %u ms; the first's NEED %u ms\n",
+                n.count, n.ms, n.urgent ? ", urgent" : "", area(r, EV_SNEED), area32(r, EV_SBUFMS),
+                st.substr(34, 2).c_str(), st_ms, fw(r).last_need(0).ms);
+    CHECK_EQ(fw(r).last_need(1).count, n.count); // (none since)
+    CHECK_EQ(sv(r, "SPLAY"), 1);
+    CHECK_EQ(area(r, EV_SNEED), SNF_URGENT);
+    CHECK_EQ(area32(r, EV_SBUFMS), n.ms);
+    CHECK_EQ(st.substr(34, 2), std::string("01"));
+    CHECK_EQ(st_ms, n.ms);
 }
 
 TEST(a_stray_terminal_count_on_channel_6_is_deafened)
@@ -1219,7 +1261,9 @@ TEST(acceptance_44_1_khz_16_bit_stereo_raw_pcm_from_b_with_no_underrun)
     Costs::print("a tick", costs.tick);
     REQUIRE(!costs.dma.empty());
     CHECK(costs.dma.begin()->first < 1000);
-    CHECK_EQ(Costs::mode(costs.tick), 241u); // a layout-2 area's tick: the stream costs it nothing
+    // A layout-2 area's tick, the stream costing it nothing: 241 with or without it, checked as a ceiling, that plus 4
+    // (a page crossing or two, as above).
+    CHECK(!costs.tick.empty() && Costs::mode(costs.tick) <= 241u + 4);
 }
 
 TEST(acceptance_an_mp3_from_b_plays_as_minimp3_decodes_it)
@@ -1248,7 +1292,7 @@ TEST(a_file_bigger_than_the_store_streams_from_b_with_no_underrun)
 {
     // The spec's acceptance, from an OODOS program: a file bigger than the card's store (a 2 MB card: 2.2 MB of 48
     // kHz 16-bit stereo, 11.7 s) streamed by L3STRM from B:, fed as the card asks: no underrun, every byte played.
-    CcpRig r({}, machine_with_sound(3, 2));
+    CcpRig r({}, machine_with_memsize(2));
     REQUIRE(r.ok);
     REQUIRE(fw(r).store_bytes() == 2u << 20);
     const std::vector<uint8_t> pcm = noise(17600 * 128, 45); // 2,252,800 bytes
@@ -1352,6 +1396,238 @@ TEST(tunes_load_play_pause_status_and_info)
     CHECK_EQ(std::string(s.begin() + 9, s.begin() + 20), std::string("A TEST TUNE"));
     CHECK_EQ(f82op(r, SN_STOP), std::string("00 00"));
     CHECK_EQ(fw(r).tune_state(), SoundFw::T_STOPPED);
+}
+
+TEST(sn_play_after_a_tune_ended_shows_it_starting_until_the_card_says_more)
+{
+    // A tune that has ended leaves the area at 6 (ended) and its ms played. A refused SN_PLAY (no tune in the slot)
+    // leaves those as they were; one that succeeds shows the tune starting (1, 0 ms) when the call returns, before a
+    // frame's TUNE_STATUS reply says more. Must fail if the area is left to the next frame's reply (it shows 6 then),
+    // if a refusal resets it, if the ms aren't cleared, or if either field is written a byte off. Music plays on the
+    // tone generator meanwhile, so EV_MSTATE beside the ms is not 0.
+    CcpRig r;
+    REQUIRE(r.ok);
+    open(r, "2");
+    CHECK_EQ(f82(r, {SN_CLAIM, SC_TUNE | SC_MUSIC}), std::string("00 00"));
+    const std::vector<uint8_t> blk = note_block({tone(440, 3'000'000, 3'000'000)});
+    r.poke(0x30000, blk);
+    CHECK_EQ(f82(r, load_block(SN_MUSIC, {5}, 0x30000, static_cast<uint32_t>(blk.size()), {2})), std::string("00 00"));
+    r.poke(0x10000, tune());
+    CHECK_EQ(f82(r, load_block(SN_TUNE, {}, 0x10000, static_cast<uint32_t>(tune().size()), {1})), std::string("00 00"));
+    const std::vector<uint8_t> play{SN_PLAY, 1, 0, 0, 0x2C, 0x01, 0, 0, 0, 0}; // 300 ms
+    CHECK_EQ(f82(r, play), std::string("00 00"));
+    for (int i = 0; i < 100 && !queued(r, SoundFw::EV_TUNE_ENDED, 1); ++i)
+        r.run(ms(10));
+    REQUIRE(queued(r, SoundFw::EV_TUNE_ENDED, 1));
+    r.run(ms(50)); // a frame's reply or two since
+    // The area's bytes from the one before EV_TSTATE (reserved) to EV_MSTATE.
+    auto fields = [&] {
+        std::vector<uint8_t> f;
+        for (unsigned o = EV_TSTATE - 1; o <= EV_MSTATE; ++o)
+            f.push_back(area(r, o));
+        return f;
+    };
+    const std::vector<uint8_t> ended = fields();
+    const unsigned ms0 = ended[2] | ended[3] << 8 | ended[4] << 16;
+    std::printf("  ended: state %u, %u ms played\n", ended[1], ms0);
+    REQUIRE(ended[1] == SoundFw::T_ENDED);
+    REQUIRE(ms0 > 255);                       // the premise: the ms's two low bytes not 0,
+    REQUIRE(ended[5] == SoundFw::M_PLAYING);  //   and music's state beside them
+    // The fields as the call returns to the program, and the frames begun in the call.
+    const uint16_t f_sound = sym("F_SOUND"), sframe = sym("SFRAME");
+    std::vector<uint8_t> at_return;
+    unsigned frames = 0;
+    bool in = false;
+    auto snap = [&] {
+        at_return.clear();
+        frames = 0;
+        in = false;
+        r.watch = [&](uint16_t pc) {
+            if (pc == f_sound && r.nb(2) == 61)
+                in = true;
+            else if (in && pc == sframe && r.nb(2) == 61)
+                ++frames;
+            else if (in && pc >= 0x0300 && pc < 0x4000) // back in the program
+            {
+                at_return = fields();
+                in = false;
+            }
+        };
+    };
+    // Refused: the card has no tune in slot 4.
+    snap();
+    std::vector<uint8_t> bad = play;
+    bad[1] = 4;
+    const std::string refused = f82(r, bad);
+    r.watch = nullptr;
+    std::printf("  a refused SN_PLAY: %s, %u frames in the call\n", refused.c_str(), frames);
+    CHECK_EQ(refused.substr(0, 2), std::string("FD"));
+    REQUIRE(at_return.size() == ended.size());
+    CHECK(at_return == ended);
+    CHECK(fields() == ended);
+    // Played again.
+    snap();
+    CHECK_EQ(f82(r, play), std::string("00 00"));
+    r.watch = nullptr;
+    REQUIRE(at_return.size() == ended.size());
+    std::printf("  at SN_PLAY's return: state %u, ms %02X %02X %02X, %u frames in the call\n", at_return[1],
+                at_return[2], at_return[3], at_return[4], frames);
+    CHECK_EQ(at_return[0], ended[0]); // (the byte before untouched)
+    CHECK_EQ(at_return[1], SoundFw::T_STARTING);
+    CHECK_EQ(at_return[2], 0);
+    CHECK_EQ(at_return[3], 0);
+    CHECK_EQ(at_return[4], 0);
+    CHECK_EQ(at_return[5], ended[5]); // (EV_MSTATE untouched)
+    r.run(ms(100)); // the card says more
+    CHECK_EQ(area(r, EV_TSTATE), SoundFw::T_PLAYING);
+    const unsigned played = area(r, EV_TMS) | area(r, EV_TMS + 1) << 8 | area(r, EV_TMS + 2) << 16;
+    std::printf("  100 ms on: state %u, %u ms played\n", area(r, EV_TSTATE), played);
+    CHECK(played > 0 && played < 150);
+    CHECK_EQ(f82op(r, SN_STOP), std::string("00 00"));
+}
+
+namespace
+{
+    /// `block` given to function 82, and the area's bytes `lo`-`hi` as the call returns to the program. @return the
+    /// call's A and X, as f82 gives them
+    std::string f82_seen(CcpRig &r, const std::vector<uint8_t> &block, unsigned lo, unsigned hi,
+                         std::vector<uint8_t> &at_return)
+    {
+        const uint16_t f_sound = sym("F_SOUND");
+        at_return.clear();
+        bool in = false;
+        r.watch = [&](uint16_t pc) {
+            if (pc == f_sound && r.nb(2) == 61)
+                in = true;
+            else if (in && pc >= 0x0300 && pc < 0x4000) // back in the program
+            {
+                for (unsigned o = lo; o <= hi; ++o)
+                    at_return.push_back(area(r, o));
+                in = false;
+            }
+        };
+        const std::string got = f82(r, block);
+        r.watch = nullptr;
+        return got;
+    }
+    std::vector<uint8_t> area_bytes(Rig &r, unsigned lo, unsigned hi)
+    {
+        std::vector<uint8_t> f;
+        for (unsigned o = lo; o <= hi; ++o)
+            f.push_back(area(r, o));
+        return f;
+    }
+} // namespace
+
+TEST(sn_stream_after_a_stream_ended_shows_it_starting_until_the_card_says_more)
+{
+    // A stream that has ended leaves the area's stream fields at 5 (ended), the frames played, the ring's room and
+    // the last NEED. A refused SN_STREAM leaves them; one that succeeds shows the new stream starting when the call
+    // returns: EV_SSTATE 1 (buffering, as the card has it then), EV_SBUFS both free, +98-115 0 (no NEED yet, nothing
+    // played), before a frame's STREAM_STATUS reply says more. Must fail if the area is left to the next frame (5
+    // and the old figures then), if a refusal resets it, or if a field is written a byte off (the tune's state
+    // beside +115 and the byte before +96 untouched).
+    CcpRig r;
+    REQUIRE(r.ok);
+    streaming(r, 22050, FMT_16BIT);
+    r.poke(0x10000, noise(0x4000, 3));
+    CHECK_EQ(f82(r, buffer_block(0x10000, 0x4000)), std::string("00 00"));
+    CHECK_EQ(f82op(r, SN_END), std::string("00 00"));
+    for (int i = 0; i < 100 && area(r, EV_SSTATE) != ST_ENDED; ++i)
+        r.run(ms(10));
+    r.run(ms(50));
+    r.poke(AREA + EV_TSTATE, std::vector<uint8_t>{0x5A}); // the tune's state, its part not claimed: left as it is
+    const std::vector<uint8_t> ended = area_bytes(r, EV_SSTATE - 1, EV_TSTATE);
+    std::printf("  ended: state %u, %u frames played, room %u\n", area(r, EV_SSTATE), area32(r, EV_SPOS),
+                area16(r, EV_SFREE));
+    REQUIRE(area(r, EV_SSTATE) == ST_ENDED);
+    REQUIRE(area32(r, EV_SPOS) > 255); // the premise: the old figures not 0
+    REQUIRE(area16(r, EV_SFREE) > 255);
+    std::vector<uint8_t> at;
+    // Refused: the card takes a raw rate of 8,000-48,000 Hz.
+    const std::string refused = f82_seen(r, stream_block(0, 7999, FMT_16BIT), EV_SSTATE - 1, EV_TSTATE, at);
+    std::printf("  a refused SN_STREAM: %s\n", refused.c_str());
+    CHECK_EQ(refused.substr(0, 2), std::string("FD"));
+    REQUIRE(at.size() == ended.size());
+    CHECK(at == ended);
+    // Opened.
+    CHECK_EQ(f82_seen(r, stream_block(0, 22050, FMT_16BIT), EV_SSTATE - 1, EV_TSTATE, at), std::string("00 00"));
+    REQUIRE(at.size() == ended.size());
+    std::printf("  at SN_STREAM's return: state %u, buffers %u\n", at[1], at[2]);
+    CHECK_EQ(at[0], ended[0]);       // (the byte before untouched)
+    CHECK_EQ(at[1], ST_BUFFERING);   // EV_SSTATE
+    CHECK_EQ(at[2], 3);              // EV_SBUFS: both free
+    for (unsigned o = EV_SFREE; o < EV_TSTATE; ++o)
+        CHECK_EQ(at[1 + o - EV_SSTATE], 0);
+    CHECK_EQ(at.back(), 0x5A); // (EV_TSTATE untouched)
+    r.run(ms(100)); // the card says more
+    CHECK_EQ(area(r, EV_SSTATE), ST_BUFFERING);
+    CHECK(area16(r, EV_SFREE) > 255); // its first NEED
+    CHECK_EQ(f82op(r, SN_END), std::string("00 00"));
+}
+
+TEST(sn_music_after_music_ended_shows_it_playing_until_the_card_says_more)
+{
+    // Music that has ended leaves EV_MSTATE at 0 (stopped). An SN_MUSIC that MUSIC_PLAY refuses leaves it; one that plays shows 1
+    // (playing) when the call returns, before a frame's MUSIC_STATUS reply. Queued (MUSIC_PLAY's bit 0) behind
+    // music paused, it is left at 2: the music isn't playing yet. Must fail if the area is left to the next frame
+    // (0 then), if a refusal sets it, if a queued play over paused music sets it, or if the byte before is written.
+    CcpRig r;
+    REQUIRE(r.ok);
+    open(r, "2");
+    CHECK_EQ(f82(r, {SN_CLAIM, SC_MUSIC}), std::string("00 00"));
+    const std::vector<uint8_t> blk = note_block({tone(440, 100'000, 100'000)});
+    r.poke(0x30000, blk);
+    const std::vector<uint8_t> play = load_block(SN_MUSIC, {5}, 0x30000, static_cast<uint32_t>(blk.size()), {0});
+    CHECK_EQ(f82(r, play), std::string("00 00"));
+    for (int i = 0; i < 100 && !queued(r, SoundFw::EV_MUSIC_DONE, 5); ++i)
+        r.run(ms(10));
+    r.run(ms(50));
+    const std::vector<uint8_t> ended = area_bytes(r, EV_MSTATE - 1, EV_MSTATE + 4);
+    REQUIRE(area(r, EV_MSTATE) == SoundFw::M_STOPPED);
+    std::vector<uint8_t> at;
+    // Refused: by MUSIC_PLAY (its flags' bit 2 undefined, E_PARAM), the block loaded and checked.
+    std::vector<uint8_t> bad = play;
+    bad.back() = 4;
+    const std::string refused = f82_seen(r, bad, EV_MSTATE - 1, EV_MSTATE + 4, at);
+    std::printf("  a refused SN_MUSIC: %s\n", refused.c_str());
+    CHECK_EQ(refused, std::string("FD 02"));
+    REQUIRE(at.size() == ended.size());
+    CHECK(at == ended);
+    // Played again.
+    CHECK_EQ(f82_seen(r, play, EV_MSTATE - 1, EV_MSTATE + 4, at), std::string("00 00"));
+    REQUIRE(at.size() == ended.size());
+    std::printf("  at SN_MUSIC's return: state %u\n", at[1]);
+    CHECK_EQ(at[1], SoundFw::M_PLAYING);
+    for (size_t i = 0; i < at.size(); ++i)
+        if (i != 1)
+            CHECK_EQ(at[i], ended[i]); // (the fields beside it untouched)
+    // Paused, then a block queued behind it: left at 2.
+    const std::vector<uint8_t> lng = note_block({tone(440, 2'000'000, 2'000'000)});
+    r.poke(0x30000, lng);
+    CHECK_EQ(f82(r, load_block(SN_MUSIC, {6}, 0x30000, static_cast<uint32_t>(lng.size()), {0})), std::string("00 00"));
+    CHECK_EQ(f82(r, {SN_MCTL, 1}), std::string("00 00"));
+    r.run(ms(50));
+    REQUIRE(area(r, EV_MSTATE) == SoundFw::M_PAUSED);
+    CHECK_EQ(f82_seen(r, load_block(SN_MUSIC, {7}, 0x30000, static_cast<uint32_t>(lng.size()), {1}), EV_MSTATE,
+                      EV_MSTATE, at),
+             std::string("00 00"));
+    REQUIRE(at.size() == 1u);
+    std::printf("  a block queued behind paused music: state %u at the return\n", at[0]);
+    CHECK_EQ(at[0], SoundFw::M_PAUSED);
+    CHECK_EQ(fw(r).music_state(), SoundFw::M_PAUSED);
+    // Stopped, then a block queued: nothing plays, so it starts at once, and shows 1.
+    CHECK_EQ(f82(r, {SN_MCTL, 0}), std::string("00 00"));
+    r.run(ms(50));
+    REQUIRE(area(r, EV_MSTATE) == SoundFw::M_STOPPED);
+    CHECK_EQ(f82_seen(r, load_block(SN_MUSIC, {7}, 0x30000, static_cast<uint32_t>(lng.size()), {1}), EV_MSTATE,
+                      EV_MSTATE, at),
+             std::string("00 00"));
+    REQUIRE(at.size() == 1u);
+    std::printf("  a block queued with music stopped: state %u at the return\n", at[0]);
+    CHECK_EQ(at[0], SoundFw::M_PLAYING);
+    CHECK_EQ(fw(r).music_state(), SoundFw::M_PLAYING);
+    CHECK_EQ(f82(r, {SN_MCTL, 0}), std::string("00 00"));
 }
 
 TEST(the_bank_sample_effects_play_and_stop)
@@ -1802,7 +2078,7 @@ TEST(with_no_area_a_full_ring_is_fed_at_each_need)
     // buffer and giving the next 64 KB; 1.5 MB in all at 48 kHz 16-bit stereo. With the ring full the card asks
     // (NEED) only when room comes, with nothing moving: that NEED must send the waiting buffer at once. Every byte
     // played, no underrun. Must fail with NEED's own SFEED left out.
-    CcpRig r({}, machine_with_sound(3, 2));
+    CcpRig r({}, machine_with_memsize(2));
     REQUIRE(r.ok);
     fw(r).set_stream_tap(true);
     open(r, "X");
@@ -1902,7 +2178,7 @@ TEST(a_stream_s_sn_end_goes_when_its_buffers_have_gone_with_a_fast_feeder_after_
     // buffer sent next is always taken (the second's): the first plays out, ends, the second follows with no gap,
     // every byte of both played and no underrun. Must fail with STREAM_END sent only when the next buffer to send is
     // free (the first never ends: it runs dry, and the second never starts).
-    CcpRig r({}, machine_with_sound(3, 2));
+    CcpRig r({}, machine_with_memsize(2));
     REQUIRE(r.ok);
     fw(r).set_stream_tap(true);
     open(r, "2");
@@ -2042,6 +2318,80 @@ TEST(a_stream_data_the_card_refuses_is_sent_again)
         r.run(ms(50));
     CHECK_EQ(area(r, EV_SSTATE), ST_ENDED);
     CHECK(tap_bytes(r) == data);
+}
+
+TEST(each_stream_data_answers_one_need)
+{
+    // The card's flow control: it asks for a stream's data (NEED) when its ring has room for a chunk, and OODOS sends
+    // a buffer (STREAM_DATA) only to answer an ask, one record for each, marking the ask answered as it sends. A 2 MB
+    // card (its ring fills), two buffers of a chunk each (32 KB, so a NEED's room always takes one), given at once
+    // and again as each is freed, for 3 s: every 5 ms, the STREAM_DATA records the card has had, taken or refused,
+    // are at most its NEEDs, and every ask is answered. (With room in the ring the card asks again as soon as a chunk
+    // lands, so only a full ring shows an extra record.) Then an ask kept when its record can't go: CMD without room
+    // when the buffer is given (the card slow, the test's records in it), the buffer goes once CMD has room. Must
+    // fail with the ask not marked answered (TRB NEEDP removed), and with it marked before the record is sent (the
+    // ask lost when CMD is full).
+    constexpr unsigned LEN = 0x8000;
+    {
+        CcpRig r({}, machine_with_memsize(2));
+        REQUIRE(r.ok);
+        fw(r).set_stream_tap(true);
+        streaming(r);
+        const uint32_t at[2] = {0x10000, 0x20000};
+        r.poke(at[0], noise(LEN, 900));
+        r.poke(at[1], noise(LEN, 901));
+        unsigned given = 0, over = 0;
+        size_t most = 0;
+        auto give = [&] {
+            CHECK_EQ(f82(r, buffer_block(at[given & 1], LEN)).substr(3), std::string("00"));
+            ++given;
+        };
+        r.run(ms(20));
+        give();
+        give();
+        for (unsigned i = 0; i < 600; ++i) // 3 s
+        {
+            r.run(ms(5));
+            if (fw(r).stream_data_records(0) > fw(r).last_need(0).count)
+                ++over;
+            most = std::max(most, fw(r).stream_buffered(0));
+            if (area(r, EV_SBUFS) >> (given & 1) & 1)
+                give();
+        }
+        const uint32_t recs = fw(r).stream_data_records(0), needs = fw(r).last_need(0).count;
+        const size_t ring = fw(r).stream_ring(0);
+        std::printf("  %u buffers given, %u STREAM_DATA, %u NEEDs; %u times more records than NEEDs; the ring %zu, at "
+                    "most %zu in it\n",
+                    given, recs, needs, over, ring, most);
+        CHECK(needs >= 10);              // the premise: the stream was fed
+        CHECK(ring - most < 2 * LEN);    // and its ring all but filled
+        CHECK_EQ(over, 0u);              // never a record but for an ask
+        CHECK(recs + 1 >= needs);        // and every ask answered (one may wait on a buffer moving)
+    }
+    {
+        CcpRig r;
+        REQUIRE(r.ok);
+        streaming(r);
+        r.run(ms(20));
+        CHECK_EQ(sv(r, "NEEDP"), 1); // the card has asked
+        fw(r).set_latency_us(100'000);
+        for (int i = 0; i < 4; ++i) // 812 bytes waiting 100 ms (a NOP the card refuses; tag $80: OODOS drops it)
+            to_cmd(r, std::vector<uint8_t>{SoundFw::NOP, 200, 0x80} + std::vector<uint8_t>(200, 0));
+        fw(r).set_latency_us(SoundFw::LATENCY_US);
+        REQUIRE(!fw(r).cmd_ready()); // the premise: no room in CMD for a record
+        r.poke(0x10000, noise(LEN, 902));
+        CHECK_EQ(f82(r, buffer_block(0x10000, LEN)), std::string("00 00"));
+        const bool full = !fw(r).cmd_ready();
+        const uint32_t sent = fw(r).stream_data_records(0);
+        r.run(ms(300));
+        std::printf("  CMD full: %u STREAM_DATA while it was (%s), %u after; NEEDP %u, BBUSY %u\n", sent,
+                    full ? "still full" : "had room by then", fw(r).stream_data_records(0), sv(r, "NEEDP"),
+                    sv(r, "BBUSY"));
+        CHECK(full);
+        CHECK_EQ(sent, 0u);                             // the premise: the record couldn't go
+        CHECK_EQ(fw(r).stream_data_records(0), 1u);     // it went once CMD had room
+        CHECK_EQ(sv(r, "BBUSY"), 0);                    // and the buffer with it
+    }
 }
 
 TEST(sn_status_s_block_is_its_own_reply_s_with_the_frame_s_between)

@@ -632,7 +632,7 @@ DEAFEN:         LDA     #NB_RTC_TICK   ; the clock: TICK cleared, TIE off (SET 0
 @acia:          JSR     RXDEAF         ; the stand-in 6551's: OODOS's receiver interrupt on (off
                                        ; while the ring is full), its transmitter's off (serial.s)
                 LDA     #NB_TB_MSIE    ; MSIE alone: a tick pending stays pending
-                STA     NB_TBCTL       ; the tick on (revision 3: NB3CHK)
+                STA     NB_TBCTL       ; the tick on (the bridge's timebase)
                 BIT     VIAL
                 BPL     @video         ; no VIA: $C34E would be the 6551's command
                 LDA     #<~VIA_IER_SET
@@ -686,7 +686,7 @@ CLKINIT:        STZ     CLOCKS
 @tick:          LDA     #NB_TB_MSF | NB_TB_OVR | NB_TB_MSIE
                 STA     NB_TBCTL       ; the tick: north bridge revision 3's, MSIE on
                 LDA     #CLK_MS
-                TSB     CLOCKS         ; always: every bridge OODOS 0.16 runs on has the tick
+                TSB     CLOCKS         ; always: the bridge has the tick
 @video:         LDA     VIDEO_ID       ; revision 2 only (hw/video-rev2.md): CLK_FRAME says
                 CMP     #VIDEO_ID_V2   ; there is one, for function 83 too
                 BNE     @done

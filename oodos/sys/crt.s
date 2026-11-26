@@ -19,9 +19,8 @@
 ; unit 8 ($002000), a character and an attribute a cell. Aperture slot 0
 ; always shows bank 0 (CRTINIT sets it, the warm boot puts it back, and no
 ; program writes SLOT0), so its window is the console's: the aperture's own,
-; $E00000-$E03FFF, which W1 reaches with WIN1H $0E and block 0 (every bridge
-; OODOS 0.16 runs on is revision 3, with WINnH: CVH, CVB, and CVA for DMA,
-; set by CRTINIT). The BIOS
+; $E00000-$E03FFF, which W1 reaches with WIN1H $0E and block 0 (CVH, CVB,
+; and CVA for DMA, set by CRTINIT). The BIOS
 ; maps W1 there for the call (VMAP0: WIN1H, then WIN1) and back on the
 ; BDOS's block 60 with WIN1H 0 before it returns (VUNMAP); scrolling and
 ; erasing are DMA copies within the window, as video.s's.
@@ -45,7 +44,6 @@ COLS            = 80
 ROWS            = 30
 ATTR            = $07                  ; light grey on black
 CURATTR         = $F0                  ; black on light grey, blinking
-VBLOCK          = 32                   ; slot 0's window on a revision 1 bridge: $80000, through W1
 VWIN            = $4000
 PAL             = VWIN                 ; unit 0
 FONT            = VWIN + $0400         ; unit 1
@@ -70,8 +68,8 @@ CVA:            .res    1              ;   ($E0): CRTINIT's, card or no card (DM
 
 .segment "BIOS"
 
-; W1 on slot 0's window, the console's: WIN1H first (none on revision 1),
-; then the block; and back on the BDOS's block, WIN1H 0 first. Uses A.
+; W1 on slot 0's window, the console's: WIN1H first, then the block; and
+; back on the BDOS's block, WIN1H 0 first. Uses A.
 VMAP0:          LDA     CVH
                 BEQ     @blk
                 STA     NB_WIN1H

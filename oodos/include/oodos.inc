@@ -348,7 +348,7 @@ SC_MUSIC        = $04                  ;   music
 ; for one that isn't, a block needed and not given, or a refusal: nothing
 ; done; and for a transfer through the card's port that didn't end, only
 ; the pieces before it done. A length of 0 is 65,536.
-DM_INFO         = 0                    ; A = the card's memory in 64 KB units (0: no revision 2 card), X =
+DM_INFO         = 0                    ; A = the card's memory in 64 KB units (0: no video card), X =
                                        ;   the slots (4); a block +1, +2 those, +3 the slots' budget in
                                        ;   256-byte pages (4), +4 the pointer's sprite ($FF off), +5-12 the
                                        ;   W1 map: bit n & 7 of byte n / 8 set for each block n that OOLIB
@@ -386,9 +386,7 @@ DM_VCOPY        = 10                   ; block: +1-3 the source (card), +4-6 the
 DM_BANK8        = 11                   ; block (interface version 12; B7): bank 8, $80000-$8FFFF, the
                                        ;   program's RAM until the warm boot (MAP's AP8 cleared), and +1
                                        ;   WIN1H, +2 the block that put aperture slot 1's window in W1
-                                       ;   ($0E, 1: $E04000; 0, 0 with no revision 2 video card): A = 0.
-                                       ;   $FF $FF under a ROM BIOS older than 0.17 (or, before OODOS
-                                       ;   0.16, on a revision 1 north bridge), nothing changed
+                                       ;   ($0E, 1: $E04000; 0, 0 with no video card): A = 0.
 DM_VFILLW       = 12                   ; block (interface version 13; hw/video640.md): +1-2 a word (low
                                        ;   byte first), +3-5 the destination (card), +6-7 the length in
                                        ;   bytes (0: 65,536): the low byte at the destination's even offsets

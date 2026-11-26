@@ -2292,7 +2292,7 @@ namespace
 } // namespace
 
 // T12, B7's question 5 (the owner, 2026-11-17): P5's start-up (p5/seed.s GXSTRT) calls OOLIB's GX_INIT, then
-// GX_BANK8, so once GW-BASIC is up on a revision 2 card the north bridge's MAP has AP8 clear (bank 8 is the
+// GX_BANK8, so once GW-BASIC is up on the video card the north bridge's MAP has AP8 clear (bank 8 is the
 // program's RAM), and gxmem's GXAPH and GXAPB (in P5's block, by p5.lbl) say slot 1's window is WIN1H $0E with
 // block 1. SYSTEM's warm boot sets AP8 again. A build that calls GX_BANK8 before GX_INIT fails: GX_INIT always
 // goes back to the old mode, so GXAPH is 0 (and GXAPB 33).
@@ -2462,13 +2462,13 @@ TEST(console_mode_s_screen_page_is_refused)
     CHECK_EQ(moved, 0u);
 }
 
-// T9, B7's question 3: with no revision 2 card GX_INIT says GE_VERSION and GX_BLOCK refuses every block, so DEF SEG
+// T9, B7's question 3: with no video card GX_INIT says GE_VERSION and GX_BLOCK refuses every block, so DEF SEG
 // reaches bank 9 and an allocated block (P8's) by the 1-byte DM_COPY route instead: the bytes POKEd are in physical
 // memory and PEEK reads them, and W1 stays block 1 throughout. A build that takes GX_BLOCK's refusal as the end
 // (Illegal function call) fails it.
-TEST(no_revision_2_card_takes_the_dm_copy_route)
+TEST(no_video_card_takes_the_dm_copy_route)
 {
-    CcpRig r({}, {}, {}, 1);
+    CcpRig r({}, no_video_machine());
     REQUIRE(r.ok);
     CHECK(start(r).find("Bytes free") != std::string::npos);
     const uint32_t p8 = page_block(r, 8) * BLOCK + 0x2000;

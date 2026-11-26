@@ -19,8 +19,8 @@
 ; revision 2"; vmem.inc): the card draws from its own memory, card addresses
 ; of 24 bits. OODOS owns $000000-$03FFFF (the console's palette, font and
 ; text, its units 0-12, in bank 0, which aperture slot 0 always shows: at
-; $E00000-$E03FFF on a revision 2 north bridge, B7, and as block 32,
-; $80000-$83FFF, while MAP's AP8 is set or on revision 1); the program owns
+; $E00000-$E03FFF, B7, and as block 32,
+; $80000-$83FFF, while MAP's AP8 is set); the program owns
 ; $040000-$1BFFFF, through OOLIB; Apple II mode $1C0000-$1FFFFF. The warm boot (and so the cold boot, which ends in
 ; it) puts slot 1 on the program's first card bank (VM_PROG_BANK) and slots
 ; 2 and 3 on banks 2 and 3, OODOS's; DM_VCOPY borrows those two inside the
@@ -79,7 +79,6 @@
 .import EVON, EVBLK, CLOCKS
 .import MXS, MYS                       ; input.s's
 .import CRTREGS, CVA                   ; crt.s's
-.importzp ROMVER                       ; cold.s's: the ROM BIOS's version, for DM_BANK8
 .import LOADGO                         ; bdosfile.s's: DM_LOAD's file work
 .export F_DMAOP, VBWORK, VBQUIET, VBON, DMAWARM, BANK8
 .import DMACTL                         ; irq.s's: DEAFEN's, a scratch byte here
@@ -169,7 +168,7 @@ DSTOK:          JSR     SRCOK
 
 ; Carry set unless the card address SG to SG + VLEN is all in the fitted
 ; card memory (CSRCOK) and, for a destination (CDSTOK), in the program's
-; part, $040000-$1BFFFF; with no revision 2 card (CLOCKS's frame bit, which
+; part, $040000-$1BFFFF; with no video card (CLOCKS's frame bit, which
 ; irq.s sets only for one) or no DMA controller (every card operation's
 ; bytes go by DMA: review F4), never.
 CSRCOK:         LDA     CLOCKS
@@ -212,7 +211,7 @@ LENSET:         SEC
                 STA     VLEN + 1
                 RTS
 
-; A = the card's memory in 64 KB units (0 with no revision 2 card), X =
+; A = the card's memory in 64 KB units (0 with no video card), X =
 ; the slots; a block gets +1 those, +3 the slots' budget in pages, +4 the
 ; pointer's sprite ($FF off), +5-12 the W1 map: block 1, the blocks the
 ; program has allocated (53-58's AMAP, blocks 4-23), aperture slot 1's
@@ -294,7 +293,7 @@ DM_INFOX:       LDX     PX
                 LDX     #DM_SLOTS
                 RTS
 
-; A = the card's memory in 64 KB units, 0 with no revision 2 card.
+; A = the card's memory in 64 KB units, 0 with no video card.
 MEMSZ:          LDA     CLOCKS
                 AND     #CLK_FRAME
                 BEQ     @no
@@ -446,7 +445,7 @@ DM_FILLX:       BLOCK
 
 ; +1 the slot, +2-4 its source (physical), +5-7 its destination (card,
 ; the program's part), +8-9 its length (1-1,024, the four slots' 1,024 at
-; most; 0 frees it). Refused with no revision 2 video card or no DMA
+; most; 0 frees it). Refused with no video card or no DMA
 ; controller.
 DM_VBSETX:      BLOCK
                 LDA     CLOCKS
@@ -620,23 +619,11 @@ DM_CONSOLEX:    JSR     CRTREGS
 ; windows and a DMA address in $80000-$8FFFF reach the RAM card's bank 8,
 ; and the video card's aperture only at $E00000 (WIN1H $0E); BANK8 set,
 ; for OSWIN and DM_INFO's map, until the warm boot (common.s's WARM), whose
-; WINH0 sets AP8 again where there is a revision 2 video card. +1 and +2
+; WINH0 sets AP8 again where the video card is fitted. +1 and +2
 ; get slot 1's window for W1: WIN1H $0E and block 1, or 0 and 0 with no
-; revision 2 video card (AP8 was clear already: bank 8 RAM from the boot).
-; Refused, nothing changed, under a ROM BIOS older than 0.17 (cold.s's
-; ROMVER, as bdos.s's NEWROM compares it; $FF $FF not found), whose Break
-; would draw the monitor's screen through bank 8. (Every bridge OODOS 0.16
-; runs on has MAP: NB3CHK.)
+; video card (AP8 was clear already: bank 8 RAM from the boot).
 DM_BANK8X:      BLOCK
-                LDA     ROMVER
-                CMP     #$FF
-                BEQ     @no            ; not found
-                CMP     #1
-                BCS     @rom           ; 1.0 and on
-                LDA     ROMVER + 1
-                CMP     #17
-                BCC     @no            ; before 0.17
-@rom:           STZ     NB_MAP         ; AP8 clear: bank 8 the RAM card's
+                STZ     NB_MAP         ; AP8 clear: bank 8 the RAM card's
                 LDA     #$80
                 STA     BANK8
                 LDA     VIDEO_ID
@@ -646,11 +633,10 @@ DM_BANK8X:      BLOCK
                 JSR     PPUT
                 LDA     #VM_SLOT_W1
                 BRA     @last
-@none:          LDA     #0             ; no revision 2 card: no aperture
+@none:          LDA     #0             ; no video card: no aperture
                 JSR     PPUT           ; (keeps A)
 @last:          JSR     PPUT
                 JMP     DM00
-@no:            JMP     RETFF
 .assert NB_MAP_AP8 = 1, error, "DM_BANK8 clears AP8 by writing MAP 0"
 
 ; +1-3 the source (physical), +4-6 the destination (card), +7-8 the length.
@@ -1021,7 +1007,7 @@ PORTGO:         STA     DMA_MODE       ; (STA and STX absolute: the tests watch 
 ; DM_VCOPY's next piece from VSRC and VDST, VLEFT bytes left (0: 65,536):
 ; DCOUNT the least of DMA_PIECE, VLEFT, and the bytes to the end of each's
 ; bank; SRCP slot 2's window's address for VSRC, DSTP slot 3's for VDST
-; (the aperture's own on a revision 2 north bridge: CVA).
+; (the aperture's own: CVA).
 VC_PIECE        = 2048                 ; DMAGO's block, so DMAGO runs it as one
 VPIECE:         LDA     VLEFT + 1
                 BEQ     @tiny
@@ -1047,8 +1033,8 @@ VPIECE:         LDA     VLEFT + 1
                 LDX     #VDST - VSRC
                 JSR     @limit
                 LDA     VSRC           ; the windows: slots 2 and 3's + the offsets, $E08000 and
-                STA     SRCP           ; $E0C000 on a revision 2 north bridge, $88000 and $8C000 on
-                LDA     VSRC + 1       ; revision 1 (B7: CVA, crt.s's, the bank; the rest the same)
+                STA     SRCP           ; $E0C000 (B7: CVA, crt.s's, the bank; the rest the same)
+                LDA     VSRC + 1
                 AND     #$3F
                 ORA     #>(VM_APERTURE + 2 * VM_BANK)
                 STA     SRCP + 1
@@ -1294,7 +1280,7 @@ VBQUIET:        STZ     VBON
                 BNE     @card
                 LDA     #DMA_CH1
                 STA     DMA_ABORT
-@card:          LDA     CLOCKS         ; a revision 2 card: its port quiet, the slots set
+@card:          LDA     CLOCKS         ; the video card: its port quiet, the slots set
                 AND     #CLK_FRAME
                 BEQ     @crt
                 STZ     VIDEO_PCTL

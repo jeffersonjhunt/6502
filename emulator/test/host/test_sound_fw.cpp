@@ -1,6 +1,6 @@
 /**
  * @file test_sound_fw.cpp
- * @brief The sound card's firmware, revision 3, alone (sound_fw.h; hw/future/sound-device.md and its S1 appendix).
+ * @brief The sound card's firmware, revision 3, alone (sound_fw.h; hw/design.md, "Sound card revision 3" and its records' layouts).
  * @copyright Copyright (c) 2024-2026 Jefferson J. Hunt (MIT)
  *
  * The firmware on a fake port (no chips): the host's side is its FIFOs, as the front end's registers would give
@@ -23,6 +23,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
+#include <cstring>
 #include <string>
 #include <vector>
 
@@ -52,7 +53,16 @@ namespace
         void doc_write(uint8_t, uint8_t) override {}
         uint8_t doc_read(uint8_t) override { return 0; }
         void doc_ram(uint32_t, const uint8_t *, size_t) override {}
-        void doc_frame(int16_t out[4]) override { out[0] = out[1] = out[2] = out[3] = 0; }
+        /// The ES5503's four channels: silent, or with `doc_half` set a full-scale square on all four at once,
+        /// `doc_half` frames high (+32,767), then as many low (-32,768); `doc_frames` counts the frames given.
+        unsigned doc_half{0};
+        uint64_t doc_frames{0};
+        void doc_frame(int16_t out[4]) override
+        {
+            const int16_t v = !doc_half ? int16_t{0} : (doc_frames / doc_half) % 2 ? int16_t{-32768} : int16_t{32767};
+            ++doc_frames;
+            out[0] = out[1] = out[2] = out[3] = v;
+        }
     };
 
     struct Event
@@ -545,6 +555,64 @@ namespace
         return 0xFF;
     }
 } // namespace
+
+TEST(the_sum_past_full_scale_is_clipped_never_wrapped)
+{
+    // The mix sums its sources in float and takes the sum to 16 bits, clamped (to16). The ES5503's four channels
+    // at full scale give the effects and music half each, so their sum alone is full scale; a beep at its loudest
+    // (a quarter) on top takes it to 1.25 of full scale while the beep's half agrees with theirs. That must come
+    // out at +32,767 or -32,768, its sign always the square's. Must fail if the clamp goes: 1.25 of full scale
+    // taken to 16 bits by wrapping is about -24,577 where +32,767 is due, a loud crackle.
+    Card c;
+    c.port.doc_half = 48; // 500 Hz
+    CHECK_EQ(ask_status(c, SoundFw::BEEP, {0xE8, 0x03, 0xF4, 0x01, 255}), 0); // 1,000 Hz, 500 ms, the loudest
+    c.fw.set_tap(true);
+    const uint64_t first = c.port.doc_frames; // the tap's frame 0 is the ES5503's frame `first`
+    c.fw.advance(200 * SoundFw::SAMPLES_PER_MS);
+    const std::vector<int16_t> tap = c.fw.take_tap();
+    REQUIRE(tap.size() >= 2 * 9000u);
+    size_t top = 0, bottom = 0, wrong = 0;
+    for (size_t i = 0; i < tap.size(); ++i)
+    {
+        const bool high = ((first + i / 2) / c.port.doc_half) % 2 == 0;
+        top += tap[i] == 32767;
+        bottom += tap[i] == -32768;
+        wrong += high ? tap[i] < 16000 : tap[i] > -16000; // the square at full scale, the beep a quarter of it
+    }
+    std::printf("  %zu samples: %zu at +32,767, %zu at -32,768, %zu not the square's sign\n", tap.size(), top, bottom,
+                wrong);
+    CHECK_EQ(wrong, size_t{0});
+    CHECK(top > tap.size() / 8);    // about a quarter: the beep's half agreeing with the square's, high
+    CHECK(bottom > tap.size() / 8); // and low
+}
+
+TEST(stream_open_takes_a_raw_rate_from_8000_to_48000_and_formats_0_to_3)
+{
+    // STREAM_OPEN's raw (codec 0) rate is 8,000-48,000 Hz, both ends taken, and the format's bits above 1 must be
+    // clear (E_PARAM otherwise). Must fail if either end moves (a stream at 48,001 Hz, or 7,999, opened) or a
+    // format with bit 2 is taken.
+    const auto open = [](Card &c, uint32_t rate, uint8_t fmt) {
+        return ask_status(c, SoundFw::STREAM_OPEN,
+                          {0, 0, static_cast<uint8_t>(rate), static_cast<uint8_t>(rate >> 8), fmt, 0, 0, 0, 0, 0});
+    };
+    Card c(32);
+    const size_t all = c.fw.store_free();
+    for (const uint32_t rate : {7999u, 48001u, 0u, 65535u})
+    {
+        CHECK_EQ(open(c, rate, 0), SoundFw::E_PARAM);
+        CHECK_EQ(c.fw.store_free(), all); // refused: no ring taken
+    }
+    for (const uint32_t rate : {8000u, 48000u})
+        for (const uint8_t fmt : {uint8_t{0}, uint8_t{1}, uint8_t{2}, uint8_t{3}})
+        {
+            CHECK_EQ(open(c, rate, fmt), 0);
+            CHECK(c.fw.store_free() < all);
+            CHECK_EQ(ask_status(c, SoundFw::STREAM_CLOSE, {0}), 0);
+        }
+    for (const uint8_t fmt : {uint8_t{4}, uint8_t{7}, uint8_t{0x80}})
+        CHECK_EQ(open(c, 22050, fmt), SoundFw::E_PARAM);
+    CHECK_EQ(c.fw.store_free(), all);
+}
 
 TEST(a_refused_load_leaves_the_slot_as_it_was)
 {
@@ -1212,6 +1280,75 @@ TEST(each_source_s_output_is_the_same_at_rate_0_and_48000)
     CHECK(std::equal(a.begin(), a.begin() + static_cast<std::ptrdiff_t>(n), b.begin()));
     CHECK(std::equal(a.begin(), a.begin() + static_cast<std::ptrdiff_t>(n), c.begin()));
     CHECK(rms(a, 0) > 100);
+}
+
+namespace
+{
+    /// Every source at once through the mix, the EQ and the volume, and the host's resampling to 44.1 kHz: a tune
+    /// sweeping SID A's voice 1, the boot sound (the ES5503), a beep, a raw stream, the tunes' and the streams'
+    /// levels down, ten bands of the EQ and its pre-gain set. FNV-1a over the bits of every float take_audio() gives
+    /// in the card's first second.
+    uint64_t mixed_hash()
+    {
+        Dev d;
+        d.card.set_audio_rate(44'100);
+        d.load(0, psid(SAW + std::vector<uint8_t>{0x60, 0xEE, 0x01, 0xD4, 0x60}, 21)); // play: INC $D401
+        CHECK_EQ(d.play(0, 0), 0);
+        CHECK_EQ(d.ask(SoundFw::MIX, {SoundFw::SRC_TUNES, 200})[1], 0);
+        CHECK_EQ(d.ask(SoundFw::MIX, {SoundFw::SRC_STREAMS, 150})[1], 0);
+        CHECK_EQ(d.ask(SoundFw::EQ_ALL, {static_cast<uint8_t>(-4), 6, static_cast<uint8_t>(-6), 4, 0, 8,
+                                         static_cast<uint8_t>(-12), 3, 0, static_cast<uint8_t>(-2), 5})[1], 0);
+        CHECK_EQ(d.ask(SoundFw::EQ_ON, {1})[1], 0);
+        CHECK_EQ(d.ask(SoundFw::VOLUME, {0xE0, 0xC0})[1], 0); // left and right a little down
+        CHECK_EQ(d.ask(SoundFw::BOOTSOUND)[1], 0);
+        CHECK_EQ(d.ask(SoundFw::BEEP, {0xE8, 0x03, 0xF4, 0x01, 0})[1], 0); // 1,000 Hz, 500 ms
+        // Half a second of 22,050 Hz 8-bit mono, given whole.
+        CHECK_EQ(d.ask(SoundFw::STREAM_OPEN, {0, 0, 0x22, 0x56, 0, 0, 0, 0, 0, 0})[1], 0);
+        CHECK_EQ(d.ask(SoundFw::STREAM_DATA, {0, 0x11, 0x2B, 0x00})[1], 0); // 11,025 bytes
+        for (const uint8_t b : noise(11025, 31))
+            d.card.write(SoundCard3::DATA, b);
+        CHECK_EQ(d.ask(SoundFw::STREAM_END, {0})[1], 0);
+        uint64_t h = 1469598103934665603ull;
+        size_t frames = 0;
+        float peak = 0;
+        std::vector<float> host(2 * 4096);
+        for (uint64_t t = 0; t < SoundCard::PAL_HZ; t += 1000)
+        {
+            d.card.tick(1000);
+            while (const size_t n = d.card.take_audio(host.data(), 4096))
+            {
+                frames += n;
+                for (size_t i = 0; i < 2 * n; ++i)
+                {
+                    uint32_t b;
+                    std::memcpy(&b, &host[i], 4);
+                    peak = std::max(peak, std::fabs(host[i]));
+                    for (int k = 0; k < 4; ++k)
+                    {
+                        h ^= (b >> (8 * k)) & 0xFF;
+                        h *= 1099511628211ull;
+                    }
+                }
+            }
+        }
+        std::printf("  %zu frames at 44.1 kHz, the peak %.3f\n", frames, static_cast<double>(peak));
+        CHECK(frames > 44'000u);
+        CHECK(peak > 0.05f); // something heard, not a hash of silence
+        return h;
+    }
+} // namespace
+
+TEST(the_mixed_output_is_the_same_bits_natively_and_in_webassembly)
+{
+    // One hash both builds check: sid.cpp (whose samples the ADC takes), sound_card3.cpp, sound_dsp.cpp and
+    // sound_fw.cpp are built with -ffp-contract=off (components/devices/CMakeLists.txt), so no target fuses
+    // multiply-adds, and glibc's and Emscripten's libm agree on what the SIDs and the EQ's design use; another libm
+    // could give another hash. A change to any source's samples, the mix's levels, the EQ, the volume or the host's
+    // resampling changes it. To pin it again after a change meant to move the output, print it from both builds
+    // (this case, native and under tools/web_build.sh) and take it only when the two agree.
+    const uint64_t h = mixed_hash();
+    std::printf("  %016llx\n", static_cast<unsigned long long>(h));
+    CHECK(h == 0xe6ec768305852cf0ull);
 }
 
 TEST(the_boot_sound_plays_from_the_card_s_flash)

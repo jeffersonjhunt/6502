@@ -93,12 +93,12 @@ reads the ID bytes to find which cards are fitted, and leaves alone a card that 
 | 0–5 | free (once RAM A–D, ROM A and ROM B: memory answers by address, [chapter 2](02-memory-and-banking.md#the-24-bit-bus)) | none | | their blocks read `$FF` |
 | 6 | serial | `$C300` | none yet | a 6551 stand-in, and the VIA ([chapter 9](09-serial-and-via.md)) |
 | 7 | mass storage | `$C380` | `$71` | yes ([chapter 10](10-storage.md)) |
-| 8 | DMA controller, on the CPU card | `$C400` | `$82` (revision 2, *proposed*; revision 1's `$81` reads as no controller since B2) | yes ([chapter 5](05-dma.md)) |
-| 9 | video | `$C480` | `$91` | yes ([chapter 6](06-video.md)) |
-| A | sound | `$C500` | `$A2` (`$A1` before revision 2: take either by the high nibble) | yes ([chapter 7](07-sound.md)) |
+| 8 | DMA controller, on the CPU card | `$C400` | `$82` (revision 2, *proposed*) | yes ([chapter 5](05-dma.md)) |
+| 9 | video | `$C480` | `$92` | yes ([chapter 6](06-video.md)) |
+| A | sound | `$C500` | `$A3` | yes ([chapter 7](07-sound.md)) |
 | B | USB | `$C580` | `$B1` | yes ([chapter 8](08-usb.md)) |
 | C | Disk II | `$C600` | `$C1` | yes ([chapter 10](10-storage.md#the-disk-ii)) |
-| D | the north bridge, on the CPU card | `$C680` | `$D2` (revision 2, with WINnH, VECH and MAP, *proposed*, B7; `$D1` before) | yes ([chapter 11](11-north-bridge-and-rtc.md)) |
+| D | the north bridge, on the CPU card | `$C680` | `$D3` (revision 3, *proposed*: WINnH, VECH and MAP, the timebase, the random number chip and the common hole) | yes ([chapter 11](11-north-bridge-and-rtc.md)) |
 | E | console, the front panel | `$C700` | `$E1` | yes ([chapter 12](12-front-panel.md)) |
 | F | reserved: the idle bus's ID, what PS0–PS3's pull-ups give a cycle no master drives (*proposed*); never a card's | none | | its block reads `$FF` |
 

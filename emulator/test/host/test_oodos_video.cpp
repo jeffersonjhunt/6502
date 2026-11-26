@@ -681,18 +681,23 @@ TEST(the_frame_costs_and_the_latest_a_slot_ends)
     CcpRig r;
     REQUIRE(r.ok);
     put_b(r, "PICTURE BIN", noise(65536, 2));
-    // No area, at the prompt: the frame and the tick L3's.
+    // No area, at the prompt: the frame and the tick L3's. The figures are printed as a record and checked as
+    // ceilings, today's plus 4 (a page crossing or two), since code moving in common memory moves them a cycle (the
+    // owner, 2026-11-26).
     Costs none;
     time_interrupts(r, none, ms(300));
     Costs::print("no area, a frame", none.frame);
     Costs::print("no area, a tick", none.tick);
-    CHECK_EQ(Costs::mode(none.tick), 142u); // the bridge's tick (N10; 162 with timer 1's)
-    CHECK_EQ(Costs::mode(none.frame), 231u); // 215 before N9: the long way's test of IRQH bit 5 (the tick) added
+    // The bridge's tick: 143 (142 at N10; 162 with timer 1's). The frame: 231 (215 before N9: the long way's test of
+    // IRQH bit 5, the tick, added).
+    CHECK(!none.tick.empty() && Costs::mode(none.tick) <= 143u + 4);
+    CHECK(!none.frame.empty() && Costs::mode(none.frame) <= 231u + 4);
     open(r, "2");
     Costs area2;
     time_interrupts(r, area2, ms(200));
     Costs::print("layout 2, no slot, a frame", area2.frame);
-    CHECK_EQ(Costs::mode(area2.frame), 447u); // 412 before N9: the tick's test on the long way and IRQOTH's (N9, N10)
+    // 447 (412 before N9: the tick's test on the long way and IRQOTH's, N9 and N10)
+    CHECK(!area2.frame.empty() && Costs::mode(area2.frame) <= 447u + 4);
     const std::vector<uint8_t> src = noise(512, 4);
     r.poke(0x10000, src);
     CHECK_EQ(f83(r, vbset(0, 0x10000, 0x90000, 512)), std::string("00 00"));
@@ -762,7 +767,7 @@ TEST(the_full_budget_the_pointer_and_a_stream_end_inside_the_blank)
 {
     // Review F8: all four slots, 256 bytes each (1,024 in all), the pointer on and a 44.1 kHz stream playing
     // (its fields written each frame), the latest a frame's copies end, with a USB batch or a 64 KB load under way.
-    CcpRig r({}, machine_with_sound(3)); // sound card revision 3, the card as a device
+    CcpRig r;
     REQUIRE(r.ok);
     put_b(r, "PICTURE BIN", noise(65536, 2));
     open(r, "2");
@@ -1060,22 +1065,15 @@ TEST(the_warm_boot_puts_the_console_back_by_wboot_ctrl_c_and_break)
     }
 }
 
-namespace
+TEST(with_map_0_the_console_and_dm_vcopy_use_the_aperture_at_e00000_and_leave_bank_8_ram_alone)
 {
-    /// The machine file with `revision=N` on its north bridge line.
-    std::string bridge_revision(unsigned n)
-    {
-        std::string text = read_text(EMU_MACHINE_DIR "/backplane.machine");
-        const std::string line = "northbridge  backplane";
-        const size_t at = text.find(line);
-        if (at != std::string::npos)
-            text.insert(at + line.size(), " revision=" + std::to_string(n));
-        return text;
-    }
-
-    /// O5's body: with MAP 0 the console and DM_VCOPY reach the aperture at $E00000, bank 8's RAM untouched.
-    void aperture_at_e00000(CcpRig &r)
-    {
+    // O5 (B7, b7-plan.md §4): OODOS reaches slot 0's window (the console's text) by WIN1H $0E and block 0, and
+    // DM_VCOPY slots 2 and 3's windows at $E08000 and $E0C000 (crt.s's CVA), never bank 8. With MAP forced to 0
+    // (AP8 clear: bank 8 is the RAM card's), the console still prints, scrolls and erases on the card, DM_VCOPY
+    // copies right, and bank 8's RAM keeps its pattern.
+    CcpRig r;
+    REQUIRE(r.ok);
+    REQUIRE(r.bridge().id() == 0xD3);
     open(r, "X");
     const std::vector<uint8_t> ram = noise(0x10000, 7);
     r.machine->bus().write(0xC6A5, 0); // MAP: AP8 clear
@@ -1109,29 +1107,6 @@ namespace
     };
     for (unsigned n = 0; n < 30; ++n)
         CHECK_EQ(row(n), std::string("K 00 00"));
-    }
-} // namespace
-
-TEST(with_map_0_the_console_and_dm_vcopy_use_the_aperture_at_e00000_and_leave_bank_8_ram_alone)
-{
-    // O5 (B7, b7-plan.md §4): on a revision 2 north bridge OODOS reaches slot 0's window (the console's text) by
-    // WIN1H $0E and block 0, and DM_VCOPY slots 2 and 3's windows at $E08000 and $E0C000 (crt.s's CVA), never
-    // bank 8. With MAP forced to 0 (AP8 clear: bank 8 is the RAM card's), the console still prints, scrolls and
-    // erases on the card, DM_VCOPY copies right, and bank 8's RAM keeps its pattern.
-    CcpRig r;
-    REQUIRE(r.ok);
-    REQUIRE(r.bridge().id() == 0xD3); // the default since N5 (revision 2's registers and more)
-    aperture_at_e00000(r);
-}
-
-TEST(on_a_revision_3_bridge_slot_0_s_window_is_at_e00000)
-{
-    // N1, the sweep: crt.s's NB_ID test is "revision 2 or more", so on a $D3 bridge the console's window is the
-    // aperture's own at $E00000, as on $D2: O5 again on revision 3.
-    CcpRig r({}, bridge_revision(3));
-    REQUIRE(r.ok);
-    REQUIRE(r.bridge().id() == 0xD3);
-    aperture_at_e00000(r);
 }
 
 // --- B7: function 83's DM_BANK8 (b7-plan.md §2.3, §4 D1-D5; proposed) ------------------------------------------
@@ -1156,22 +1131,17 @@ namespace
         for (size_t i = 0; i < b.size(); ++i)
             r.machine->bus().write_bus(at + static_cast<uint32_t>(i), b[i]);
     }
-    void romver(Rig &r, uint8_t major, uint8_t minor)
-    {
-        r.poke(SYS_BLOCK_PHYS + sym("ROMVER"), major);
-        r.poke(SYS_BLOCK_PHYS + sym("ROMVER") + 1, minor);
-    }
 }
 
 TEST(dm_bank8_makes_bank_8_the_programs_ram_and_gives_slot_1_at_e04000)
 {
-    // D1. With the revision 2 video card: A = 0, +1/+2 WIN1H $0E and block 1 (slot 1's window at $E04000), MAP
+    // D1. With the video card: A = 0, +1/+2 WIN1H $0E and block 1 (slot 1's window at $E04000), MAP
     // 0. Then W1 on block 32 writes bank 8's RAM (read back by the backplane's own view), not the card; DM_INFO's
     // map takes in blocks 32-39 (its byte 4 $FF); and DM_COPY to $84000 lands in RAM, the card's slot 1 bank
     // untouched.
     CcpRig r;
     REQUIRE(r.ok);
-    REQUIRE(r.bridge().id() == 0xD3); // the default since N5
+    REQUIRE(r.bridge().id() == 0xD3);
     open(r, "X");
     REQUIRE(r.bridge().map() == 1);
     put_bus(r, 0x80000, std::vector<uint8_t>(0x100, 0x11));
@@ -1192,36 +1162,16 @@ TEST(dm_bank8_makes_bank_8_the_programs_ram_and_gives_slot_1_at_e04000)
     CHECK(cmem(r, 0x040000, 64) == prog);
 }
 
-TEST(dm_bank8_with_no_revision_2_video_card_succeeds_with_no_window)
+TEST(dm_bank8_with_no_video_card_succeeds_with_no_window)
 {
-    // D2. No revision 2 card (revision 1's): the ROM BIOS left AP8 clear, bank 8 RAM from the boot; DM_BANK8 still
+    // D2. No video card: the ROM BIOS left AP8 clear, bank 8 RAM from the boot; DM_BANK8 still
     // succeeds, with +1/+2 0 and 0 (no aperture to map).
-    CcpRig r({}, {}, {}, 1);
+    CcpRig r({}, no_video_machine());
     REQUIRE(r.ok);
     open(r, "X");
     REQUIRE(r.bridge().map() == 0);
     CHECK_EQ(bank8(r), std::string("00 00"));
     CHECK_EQ(bank8_block(r), std::string("0000"));
-    CHECK_EQ(r.bridge().map(), 0);
-}
-
-TEST(dm_bank8_is_refused_under_a_rom_before_0_17)
-{
-    // D3. A ROM BIOS older than 0.17 (OODOS's record of it, cold.s's ROMVER, made 0.16) would draw the monitor's
-    // screen through bank 8 on a Break: $FF $FF, MAP still 1. One of 1.0 is newer (the major first), and $FF $FF
-    // (not found) is refused. (The revision 1 bridge's half went with N8: OODOS 0.16 refuses that bridge, O7.)
-    CcpRig r;
-    REQUIRE(r.ok);
-    open(r, "X");
-    romver(r, 0, 16);
-    CHECK_EQ(bank8(r), std::string("FF FF"));
-    CHECK_EQ(bank8_block(r), std::string("EEEE"));
-    CHECK_EQ(r.bridge().map(), 1);
-    romver(r, 0xFF, 0xFF);
-    CHECK_EQ(bank8(r), std::string("FF FF"));
-    CHECK_EQ(r.bridge().map(), 1);
-    romver(r, 1, 0);
-    CHECK_EQ(bank8(r), std::string("00 00"));
     CHECK_EQ(r.bridge().map(), 0);
 }
 

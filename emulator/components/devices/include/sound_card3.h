@@ -3,7 +3,7 @@
 /**
  * @file sound_card3.h
  * @author Jefferson J. Hunt (jefferson@oneoffendeavors.com)
- * @brief The sound card, revision 3: the device's registers over its firmware (hw/future/sound-device.md).
+ * @brief The sound card, revision 3: the device's registers over its firmware (hw/design.md, "Sound card revision 3").
  * @version 0.1.0
  * @date 2026-11-23
  *
@@ -23,10 +23,10 @@
  * $0B XTAG, $0C IEN, $0D ISR (bit 0 EVT, a level; bits 1-3 XDONE, CMDROOM, READY, cleared by writing 1),
  * $0E MEMSIZE, $0F FEATURES, $10-$11 FWVER, $7F ID ($A3). Every other offset reads 0 and ignores writes.
  *
- * The card's chips are revision 2's card (sound_card.h) used as a part: its 6510 with the C64-like map, CIA 1
- * and the frame interrupt, and both SIDs, driven through its own registers by the port, never by the bus; so a
- * tune's 6510 runs the same code as revision 2's, cycle for cycle (the stub, the decode: a second SID at $D420
- * or $D500), except that a one-SID tune plays on SID A alone (no BOTH).
+ * The card's chips are sound_card.h's SoundCard used as a part: its 6510 with the C64-like map, CIA 1 and the
+ * frame interrupt, and both SIDs, driven through their own registers by the port, never by the bus; a tune's
+ * 6510 runs the stub and the decode (a second SID at $D420 or $D500) sid_plan.h plans, and a one-SID tune
+ * plays on SID A alone (no BOTH).
  *
  * /RESET (bus_reset) and CTRL's RESET do the same: an open transfer abandoned, both FIFOs emptied, every
  * sound stopped, CTRL, IEN and ISR 0; the firmware runs on and the store keeps its objects. FWRESTART starts

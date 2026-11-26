@@ -110,7 +110,7 @@ endfunction()
 
 if(EMSCRIPTEN)
     foreach(name test_cpu_smoke test_pia test_via test_acia test_decoder test_machine test_loader test_debugger
-                 test_backplane test_flash test_dma test_console_card test_video test_video_rev2 test_usb test_sound test_sound_pcm test_sound_mix test_sound_mp3 test_sound_eq test_es5503 test_sound_doc test_sound_fw test_sound_device test_sound_stream3 test_sound_bank test_sound_music test_sid test_sid_audio test_sid_file test_apple test_bios test_session
+                 test_backplane test_flash test_dma test_console_card test_video_rev2 test_usb test_sound test_es5503 test_sound_fw test_sound_device test_sound_stream3 test_sound_dsp test_sound_bank test_sound_music test_sid test_sid_audio test_sid_file test_apple test_bios test_session
                  test_disk_image test_disk2 test_sd test_sd_fat test_bios_sd test_oodos_card test_ds3231 test_rtc test_joyports)
         emu_add_test(${name})
         # The tests put 64 KB buses on the stack; Emscripten's default stack is 64 KB in all.
@@ -132,10 +132,6 @@ if(EMSCRIPTEN)
     endforeach()
     target_compile_definitions(test_bios PRIVATE
             EMU_BIOS_EVEN="${EMU_BIOS_DIR}/bios-even.rom" EMU_BIOS_ODD="${EMU_BIOS_DIR}/bios-odd.rom")
-    target_compile_definitions(test_sound_mp3 PRIVATE EMU_MP3_DIR="${CMAKE_CURRENT_LIST_DIR}/mp3")
-    target_link_libraries(test_sound_mp3 PRIVATE emu_minimp3)
-    target_compile_definitions(test_sound_eq PRIVATE EMU_MP3_DIR="${CMAKE_CURRENT_LIST_DIR}/mp3")
-    target_link_libraries(test_sound_eq PRIVATE emu_minimp3)
     target_compile_definitions(test_sound_stream3 PRIVATE EMU_MP3_DIR="${CMAKE_CURRENT_LIST_DIR}/mp3")
     target_link_libraries(test_sound_stream3 PRIVATE emu_minimp3)
     return()
@@ -154,10 +150,10 @@ set(EMU_SPLIT_ALONE_test_session the_speaker_and_the_sound_card_mix_into_the_sam
 # test_bios_sd with B5's flash update cases (dev, alone, 2026-11-16): 452 s, over its 300; each third ~150.
 set(EMU_SPLIT_test_bios_sd 3)
 # test_bios_diag with B7's revision 2 default (fast, alone, 2026-11-17): 923 s, over its 900; each half ~460.
-# Its slow share (the owner, 2026-11-18; hw/testing.md, item 8): the 37 cases of 13 s or more that each make a
-# whole diagnostics run (1,030 s in all, 904 of them these), timed one by one at main b0100305. Four whole runs
-# stay in the two shares every gate runs: the golden quick run, the card stages on a good machine, bank 8's
-# stuck bit on a revision 2 bridge, and block 0's stuck bit. The slow share runs when the diagnostics' own
+# Its slow share (the owner, 2026-11-18; hw/testing.md, item 8): the cases of 13 s or more that each make a
+# whole diagnostics run (37 timed one by one at main b0100305, 1,030 s in all, 904 of them these; 36 since the
+# revision 1 bridge's went). Four whole runs stay in the two shares every gate runs: the golden quick run, the
+# card stages on a good machine, bank 8's stuck bit, and block 0's stuck bit. The slow share runs when the diagnostics' own
 # files change (tools/test-map.txt, label diagslow) and in quick and full.
 set(EMU_SPLIT_test_bios_diag 2)
 set(EMU_SLOW_SPLIT_test_bios_diag 4)
@@ -172,11 +168,13 @@ set(EMU_SLOW_test_bios_diag
         stage_10_s_event_path_catches_a_dead_interrupt
         a_full_run_never_writes_the_sd_card
         an_sd_card_that_stays_busy_is_reset_and_given_no_command
-        on_a_revision_2_bridge_v4_to_v7_pass_through_e00000_and_an_aperture_fault_still_fails_v6
+        v4_to_v7_pass_through_e00000_and_an_aperture_fault_still_fails_v6
         a_pass_count_above_255_is_printed_whole
         a_loop_runs_two_passes_and_a_key_ends_it_after_the_second
         no_sound_card_skips_stage_10_and_no_dma_skips_stage_8_v7_s3_and_sd3
         break_during_d1_puts_back_every_card_and_the_boot_reaches_a_prompt
+        a_dma_controller_at_a_future_revision_is_listed_and_never_driven
+        on_a_bridge_at_a_future_revision_stage_7_skips_not_known_to_this_build
         the_wait_states_and_the_vias_ier_are_put_back
         a18_stuck_ram_b_answers_as_ram_a_and_w0_goes_to_ram_c
         a_block_stage_2_passed_over_is_never_w0s_spare
@@ -200,9 +198,7 @@ set(EMU_SLOW_test_bios_diag
         the_interactive_tests_with_switch_16_every_answer_given
         break_during_s10s_note_leaves_the_card_silent_at_the_boot
         a_floating_bus_where_ram_b_is_left_out_is_not_answering
-        a_revision_1_dma_controller_is_listed_and_never_driven
         ram_b_left_out_is_not_answering
-        on_a_revision_1_bridge_stage_7_skips_not_known_to_this_build
         nb10_fails_when_mss_isnt_restarted
         nb10_fails_when_msf_isnt_cleared
         nb9_fails_unlocked
@@ -254,24 +250,15 @@ emu_add_test(test_bios)
 set_tests_properties(test_bios PROPERTIES TIMEOUT 600) # about 290 s alone under ASan (2026-11-07), more 4 at once
 emu_add_test(test_dma)
 emu_add_test(test_console_card)
-emu_add_test(test_video)
-emu_add_test(test_video_rev2) # revision 2 (hw/video-rev2.md): card memory, the aperture, the port
+emu_add_test(test_video_rev2) # the video card (hw/video-rev2.md): card memory, the aperture, the port, the splash
 target_compile_definitions(test_video_rev2 PRIVATE EMU_MACHINE_DIR="${PROJECT_SOURCE_DIR}/machines")
 emu_add_test(test_usb)
 emu_add_test(test_sound)
-emu_add_test(test_sound_pcm)
-emu_add_test(test_sound_mix)
-emu_add_test(test_sound_mp3) # our own MP3 files (test/host/mp3, tools/make_mp3_fixtures.sh), against minimp3 itself
-target_compile_definitions(test_sound_mp3 PRIVATE EMU_MP3_DIR="${CMAKE_CURRENT_LIST_DIR}/mp3")
-target_link_libraries(test_sound_mp3 PRIVATE emu_minimp3)
-emu_add_test(test_sound_eq) # the EQ on an MP3 against minimp3's frames too
-target_compile_definitions(test_sound_eq PRIVATE EMU_MP3_DIR="${CMAKE_CURRENT_LIST_DIR}/mp3")
-target_link_libraries(test_sound_eq PRIVATE emu_minimp3)
-emu_add_test(test_es5503) # the DOC alone (hw/sound-rev2.md step 6)
-emu_add_test(test_sound_doc) # the DOC on the card (step 7)
-emu_add_test(test_sound_fw) # revision 3's firmware alone (hw/future/sound-device.md)
+emu_add_test(test_es5503) # the DOC alone (es5503.h), the chip revision 3's firmware plays
+emu_add_test(test_sound_fw) # revision 3's firmware alone (hw/design.md, "Sound card revision 3")
 emu_add_test(test_sound_device) # revision 3 on the bus: registers, FIFOs, DMA, interrupt, resets
 emu_add_test(test_sound_stream3) # revision 3's streams: rings, NEED, underruns, gapless, the MP3 trim
+emu_add_test(test_sound_dsp) # the EQ and the vis page alone (sound_dsp.h), as the firmware runs them
 emu_add_test(test_sound_bank) # revision 3's sound bank: samples, effects, the voice manager, wave RAM's cache
 emu_add_test(test_sound_music) # revision 3's music: note blocks, the sequencer, notes waiting, MUSIC_DONE
 target_compile_definitions(test_sound_stream3 PRIVATE EMU_MP3_DIR="${CMAKE_CURRENT_LIST_DIR}/mp3")
@@ -927,19 +914,14 @@ set(EMU_TEST_LABELS
     test_bios_diag              "bios bridge console video sound es5503 sid usb dma sd rtc backplane"
     test_dma                    "emu dma bridge"
     test_console_card           "emu console dma bridge"
-    test_video                  "emu video bridge"
     test_video_rev2             "emu video bridge dma debug backplane"
     test_usb                    "emu usb dma bridge"
     test_sound                  "emu sound dma bridge"
-    test_sound_pcm              "emu sound dma bridge"
-    test_sound_mix              "emu sound"
-    test_sound_mp3              "emu sound dma bridge"
-    test_sound_eq               "emu sound"
     test_es5503                 "emu es5503"
-    test_sound_doc              "emu sound es5503 dma bridge"
     test_sound_fw               "emu sound"
     test_sound_device           "emu sound dma bridge"
     test_sound_stream3          "emu sound"
+    test_sound_dsp              "emu sound"
     test_sound_bank             "emu sound es5503 sid"
     test_sound_music            "emu sound sid es5503"
     test_sid                    "emu sid sound"

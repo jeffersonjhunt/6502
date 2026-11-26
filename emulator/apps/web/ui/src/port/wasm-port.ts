@@ -125,9 +125,9 @@ export interface CoreMachine {
   setRtc(ms: number): void;
   syncRtc(ms: number): void;
   rtc(): Uint8Array;
-  /** Revision 3's timebase: TBCTL, MS0-MS3, MSSL, MSSH (no latch taken); empty before revision 3. */
+  /** The north bridge's timebase: TBCTL, MS0-MS3, MSSL, MSSH (no latch taken); empty with no bridge. */
   timebase(): Uint8Array;
-  /** Revision 3's random source: RNGST, RNGCNT (no byte taken); empty before revision 3. */
+  /** The north bridge's random source: RNGST, RNGCNT (no byte taken); empty with no bridge. */
   random(): Uint8Array;
   soundCpu(): { has: boolean; pc: number; a: number; x: number; y: number; s: number; p: number; state: number; cycles: number; ddr: number; port: number; timer: number; latch: number; timerOn: boolean; frame: number; frameEn: number; raster: number };
   appleMode(): boolean;

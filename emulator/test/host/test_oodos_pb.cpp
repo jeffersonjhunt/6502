@@ -41,8 +41,6 @@ using namespace oodos_rig::ccp;
 
 namespace
 {
-    const bool REV3 = (sound_revision() = 3, true); ///< every rig here: revision 3
-
     constexpr uint32_t MBOX = 0x3900, BUF = 0x3A00, LOG = 0x3C00; ///< pbtest.s's
     constexpr uint32_t AREA = 0x3800, SBUF = 0x3A80;
     constexpr uint8_t PE_NOCARD = 1, PE_RANGE = 2, PE_STATE = 3, PE_REFUSED = 4; ///< oolib.inc's

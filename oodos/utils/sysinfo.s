@@ -17,12 +17,11 @@
 ;   SYSTEM   the CPU (the design's W65C02S: no opcode test, review CC1) and
 ;            its clock, measured by oohw's HW_CLOCK against the DS3231's
 ;            second and against 60 frames of the event area's counter
-;            (function 80); the ROM BIOS's version (77, interface 9);
+;            (function 80); the ROM BIOS's version (77);
 ;            OODOS's and its BIOS's (72), OOLIB's interface
 ;            (80's FT_INFO); A:OOUI.BNK's header; the memory (72, 83's
 ;            DM_INFO, 53 and 57 for what is free, $0204 for the TPA; on
-;            a north bridge of revision 2 or more, NB_MAP's AP8 for what bank 8 is:
-;            B7); how the machine booted (NB_STATUS)
+;            NB_MAP's AP8 for what bank 8 is: B7); how the machine booted (NB_STATUS)
 ;   CARDS    HW_PROBE: each ID byte, read twice
 ;   VIDEO    DM_INFO, and the card's MEMSIZE
 ;   SOUND    82's SN_INFO and SN_IDENTIFY (the card's own answer: no sound
@@ -458,24 +457,12 @@ mhz:    sta     p
         ldx     #>smhz
         jmp     puts
 
-; "  ROM BIOS   0.13": function 77 (O_ROMVER, interface 9, hw/diag.md's D1-1). An OODOS before
-; interface 9 hasn't it (and would answer it A = X = $FF anyway): FT_INFO says which.
+; "  ROM BIOS   0.13": function 77 (O_ROMVER, hw/diag.md's D1-1); A = X = $FF if OODOS found none at its boot.
 rombios:
         lda     #<sbios
         ldx     #>sbios
         jsr     puts
-        lda     #FT_INFO
-        ldx     #0
-        ldy     #O_FRAME
-        jsr     BDOS
-        cmp     #9
-        bcc     @old                    ; $FF (no function 80) is past 9: looked at next
-        cmp     #$FF
-        bne     @ask
-@old:   lda     #<sbiosold
-        ldx     #>sbiosold
-        jmp     puts
-@ask:   ldy     #O_ROMVER
+        ldy     #O_ROMVER
         jsr     BDOS
         cmp     #$FF
         bne     @ver
@@ -608,13 +595,11 @@ memory: lda     #<smemory
         sta     vunits
         cmp     #0
         beq     @prog
-        lda     HW_REV + $D             ; a north bridge of revision 2 or more (B7): bank 8 is
-        cmp     #2                      ;   the aperture only while MAP's AP8 is set, else the
-        bcc     @aper                   ;   RAM card's
-        lda     NB_MAP
+        lda     NB_MAP                  ; bank 8 is the aperture only while MAP's AP8 is set,
+                                        ;   else the RAM card's
         and     #NB_MAP_AP8
         beq     @prog
-@aper:  lda     #<sram960
+        lda     #<sram960
         ldx     #>sram960
         jsr     puts
 @prog:  jsr     cont
@@ -782,13 +767,6 @@ video:  lda     #<svideo
         sta     vunits
         cmp     #0
         bne     @rev2
-        lda     HW_REV + 9
-        cmp     #1
-        bne     @nocard
-        lda     #<svrev1
-        ldx     #>svrev1
-        jmp     puts
-@nocard:
         lda     #<snovideo
         ldx     #>snovideo
         jmp     puts
@@ -876,7 +854,7 @@ sound:  lda     #<ssound
         ldx     #>snoid
         jsr     puts
         jmp     @free
-@id:    lda     #<sfw                   ; ", firmware 1.0 build 1 (image A)"
+@id:    lda     #<sfw                   ; ", firmware 1.1 build 1 (image A)"
         ldx     #>sfw
         jsr     puts
         lda     snid + 2
@@ -1683,7 +1661,6 @@ sbyfrm: .byte   " Hz by the video frame$"
 snortc: .byte   "the clock chip didn't tick$"
 snofrm: .byte   "no video frame to measure by$"
 sbios:  .byte   "  ROM BIOS   $"
-sbiosold: .byte "not given by this OODOS (before interface 9)$"
 sbiosnone: .byte "not found by OODOS at its boot$"
 soodos: .byte   "  OODOS      $"
 sitsbios: .byte ", its BIOS $"
@@ -1721,7 +1698,6 @@ sstandin: .byte "serial: the stand-in 6551 (no ID register)$"
 snotfound: .byte ": not found$"
 sunknown: .byte " (not known to SYSINFO)$"
 svideo: .byte   "VIDEO      $"
-svrev1: .byte   "revision 1, which OODOS no longer drives$"
 snovideo: .byte "no video card$"
 svmem:  .byte   " KB of card memory (MEMSIZE $"
 svdiff: .byte   ", not DM_INFO's$"

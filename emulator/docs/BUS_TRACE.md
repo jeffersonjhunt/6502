@@ -81,8 +81,7 @@ bridge's windows decide, on the 24-bit bus (hw/design.md, "The new bus"):
   (MAP, `$C6A5` bit 0) is set, as from every reset, the CPU card sends
   bank 8 (`80000-8FFFF`) there, so a window on blocks 32-35 shows
   `E0xxxx`; with AP8 clear bank 8 is RAM and shows as itself (step B7,
-  proposed). A window with WINnH `$0E` shows `E0xxxx` either way. On a
-  `revision=1` bridge the alias is on while a revision 2 card is fitted.
+  proposed). A window with WINnH `$0E` shows `E0xxxx` either way.
 - **The I/O hole:** the CPU address, `0C000-0C7FF`, with the card's module
   ID.
 

@@ -170,17 +170,17 @@ settled the rule, and its emulator plan's first step is in:
   (`Bus::vector_pull`), and the bus trace records the lines of each cycle as
   they were (`Decoder::last_access`).
 - **`BackplaneBridge`** (`components/devices`), from the machine line
-  `northbridge backplane [bootsel] [revision=1|2|3]`: four 16 KB windows with
-  ROM and RO bits, VEC on vector pulls, the I/O hole ahead of the windows,
-  and its registers at $C680 with the decided reset values (W3 and VEC on
-  the top block of ROM A, or RAM block 63 under /BOOTSEL), STATUS, the
-  /IACK poll (IRQL/IRQH), WAIT0-3 and the ID byte ($D2: module D, revision
-  2). Revision 2 (step B7, proposed; the default) adds WIN0H-WIN3H ($20-$23)
-  and VECH ($24), A20-A23 for a window's block or a vector pull's while its
-  ROM bit is clear, and MAP ($25), whose AP8 (bit 0, set at every reset)
-  sends bank 8 to the video aperture at $E00000. `revision=1` is step B1's
-  bridge, ID $D1 with none of them, kept for tests (hw/design.md, "B7: as
-  built"). The bridge resets with the CPU (`Decoder::reset`, from the app
+  `northbridge backplane [bootsel] [rng_chip=locked|unlocked|none]`: four
+  16 KB windows with ROM and RO bits, VEC on vector pulls, the I/O hole
+  ahead of the windows, and its registers at $C680 with the decided reset
+  values (W3 and VEC on the top block of ROM A, or RAM block 63 under
+  /BOOTSEL), STATUS, the /IACK poll (IRQL/IRQH), WAIT0-3 and the ID byte
+  ($D3: module D, revision 3, the only one). WIN0H-WIN3H ($20-$23) and VECH
+  ($24) give A20-A23 for a window's block or a vector pull's while its ROM
+  bit is clear, and MAP ($25)'s AP8 (bit 0, set at every reset) sends bank 8
+  to the video aperture at $E00000; the common hole, the timebase and the
+  random source are revision 3's (hw/design.md, "The north bridge,
+  revision 3"). The bridge resets with the CPU (`Decoder::reset`, from the app
   and the debugger's `reset`).
 - **`machines/backplane.machine`:** RAM A-D, the 512 KB flash, and a 6551
   in the serial card's block ($C300) as a stand-in terminal until the
@@ -229,8 +229,8 @@ the trace gap all agree. DMA reaches memory space by physical address.
 Cards raise `Device::drq()` and answer `dack_read`/`dack_write` with the TC
 flag; a mapping's `drq=0-3` wires one to a channel. No modelled card uses
 DMA yet (the SD card now does); test_dma uses a test card. Not modelled: an
-NMOS 6502 ignoring RDY on writes (the backplane is W65C02S only). *(This is
-revision 1, ID $81, replaced by revision 2 in B2: below.)*
+NMOS 6502 ignoring RDY on writes (the backplane is W65C02S only). *(Since
+replaced by step B2's controller: below.)*
 
 **The Console card (2026-10-23), WebUI step 1.** `ConsoleCard` (module E,
 $C700; machine line `console 700-77F space=io irq`) has the decided
@@ -849,7 +849,7 @@ commits on feat/bus-b2: /WAIT (U1), the channel accessor (U2), the switch
 - **Requests.** `Mapping::drq` is `Dreq::None` or `Dreq::Wired` (a type a
   bare 0 or 1 can't initialise, so an old positional "channel 0" can't
   compile on as unwired). The machine file's `drq` is a flag; `drq=N` is
-  refused with an error naming CARD. The decoder keeps the wired mappings
+  an unknown option (cleanup U5). The decoder keeps the wired mappings
   and a table of module to mapping, built when the mappings change, and
   catches the timed ones up before it ORs their `drq()` into /DREQ.
 - **A take** returns at once with the master enable off. With /DREQ low,

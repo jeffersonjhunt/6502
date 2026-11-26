@@ -28,9 +28,8 @@ NB_YEAR         = NB + $16
 NB_RTCREG       = NB + $17             ; a DS3231 register number: writing it reads the register...
 NB_RTCDATA      = NB + $18             ; ...into here; writing here writes it. Wait for BUSY clear
 NB_ID           = NB + $7F
-; Revision 2 (ID $D2, step B7, proposed; hw/design.md, "The video aperture moved out of RAM"): A20-A23
-; for each window (bits 3-0; a window with the ROM bit set ignores its WINnH), for VEC's vector pulls,
-; and MAP. Write them only after NB_ID reads $D2 or more: on revision 1 ($D1) the offsets read $FF.
+; Step B7 (hw/design.md, "The video aperture moved out of RAM"): A20-A23 for each window (bits 3-0;
+; a window with the ROM bit set ignores its WINnH), for VEC's vector pulls, and MAP.
 NB_WIN0H        = NB + $20             ; W0's A20-A23
 NB_WIN1H        = NB + $21
 NB_WIN2H        = NB + $22
@@ -38,11 +37,8 @@ NB_WIN3H        = NB + $23
 NB_VECH         = NB + $24             ; a vector pull's A20-A23 (VEC's ROM bit clear)
 NB_MAP          = NB + $25             ; bit 0, AP8: bank 8 goes to the video card's aperture ($01 at reset)
 NB_MAP_AP8      = $01
-NB_ID_V1        = $D1                  ; revision 1: no WINnH, VECH or MAP
-NB_ID_V2        = $D2
-NB_ID_V3        = $D3                  ; revision 3: revision 2's, the random source and the timebase
-; Revision 3 (ID $D3; hw/design.md, "The north bridge, revision 3"): use these only after NB_ID reads
-; $D3: on $D1 and $D2 the offsets read $FF and drop writes. MS0 and SEC latch when read, and RNGDATA gives
+NB_ID_V3        = $D3                  ; revision 3: the windows' high bits, the random source and the timebase
+; Revision 3 (ID $D3; hw/design.md, "The north bridge, revision 3"). MS0 and SEC latch when read, and RNGDATA gives
 ; up its byte: read each with a load (LDA, LDX, LDY), never a read-modify-write or a 16-bit read.
 NB_RNGST        = NB + $19             ; the random source: READY CHIP LOCKED FAULT . . . BUSY; write DRAW
 NB_RNGCNT       = NB + $1A             ; the bytes in the pool, 0-32
@@ -78,15 +74,13 @@ NB_IRQ_SOUND    = $04                  ; IRQH bit 2, ID A: the sound card (the m
 NB_IRQ_NB       = $20                  ; IRQH bit 5, ID D: the north bridge (revision 3: TBCTL's MSF; 2: TICK)
 NB_ROM          = $80                  ; window bit: flash, not RAM
 NB_RO           = $40                  ; window bit: read-only
-CART_BLOCK      = 32                   ; flash block: ROM B's first 16 KB, the game cartridge's (a ROM BIOS
-                                       ; before 0.16 looked there for the IIe ROM, and OODOS's 75 does under one)
+CART_BLOCK      = 32                   ; flash block: ROM B's first 16 KB, the game cartridge's
 IIE_IMAGES      = 4                    ; ROM A blocks 0-3: the IIe ROM images, each 16 KB as at $C000-$FFFF
 IIE_CHARS_BLOCK = 4                    ; and their character sets, 8 KB each: set n at $10000 + n x $2000
 IIE_ID_AT       = $3BB3                ; in an image ($FBB3): IIE_ID if it is a IIe's (apple.s, OODOS's 75)
 IIE_ID          = $06
 NB_STATUS_BOOTSEL = $01                ; booted from RAM (the bus spy loaded it)
 NB_RTC_TICK     = $80                  ; RTCCTL: the second's read happened; write 1 to clear
-NB_RTC_TIE      = $40                  ; RTCCTL: TICK interrupts (IRQH bit 5, ID $D); revision 2; reads 0 on 3
 NB_RTC_ALARM    = $20                  ; RTCCTL: the DS3231 flagged an alarm (A1F or A2F)
 NB_RTC_LOST     = $04                  ; RTCCTL: the DS3231's oscillator stopped (OSF): set the time
 NB_RTC_SET      = $02                  ; RTCCTL: write 1 to send SEC-YEAR to the DS3231 (reads 0)
@@ -177,52 +171,38 @@ DMA_MOD_VIDEO   = $09                  ;   channel 1's, the video card
 DMA_MOD_SOUND   = $0A                  ;   channel 2's, the sound card (channels 3-7: DMA_NONE)
 DMA_MODE_IRQ    = $80                  ; MODE: interrupt at terminal count
 
-; Video card (module 9): VGA 640x480. Revision 1 (ID $91) draws from banks 8-B,
-; which it snoops; revision 2 (ID $92, hw/video-rev2.md, proposed) from 2 MB of its
-; own memory, through the aperture and the port. The _R1 names are revision 1's
-; registers where revision 2 moved them; the plain names are revision 2's.
+; Video card (module 9, revision 2, ID $92, hw/video-rev2.md, proposed): VGA 640x480
+; from 2 MB of its own memory, through the aperture and the port.
 VIDEO           = $C480
 VIDEO_CTRL      = VIDEO + $00
 VIDEO_BORDER    = VIDEO + $01
-VIDEO_PALBASE_R1 = VIDEO + $02         ; revision 1
-VIDEO_SPRBASE_R1 = VIDEO + $03         ; revision 1
 VIDEO_IEN       = VIDEO + $04
 VIDEO_ISR       = VIDEO + $05          ; pending: write 1s to clear
 VIDEO_LINE      = VIDEO + $06          ; 2 bytes: write the line to interrupt at; read the beam's line
 VIDEO_STATUS    = VIDEO + $08          ; bit 7: in vertical blank
 VIDEO_SPLASH    = VIDEO + $09          ; the boot splash (splash.s)
-VIDEO_PALBASE   = VIDEO + $0A          ; revision 2: 2 bytes, card address / 256
-VIDEO_SPRBASE   = VIDEO + $0C          ; revision 2: 2 bytes, card address / 256
-VIDEO_SPRCTL    = VIDEO + $0E          ; revision 2: sprite control, bit 0 FULL (hw/sprites640.md)
+VIDEO_PALBASE   = VIDEO + $0A          ; 2 bytes, card address / 256
+VIDEO_SPRBASE   = VIDEO + $0C          ; 2 bytes, card address / 256
+VIDEO_SPRCTL    = VIDEO + $0E          ; sprite control, bit 0 FULL (hw/sprites640.md)
 VIDEO_L0        = VIDEO + $10          ; layer 0
 VIDEO_L0_CONFIG = VIDEO_L0 + 0
-VIDEO_L0_MAP_R1 = VIDEO_L0 + 1         ; revision 1's layer registers
-VIDEO_L0_TILE_R1 = VIDEO_L0 + 2
-VIDEO_L0_HSCROLL_R1 = VIDEO_L0 + 3
-VIDEO_L0_VSCROLL_R1 = VIDEO_L0 + 5
-VIDEO_L0_PALOFS_R1 = VIDEO_L0 + 7
-VIDEO_L0_MAP    = VIDEO_L0 + 1         ; revision 2's: 2 bytes, card address / 256
+VIDEO_L0_MAP    = VIDEO_L0 + 1         ; 2 bytes, card address / 256
 VIDEO_L0_TILE   = VIDEO_L0 + 3         ; 2 bytes, card address / 256
 VIDEO_L0_HSCROLL = VIDEO_L0 + 5        ; 2 bytes
 VIDEO_L0_VSCROLL = VIDEO_L0 + 7        ; 2 bytes
 VIDEO_L0_PALOFS = VIDEO_L0 + 9
 VIDEO_L1        = VIDEO + $20          ; layer 1, the same registers
 VIDEO_L1_CONFIG = VIDEO_L1 + 0
-VIDEO_L1_MAP_R1 = VIDEO_L1 + 1         ; revision 1's
-VIDEO_L1_TILE_R1 = VIDEO_L1 + 2
-VIDEO_L1_HSCROLL_R1 = VIDEO_L1 + 3
-VIDEO_L1_VSCROLL_R1 = VIDEO_L1 + 5
-VIDEO_L1_PALOFS_R1 = VIDEO_L1 + 7
-VIDEO_L1_MAP    = VIDEO_L1 + 1         ; revision 2's
+VIDEO_L1_MAP    = VIDEO_L1 + 1
 VIDEO_L1_TILE   = VIDEO_L1 + 3
 VIDEO_L1_HSCROLL = VIDEO_L1 + 5
 VIDEO_L1_VSCROLL = VIDEO_L1 + 7
 VIDEO_L1_PALOFS = VIDEO_L1 + 9
-VIDEO_SLOT0     = VIDEO + $30          ; revision 2: aperture slot 0's 16 KB page, 2 bytes
+VIDEO_SLOT0     = VIDEO + $30          ; aperture slot 0's 16 KB page, 2 bytes
 VIDEO_SLOT1     = VIDEO + $32
 VIDEO_SLOT2     = VIDEO + $34
 VIDEO_SLOT3     = VIDEO + $36
-VIDEO_PADDR     = VIDEO + $38          ; revision 2: the port's address, 3 bytes
+VIDEO_PADDR     = VIDEO + $38          ; the port's address, 3 bytes
 VIDEO_PDATA     = VIDEO + $3B          ; the port's data: each access moves PADDR by PSTEP
 VIDEO_PSTEP     = VIDEO + $3C          ; 2 bytes
 VIDEO_PCTL      = VIDEO + $3E
@@ -234,13 +214,12 @@ VIDEO_TEXT80B   = $80                  ; CONFIG: text 80x30, attribute bit 7 bli
 VIDEO_TEXT40    = $01                  ; CONFIG: text 40x30
 VIDEO_TILE      = $02                  ; CONFIG: tiles, 8x8 at 4 bits...
 VIDEO_MAP_W64   = $20                  ; ...from a map 64 wide (32 high)
-VIDEO_BITMAP640 = $06                  ; CONFIG, revision 2: bitmap 640, 1,024-byte rows of palette indices
-VIDEO_DIRECT640 = $07                  ; CONFIG, revision 2: direct 640, 1,280-byte rows of $0RGB words
+VIDEO_BITMAP640 = $06                  ; CONFIG: bitmap 640, 1,024-byte rows of palette indices
+VIDEO_DIRECT640 = $07                  ; CONFIG: direct 640, 1,280-byte rows of $0RGB words
 VIDEO_DIRECT_T  = $80                  ; direct 640: a pixel's byte 1 bit 7, transparent (hw/video640.md)
 VIDEO_SPR_FULL  = $01                  ; SPRCTL: an entry's byte 3 bit 7 makes that sprite full resolution
 VIDEO_SPRX_FULL = $80                  ; a sprite entry's byte 3 (X high) bit 7: full resolution, 640x480 units
 VIDEO_ALL       = $0F                  ; CTRL: display, both layers, sprites
-VIDEO_ID_V1     = $91
 VIDEO_ID_V2     = $92
 VIDEO_IRQ_VBLANK = $01                 ; IEN, ISR: vertical blank
 VIDEO_IRQ_LINE  = $02                  ; IEN, ISR: the scan line LINE
@@ -251,8 +230,8 @@ VIDEO_PCTL_DRQ  = $01                  ; PCTL: request DMA (/DREQ), served by ch
 VIDEO_PCTL_FROM = $02                  ; PCTL: DMA reads the card (0: DMA writes it)
 VIDEO_PCTL_DOWN = $04                  ; PCTL: PADDR steps down
 VIDEO_MEMSIZE_2MB = 32                 ; MEMSIZE on a 2 MB card
-VIDEO_APERTURE  = $80000               ; revision 2: the aperture, physical bank 8 (four 16 KB slots), while
-                                       ;   the north bridge's AP8 is set (on a $D1 bridge, always)
+VIDEO_APERTURE  = $80000               ; the aperture, physical bank 8 (four 16 KB slots), while
+                                       ;   the north bridge's AP8 is set
 VIDEO_APERTURE2 = $E00000              ; the aperture's own address (B7): slot n at $E00000 + n x $4000
 VIDEO_APER_H    = $0E                  ; the WINnH that reaches it, with BLOCK the slot (0-3)
 
@@ -357,7 +336,7 @@ DMA_BLOCK_IN    = $02                  ; MODE: block, card to memory (once DRQ o
 DMA_BLOCK_OUT   = $06                  ; MODE: block, memory to card
 DMA_ENABLE      = $01                  ; CTRL
 
-; The sound card (module A), revision 3: the card as a device (hw/future/sound-device.md). A program writes
+; The sound card (module A), revision 3: the card as a device (hw/design.md, "Sound card revision 3"). A program writes
 ; command records to CMD and reads event records from EVT; data goes in through DATA, by DMA channel 2.
 SOUND           = $C500
 SOUND_CTRL      = SOUND + $00          ; DRQ; FWRESTART and RESET, strobes

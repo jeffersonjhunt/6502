@@ -30,12 +30,10 @@ namespace
 
     struct Apple
     {
-        /// `nb`: the north bridge's revision= (0: the default).
-        explicit Apple(unsigned nb = 0)
+        Apple()
         {
             std::string error;
-            const std::string revision = nb ? " revision=" + std::to_string(nb) : "";
-            machine = Machine::build("cpu w65c02s\nnorthbridge backplane" + revision + "\nram 00000-FFFFF module=0\n"
+            machine = Machine::build("cpu w65c02s\nnorthbridge backplane\nram 00000-FFFFF module=0\n"
                                      "usb 580-5FF space=io name=usb irq\n",
                                      "apple.machine", {}, error);
             if (!machine)
@@ -421,9 +419,9 @@ TEST(the_apple_clock_while_in_the_mode)
 
 TEST(winh_and_map_never_reach_the_iies_map_and_the_pulse_puts_them_back)
 {
-    Apple a(2);
+    Apple a;
     REQUIRE(a.ok());
-    CHECK_EQ(a.bus().read(0xC6FF), 0xD2);
+    CHECK_EQ(a.bus().read(0xC6FF), 0xD3);
     for (uint16_t r = 0xC6A0; r < 0xC6A5; ++r)          // WIN0H-WIN3H and VECH
         a.bus().write(r, 0x0E);
     a.bus().write(0xC6A5, 0x00);                        // MAP: AP8 clear

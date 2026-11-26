@@ -9,9 +9,9 @@
  * is shared here for the ROM's diagnostics (test_bios_diag). It adds an aliased address line to D2's stuck
  * bits, and one block answering as another (fault_redirect). Nothing here is in the emulator: a fault is mapped over the machine's own memory after it is built,
  * and the bus's later mappings win, for the CPU's windows and DMA alike. Addresses are physical as the CPU card
- * reaches them (Decoder::redirect()) when the machine has a revision 2 video card: bank 8 is then the aperture at
- * $E00000 (AP8 set from reset, or a revision 1 bridge's fixed alias), so a fault there is the aperture's. With no
- * revision 2 card bank 8 is RAM (the BIOS clears AP8; step B7, proposed), and `ram` asks for the RAM card's bank 8
+ * reaches them (Decoder::redirect()) when the machine has the video card: bank 8 is then the aperture at
+ * $E00000 (AP8 set from reset), so a fault there is the aperture's. With no
+ * card bank 8 is RAM (the BIOS clears AP8; step B7, proposed), and `ram` asks for the RAM card's bank 8
  * whatever is fitted: the diagnostics clear AP8 and test it (b7-plan.md, question 6).
  */
 
@@ -51,11 +51,10 @@ namespace ooe::test
     };
 
     /// Where a fault at physical `a` goes: the CPU card's redirect (bank 8 to the aperture) where the machine has a
-    /// revision 2 video card, unless `ram`; else `a` itself, the RAM card's.
+    /// video card, unless `ram`; else `a` itself, the RAM card's.
     inline uint32_t fault_address(ooe::emu::Machine &m, uint32_t a, bool ram)
     {
-        const ooe::emu::VideoCard *v = m.video_card();
-        return ram || !v || v->revision() != 2 ? a : m.bus().redirect(a);
+        return ram || !m.video_card() ? a : m.bus().redirect(a);
     }
 
     /// `f` over the 16 KB block holding physical `block_addr`, on whatever is mapped there now (`ram`: bank 8's

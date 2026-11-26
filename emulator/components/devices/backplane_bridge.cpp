@@ -30,12 +30,10 @@ namespace ooe::emu
         const std::vector<uint8_t> WAKE_ANSWER = {0x04, Atecc608::ST_WOKEN, 0x33, 0x43};
     } // namespace
 
-    BackplaneBridge::BackplaneBridge(bool bootsel, std::shared_ptr<Ds3231> rtc, uint8_t revision)
-        : revision_(revision == WIDE || revision == 3 ? revision : uint8_t{1}), bootsel_(bootsel),
-          rtc_(rtc ? std::move(rtc) : std::make_shared<Ds3231>())
+    BackplaneBridge::BackplaneBridge(bool bootsel, std::shared_ptr<Ds3231> rtc)
+        : bootsel_(bootsel), rtc_(rtc ? std::move(rtc) : std::make_shared<Ds3231>()),
+          chip_(std::make_unique<Atecc608>())
     {
-        if (revision_ >= TIMEBASE)
-            chip_ = std::make_unique<Atecc608>();
         apply_reset();
         retime();
     }
@@ -75,7 +73,7 @@ namespace ooe::emu
             edge_osc_ = 0;
             synced_ = false;
             // The random source's set-up, all while /RESET is held.
-            if (timebase() && chip_)
+            if (chip_)
             {
                 chip_->set_cpu_hz(hz_);
                 setup_ = true;
@@ -97,7 +95,6 @@ namespace ooe::emu
     void BackplaneBridge::rtc_reset()
     {
         tick_ = false;
-        tie_ = false;
         rtc_reg_ = 0;
         msf_ = ovr_ = msie_ = false; // any reset: no tick interrupts until software turns MSIE on
     }
@@ -155,7 +152,7 @@ namespace ooe::emu
         uint32_t offset = static_cast<uint32_t>(reg & BLOCK) << WINDOW_SHIFT | (cpu_addr & WINDOW_MASK);
         if (reg & ROM)
             return Route{bus_address(Space::Flash, offset), (reg & RO) == 0}; // $F00000 + block x $4000: WINnH ignored
-        offset |= static_cast<uint32_t>(vec ? vech_ : winh_[n]) << 20; // A20-A23 (always 0 on revision 1)
+        offset |= static_cast<uint32_t>(vec ? vech_ : winh_[n]) << 20; // A20-A23
         return Route{bus_address(Space::Memory, redirect(offset)), (reg & RO) == 0};
     }
 
@@ -181,12 +178,12 @@ namespace ooe::emu
             latch_ = time_;
             mss_latch_ = static_cast<uint16_t>(mss());
         }
-        if (offset == MS0 && timebase())
+        if (offset == MS0)
         {
             ms_latch_ = ms_;
             tbsub_latch_ = static_cast<uint16_t>((osc_ - tick_at(ticks_)) / 2);
         }
-        if (offset == RNGDATA && timebase())
+        if (offset == RNGDATA)
         {
             if (pool_.empty())
                 return 0x00; // nothing taken
@@ -213,7 +210,7 @@ namespace ooe::emu
         case MODE:
             return mode_;
         case STATUS:
-            return static_cast<uint8_t>(revision_ << 4 | (power_on_ ? STATUS_POWER_ON : 0) |
+            return static_cast<uint8_t>(revision() << 4 | (power_on_ ? STATUS_POWER_ON : 0) |
                                         (bootsel_ ? STATUS_BOOTSEL : 0));
         case RTCCTL:
             return rtcctl();
@@ -243,35 +240,35 @@ namespace ooe::emu
         case WIN0H + 1:
         case WIN0H + 2:
         case WIN0H + 3:
-            return wide() ? winh_[offset - WIN0H] : 0xFF;
+            return winh_[offset - WIN0H];
         case VECH:
-            return wide() ? vech_ : 0xFF;
+            return vech_;
         case MAP:
-            return wide() ? map_ : 0xFF;
+            return map_;
         case HOLE:
-            return timebase() ? hole_ : uint8_t{0xFF};
+            return hole_;
         case RNGST:
-            return timebase() ? rngst() : uint8_t{0xFF};
+            return rngst();
         case RNGCNT:
-            return timebase() ? static_cast<uint8_t>(pool_.size()) : uint8_t{0xFF};
+            return static_cast<uint8_t>(pool_.size());
         case RNGDATA:
-            return timebase() ? (pool_.empty() ? uint8_t{0x00} : pool_.front()) : uint8_t{0xFF};
+            return pool_.empty() ? uint8_t{0x00} : pool_.front();
         case MSSL:
-            return timebase() ? static_cast<uint8_t>(mss_latch_) : uint8_t{0xFF};
+            return static_cast<uint8_t>(mss_latch_);
         case MSSH:
-            return timebase() ? static_cast<uint8_t>(mss_latch_ >> 8) : uint8_t{0xFF};
+            return static_cast<uint8_t>(mss_latch_ >> 8);
         case TBCTL:
-            return timebase() ? tbctl() : uint8_t{0xFF};
+            return tbctl();
         case MS0:
-            return timebase() ? static_cast<uint8_t>(ms_) : uint8_t{0xFF}; // live
+            return static_cast<uint8_t>(ms_); // live
         case MS0 + 1:
         case MS0 + 2:
         case MS0 + 3:
-            return timebase() ? static_cast<uint8_t>(ms_latch_ >> 8 * (offset - MS0)) : uint8_t{0xFF};
+            return static_cast<uint8_t>(ms_latch_ >> 8 * (offset - MS0));
         case TBSUBL:
-            return timebase() ? static_cast<uint8_t>(tbsub_latch_) : uint8_t{0xFF};
+            return static_cast<uint8_t>(tbsub_latch_);
         case TBSUBH:
-            return timebase() ? static_cast<uint8_t>(tbsub_latch_ >> 8) : uint8_t{0xFF};
+            return static_cast<uint8_t>(tbsub_latch_ >> 8);
         case ID_REG:
             return id();
         default:
@@ -305,7 +302,6 @@ namespace ooe::emu
         case RTCCTL:
             if (data & RTC_TICK)
                 tick_ = false;
-            tie_ = !timebase() && (data & RTC_TIE) != 0; // revision 3: TIE reads 0, the write ignored
             if (data & RTC_SET)
             {
                 Transaction t{Op::Set};
@@ -341,23 +337,19 @@ namespace ooe::emu
         case WIN0H + 1:
         case WIN0H + 2:
         case WIN0H + 3:
-            if (wide())
-                winh_[offset - WIN0H] = static_cast<uint8_t>(data & HIGH);
+            winh_[offset - WIN0H] = static_cast<uint8_t>(data & HIGH);
             break;
         case VECH:
-            if (wide())
-                vech_ = static_cast<uint8_t>(data & HIGH);
+            vech_ = static_cast<uint8_t>(data & HIGH);
             break;
         case MAP:
-            if (wide())
-                map_ = static_cast<uint8_t>(data & MAP_AP8);
+            map_ = static_cast<uint8_t>(data & MAP_AP8);
             break;
         case HOLE:
-            if (timebase())
-                hole_ = data;
+            hole_ = data;
             break;
         case RNGST:
-            if (timebase() && (data & RNG_DRAW))
+            if (data & RNG_DRAW)
             {
                 rng_fault_ = false;
                 if (!drawing_ && rng_locked_)
@@ -368,14 +360,11 @@ namespace ooe::emu
             }
             break;
         case TBCTL:
-            if (timebase())
-            {
-                if (data & TB_MSF)
-                    msf_ = false;
-                if (data & TB_OVR)
-                    ovr_ = false;
-                msie_ = (data & TB_MSIE) != 0;
-            }
+            if (data & TB_MSF)
+                msf_ = false;
+            if (data & TB_OVR)
+                ovr_ = false;
+            msie_ = (data & TB_MSIE) != 0;
             break;
         default:
             break; // read-only or unused
@@ -436,8 +425,6 @@ namespace ooe::emu
         const uint64_t total = frac_ + cycles * num_;
         osc_ += total / den_;
         frac_ = total % den_;
-        if (!timebase())
-            return;
         while (osc_ > tick_at(ticks_ + 1))
         {
             ++ticks_;
@@ -524,8 +511,7 @@ namespace ooe::emu
             uint64_t step = std::min(cycles, rtc_->until_event());
             if (!queue_.empty())
                 step = std::min(step, left_);
-            if (timebase())
-                step = std::min(step, until_tick()); // each tick on its own cycle
+            step = std::min(step, until_tick()); // each tick on its own cycle
             if (rng_wait_)
                 step = std::min(step, rng_wait_);
             rtc_->advance(step);
@@ -769,8 +755,6 @@ namespace ooe::emu
 
     std::string BackplaneBridge::describe_random() const
     {
-        if (!timebase())
-            return "no random source: the bridge is revision " + std::to_string(revision_) + "\n";
         const uint8_t st = rngst();
         std::string flags;
         for (const auto &[bit, name] : {std::pair<uint8_t, const char *>{RNG_READY, " READY"}, {RNG_CHIP, " CHIP"},
@@ -795,7 +779,7 @@ namespace ooe::emu
         // SET is a strobe: a pending one shows as BUSY, so writing back what was read can't resend it. BUSY is
         // the clock's transactions alone: the random source's have RNGST's.
         const bool busy = std::any_of(queue_.begin(), queue_.end(), [](const Transaction &t) { return clock_op(t.op); });
-        return static_cast<uint8_t>((tick_ ? RTC_TICK : 0) | (tie_ ? RTC_TIE : 0) |
+        return static_cast<uint8_t>((tick_ ? RTC_TICK : 0) |
                                     (status_ & (Ds3231::A1F | Ds3231::A2F) ? RTC_ALARM : 0) |
                                     (status_ & Ds3231::OSF ? RTC_LOST : 0) | (busy ? RTC_BUSY : 0));
     }
@@ -819,7 +803,7 @@ namespace ooe::emu
         out += buf;
         const uint8_t ctl = rtcctl();
         std::string flags;
-        for (const auto &[bit, name] : {std::pair<uint8_t, const char *>{RTC_TICK, " TICK"}, {RTC_TIE, " TIE"},
+        for (const auto &[bit, name] : {std::pair<uint8_t, const char *>{RTC_TICK, " TICK"},
                                         {RTC_ALARM, " ALARM"}, {RTC_LOST, " LOST"}, {RTC_BUSY, " BUSY"}})
             if (ctl & bit)
                 flags += name;
@@ -835,15 +819,12 @@ namespace ooe::emu
                       reg(Ds3231::CONTROL), reg(Ds3231::STATUS), reg(Ds3231::AGING), reg(Ds3231::TEMP_MSB),
                       (reg(Ds3231::TEMP_LSB) >> 6) * 25, reg(7), reg(8), reg(9), reg(10), reg(11), reg(12), reg(13));
         out += buf;
-        if (timebase())
-            out += describe_timebase() + describe_random();
+        out += describe_timebase() + describe_random();
         return out;
     }
 
     std::string BackplaneBridge::describe_timebase() const
     {
-        if (!timebase())
-            return "no timebase: the bridge is revision " + std::to_string(revision_) + "\n";
         const uint8_t ctl = tbctl();
         std::string flags;
         for (const auto &[bit, name] : {std::pair<uint8_t, const char *>{TB_MSF, " MSF"}, {TB_OVR, " OVR"},

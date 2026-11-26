@@ -943,14 +943,10 @@ ui_open:
         dey
         bpl     @blk
         jsr     THEME0
-        lda     #FT_INFO                ; interface 8, with input and DMA
+        lda     #FT_INFO                ; input and DMA
         ldx     #0
         ldy     #O_FRAME
         jsr     BDOS
-        cmp     #$FF
-        beq     @ver
-        cmp     #8
-        bcc     @ver
         txa
         and     #OA_INPUT | OA_DMA
         cmp     #OA_INPUT | OA_DMA

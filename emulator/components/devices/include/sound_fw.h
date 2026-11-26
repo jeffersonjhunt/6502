@@ -3,7 +3,7 @@
 /**
  * @file sound_fw.h
  * @author Jefferson J. Hunt (jefferson@oneoffendeavors.com)
- * @brief The sound card's firmware, revision 3: the card as a device (hw/future/sound-device.md).
+ * @brief The sound card's firmware, revision 3: the card as a device (hw/design.md, "Sound card revision 3").
  * @version 0.1.0
  * @date 2026-11-23
  *
@@ -110,7 +110,7 @@ namespace ooe::emu
         /// Wave RAM from `addr`.
         virtual void doc_ram(uint32_t addr, const uint8_t *bytes, size_t n) = 0;
         /// One frame of the digital path's (1/48,000 s): the chip stepped at its own rate, its output then,
-        /// left and right as revision 2's bus has it (signed 16-bit).
+        /// left and right (signed 16-bit).
         /// The ES5503's output frame, by source: out[0] and out[1] the effects' and the boot sound's (left and right:
         /// every channel but 2 and 3, by its evenness), out[2] and out[3] music's (channels 2 and 3).
         virtual void doc_frame(int16_t out[4]) = 0;
@@ -124,10 +124,11 @@ namespace ooe::emu
         static constexpr uint32_t SAMPLES_PER_MS = RATE / 1000; ///< 48
         static constexpr uint32_t LATENCY_US = 20;              ///< a command runs this long after its last byte
         static constexpr uint32_t STARTUP_MS = 20;              ///< power-on or FWRESTART to READY
+        static constexpr uint32_t TONE_TOP_HZ = 20'000;         ///< the tone generator's top: BEEP's, and music's (a rest above)
         static constexpr size_t CMD_BYTES = 1024, EVT_BYTES = 2048;
         static constexpr size_t RECORD_MAX = 256;               ///< a command record: 3 + n, n at most 253
         static constexpr uint8_t CARD_TYPE = 0xA3;
-        static constexpr uint8_t VERSION_MAJOR = 1, VERSION_MINOR = 0;
+        static constexpr uint8_t VERSION_MAJOR = 1, VERSION_MINOR = 1;
         static constexpr uint16_t BUILD = 1;
         static constexpr unsigned TUNE_SLOTS = 4, SAMPLE_SLOTS = 256, EFFECTS = 256, MUSIC_SLOTS = 32, STREAMS = 2;
 
@@ -385,6 +386,9 @@ namespace ooe::emu
             uint32_t count{0};
         };
         NeedSent last_need(unsigned s) const { return streams_[s % STREAMS].last_need; }
+        /// Tests: the STREAM_DATA records for stream `s` the card has had since it opened, taken or refused (each
+        /// should answer one of its NEEDs, last_need().count).
+        uint32_t stream_data_records(unsigned s) const { return streams_[s % STREAMS].data_records; }
         /// Tests: every stream's underruns since power-on (STREAM_STATUS's +19-20 are one stream's,
         /// from its open).
         uint64_t underruns_total() const { return underruns_total_; }
@@ -559,6 +563,7 @@ namespace ooe::emu
             int16_t prev[2]{0, 0}, cur[2]{0, 0};
             std::shared_ptr<Mp3> mp3;
             NeedSent last_need{}; ///< last_need()'s
+            uint32_t data_records{0}; ///< stream_data_records()'s
         };
         std::array<Stream, STREAMS> streams_{};
         std::array<Object, STREAMS> rings_{};
@@ -747,7 +752,7 @@ namespace ooe::emu
         uint8_t faults_{0};
         uint8_t check_image(Image &out) const;
 
-        // --- the boot sound (sound_flash.h's, as revision 2's ES5503 player, docsnd.s, played it) ---------
+        // --- the boot sound (sound_flash.h's, as docsnd.s's ES5503 player played it) --------------------
         struct BootSound
         {
             bool active{false};

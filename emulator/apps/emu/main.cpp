@@ -36,7 +36,7 @@
  * - Ctrl-] stops a running machine into the debugger ('h' for commands).
  * - --screen writes the video card's last frame (if the machine has one)
  *   to FILE as a PPM on the way out.
- * - `vram` at the debugger's prompt shows and writes a revision 2 video
+ * - `vram` at the debugger's prompt shows and writes the video
  *   card's own memory (hw/video-rev2.md), which the CPU reaches only
  *   through the aperture's slots.
  * - --apple-rom writes the owner's Apple IIe ROM into ROM A's image N (one

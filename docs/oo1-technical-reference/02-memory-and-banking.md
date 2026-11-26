@@ -23,7 +23,7 @@ physical `n × $4000`, and bank b is blocks 4b to 4b+3.
 | E | `$E0000–$EFFFF` | 56–59 | free; Apple II mode copies the IIe ROM image into it each time it starts, with the zero byte its fills copy from at `$EBFFF` |
 | F | `$F0000–$FFFFF` | 60–63 | free, but for block 63: the BIOS's copy of itself, read-only through W3, and under the I/O hole its first 2 KB, `$FC000–$FC7FF`, BIOS 0.13's scroll buffer, reached by DMA alone ([chapter 6](06-video.md#the-bioss-text-screen)) |
 
-Apple II mode uses banks 0–5 and E in its own way, and puts the IIe's character ROM in video card revision 2's own
+Apple II mode uses banks 0–5 and E in its own way, and puts the IIe's character ROM in the video card's own
 memory, not in these banks (*proposed*: [chapter 13](13-apple-ii-mode.md)). OODOS's use of the banks is in the
 [Programmer's Guide](../oodos-programmers-guide/05-memory-and-banking.md#blocks).
 
@@ -82,7 +82,7 @@ Revision 2 of the video card ([chapter 6](06-video.md#revision-2-card-memory)), 
 draws from 2 MB of its own memory and shows 64 KB of it, in four 16 KB slots, through its aperture.
 
 - **Its own place** is `$E00000–$E0FFFF`, slot *n* at `$E00000 + n × $4000` ([chapter 6](06-video.md#the-aperture)).
-  Since B7 (*proposed*, a revision 2 north bridge, ID `$D2`) a window reaches slot *n* with its own WIN*x*H at
+  Since B7 (*proposed*) a window reaches slot *n* with its own WIN*x*H at
   `$0E` and its BLOCK *n*, its ROM bit clear ([chapter 11](11-north-bridge-and-rtc.md#the-high-window-registers-and-map)),
   and DMA by the address itself.
 - **Bank 8, the old place.** While the north bridge's AP8 ([MAP](11-north-bridge-and-rtc.md#reg-c6a5), bit 0) is
@@ -90,22 +90,16 @@ draws from 2 MB of its own memory and shows 64 KB of it, in four 16 KB slots, th
   and the DMA controller's addresses `$80000–$8FFFF`, so block 32 + *n* is slot *n*, as it has been since BIOS 0.13.
   RAM C's bank 8 is then out of the CPU's and DMA's reach, though the console card, which drives the bus itself,
   sees it. The machine then has 960 KB of RAM that software can reach, and the aperture's 64 KB.
-- **AP8 is 1 at reset.** The BIOS clears it at boot on a machine with no revision 2 card, where bank 8 would
+- **AP8 is 1 at reset.** The BIOS clears it at boot on a machine with no video card, where bank 8 would
   otherwise read `$FF`. OODOS keeps it set, so programs built for bank 8 run as they did, and clears it for a
   program that asks, by function 83's `DM_BANK8`
   ([the Programmer's Guide](../oodos-programmers-guide/07-function-reference.md#bdos-83)); its warm boot sets it
   again. The ROM's diagnostics clear it for their run.
 - **With AP8 clear** bank 8 is the RAM card's: the machine has the whole 1 MB once AP8 is clear, with the
   aperture beside it at `$E00000`.
-- **A revision 1 north bridge** (ID `$D1`, the emulator's `revision=1`) has no MAP: there bank 8 goes to the
-  aperture whenever a revision 2 card is fitted, and with revision 1, or no video card, bank 8 is RAM and nothing
-  answers at `$E00000` ([chapter 14](14-emulator-notes.md#the-24-bit-bus)).
 
 Apple II mode doesn't use banks 8–B: the card ignores the aperture in the mode, and the IIe's character ROM is in
-card memory, not at `$BE000` ([chapter 13](13-apple-ii-mode.md#revision-2-of-the-video-card)).
-
-Revision 1, the old card, had no aperture: banks 8–B, blocks 32–47, were its video memory, ordinary RAM that it
-read by watching every write to them ([chapter 6](06-video.md#video-memory)).
+card memory ([chapter 13](13-apple-ii-mode.md#revision-2-of-the-video-card)).
 
 ## The four windows
 
@@ -125,7 +119,7 @@ A register's bits 5–0 are the block: its top four bits become A16–A19 and it
 The CPU's A0–A13 pass straight through. So any 16 KB of the megabyte can be in any window: a program can see the
 first 16 KB of the aperture without giving up its zero page and stack.
 
-On a revision 2 north bridge (*proposed*, B7) each window has a second register,
+Each window has a second register (*proposed*, B7),
 WIN0H–WIN3H ([`$C6A0`–`$C6A3`](11-north-bridge-and-rtc.md#reg-c6a0)), whose bits 3–0 are A20–A23 while the window's
 ROM bit is clear. They reset to 0, the megabyte of RAM; `$0E` with BLOCK 0–3 is the aperture's slots at
 `$E00000`. With the ROM bit set the flash is chosen and WIN*n*H is ignored.
@@ -147,11 +141,11 @@ RAM blocks 0, 1, 2 and 63.
 
 VEC, a fifth register with the same layout, stands in for W3 while the CPU reads a vector
 ([chapter 4](04-interrupts.md#vec-and-the-vectors)), with VECH ([`$C6A4`](11-north-bridge-and-rtc.md#reg-c6a4)) for its
-A20–A23 on a revision 2 bridge.
+A20–A23.
 
-On revision 3, HOLE ([`$C6A6`](11-north-bridge-and-rtc.md#reg-c6a6)) can map `$F800–$FFFF` to one RAM block's top
+HOLE ([`$C6A6`](11-north-bridge-and-rtc.md#reg-c6a6)) can map `$F800–$FFFF` to one RAM block's top
 2 KB whatever W3 holds, ahead of VEC: the common hole ([chapter 11](11-north-bridge-and-rtc.md#the-common-hole)). It
-is off at every reset; OODOS 0.16 turns it on for its common memory, so `$F800–$FFFF` is the same in every block a
+is off at every reset; OODOS turns it on for its common memory, so `$F800–$FFFF` is the same in every block a
 program maps into W3, and W3 shows a block's `$C800–$F7FF` only.
 
 ## The I/O hole

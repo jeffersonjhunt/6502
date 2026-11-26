@@ -1,13 +1,15 @@
 /**
  * @file test_sound_stream3.cpp
  * @brief The sound card, revision 3: streams (rings in the store, NEED, prebuffer, underruns, gapless joins and
- * the MP3 trim; hw/future/sound-device.md, "Gapless streaming").
+ * the MP3 trim; hw/design.md, "Gapless streaming").
  * @copyright Copyright (c) 2024-2026 Jefferson J. Hunt (MIT)
  *
  * The card (sound_card3.h) on its own, ticked at the native clock; a feeder answers each NEED with a chunk
  * by STREAM_DATA and DATA, as a host would. The tap is the firmware's stream tap: each frame as it played, at
  * the stream's rate. The MP3s are the repo's own (test/host/mp3, made by LAME: their Info frame's LAME tag
- * carries the encoder's delay and padding).
+ * carries the encoder's delay and padding). Then the decoder's robustness: 64 KB with no frame, hostile and
+ * empty frames cheaply refused, free format, a 100 KB tag, rate and channels changing mid-stream, and damaged
+ * frames, each as minimp3 decodes the whole data, the end given with the last byte or late.
  */
 
 #include "harness.h"
@@ -16,13 +18,16 @@
 #include "sound_card3.h"
 
 #include <algorithm>
+#include <chrono>
 #include <cstdio>
 #include <cstring>
 #include <fstream>
 #include <functional>
+#include <initializer_list>
 #include <iterator>
 #include <memory>
 #include <string>
+#include <utility>
 #include <vector>
 
 using namespace ooe::test;
@@ -721,6 +726,529 @@ TEST(an_id3v2_tag_is_skipped_by_its_size)
     const uint32_t played = frames_played(c);
     std::printf("  %u frames played (40 x 1,152 = %u)\n", played, 40u * 1152u);
     CHECK_EQ(played, 40u * 1152u);
+}
+
+// --- The decoder's robustness: junk, tags, free format, rate changes, damaged frames ------------------------
+
+namespace
+{
+    /// An ID3v2.4 tag of `payload` bytes of ASCII (its header, then letters): no $FF in it, so no false sync.
+    std::vector<uint8_t> id3_tag(size_t payload, uint32_t seed)
+    {
+        std::vector<uint8_t> t = {'I', 'D', '3', 4, 0, 0};
+        for (const unsigned shift : {21u, 14u, 7u, 0u}) // the size, syncsafe
+            t.push_back(static_cast<uint8_t>((payload >> shift) & 0x7F));
+        for (size_t i = 0; i < payload; ++i)
+        {
+            seed = seed * 1'103'515'245u + 12'345u;
+            t.push_back(static_cast<uint8_t>(' ' + (seed >> 16) % 95));
+        }
+        return t;
+    }
+
+    std::vector<uint8_t> mp3_concat(std::initializer_list<const char *> names)
+    {
+        std::vector<uint8_t> out;
+        for (const char *n : names)
+        {
+            const std::vector<uint8_t> f = mp3_file(n);
+            out.insert(out.end(), f.begin(), f.end());
+        }
+        return out;
+    }
+
+    /// Where each frame minimp3 decodes in `mp3` starts.
+    std::vector<size_t> frame_starts(const std::vector<uint8_t> &mp3)
+    {
+        std::vector<size_t> out;
+        auto dec = std::make_unique<mp3dec_t>();
+        mp3dec_init(dec.get());
+        size_t pos = 0;
+        while (pos < mp3.size())
+        {
+            mp3dec_frame_info_t info{};
+            mp3dec_decode_frame(dec.get(), mp3.data() + pos, static_cast<int>(mp3.size() - pos), nullptr, &info);
+            if (!info.frame_bytes)
+                break;
+            if (info.hz)
+                out.push_back(pos + static_cast<size_t>(info.frame_offset));
+            pos += static_cast<size_t>(info.frame_bytes);
+        }
+        return out;
+    }
+
+    /// `mp3` with each frame's bitrate nibble set to 0: free format, the frames as long as before.
+    std::vector<uint8_t> free_format(std::vector<uint8_t> mp3)
+    {
+        for (const size_t h : frame_starts(mp3))
+            mp3[h + 2] &= 0x0F;
+        return mp3;
+    }
+
+    /// `frames` MPEG-1 layer I frames, 128 kbps at 44.1 kHz: 136 bytes each, consistent, silent.
+    std::vector<uint8_t> layer_one(size_t frames)
+    {
+        std::vector<uint8_t> out;
+        for (size_t f = 0; f < frames; ++f)
+        {
+            const uint8_t h[4] = {0xFF, 0xFF, 0x40, 0xC0}; // MPEG-1, layer I, no CRC; 128 kbps, 44.1 kHz; mono
+            out.insert(out.end(), h, h + 4);
+            out.insert(out.end(), 136 - 4, uint8_t{0});
+        }
+        return out;
+    }
+
+    double host_seconds(const std::function<void()> &f)
+    {
+        const auto t0 = std::chrono::steady_clock::now();
+        f();
+        return std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
+    }
+
+    /// STREAM_STATUS's results for stream 0 (state, codec, rate, ...), the reply waited for; empty if none came.
+    std::vector<uint8_t> status0(Card &c)
+    {
+        c.drain();
+        c.seen.clear(); // so the reply found is this one
+        c.send(SoundFw::STREAM_STATUS, 0x66, {0});
+        std::vector<uint8_t> r = reply_for(c, 0x66);
+        return r.size() == 2 + 21u ? std::vector<uint8_t>(r.begin() + 2, r.end()) : std::vector<uint8_t>{};
+    }
+
+    /// A card with stream 0 open for an MP3 (the default chunk and prebuffer), fed by hand: no NEED answered.
+    struct Mp3Card : Card
+    {
+        Mp3Card()
+        {
+            auto_end = false;
+            open(0, 1, 0, 0);
+        }
+        /// `bytes` into the ring in one STREAM_DATA.
+        void give(const std::vector<uint8_t> &bytes)
+        {
+            chunk(*this, 0, static_cast<uint32_t>(bytes.size()), bytes.data(), bytes.size());
+            run(200);
+        }
+        void end() { send(SoundFw::STREAM_END, 0x62, {0}); }
+        uint8_t state() const { return card.firmware().stream_state(0); }
+    };
+
+    struct Played
+    {
+        std::vector<int16_t> tap; ///< the stream tap: each frame as it played
+        uint8_t state{0};
+        std::vector<std::pair<unsigned, unsigned>> seen; ///< with `watch`: STREAM_STATUS's rate and kbps as each changed
+        bool ok{false};                                  ///< every reply OK
+    };
+
+    /// `bytes` played on stream 0: given in STREAM_DATA pieces of `piece` bytes a millisecond apart (0: all in
+    /// one), STREAM_END with the last or `late_ms` after it, then until the stream ends or stops (`most` ms at most).
+    Played play_mp3(const std::vector<uint8_t> &bytes, size_t piece, unsigned late_ms = 0, bool watch = false)
+    {
+        Mp3Card c;
+        Played out;
+        size_t at = 0;
+        bool ended = false;
+        unsigned since = 0;
+        for (unsigned ms = 0; ms < 20'000; ++ms)
+        {
+            if (at < bytes.size())
+            {
+                const size_t n = piece ? std::min(piece, bytes.size() - at) : bytes.size();
+                chunk(c, 0, static_cast<uint32_t>(n), bytes.data() + at, n);
+                at += n;
+            }
+            else if (!ended && since++ >= late_ms)
+            {
+                c.end();
+                ended = true;
+            }
+            c.run_ms(1);
+            if (watch && c.state() == SoundFw::S_PLAYING)
+            {
+                const std::vector<uint8_t> r = status0(c);
+                if (r.size() == 21)
+                {
+                    const std::pair<unsigned, unsigned> now{le16(r, 2), le16(r, 17)};
+                    if (r[0] == SoundFw::S_PLAYING && (out.seen.empty() || out.seen.back() != now))
+                        out.seen.push_back(now);
+                }
+            }
+            if (c.state() == SoundFw::S_ENDED || c.state() >= 0x80)
+                break;
+        }
+        out.state = c.state();
+        out.tap = c.card.firmware().take_stream_tap();
+        out.ok = c.all_ok();
+        return out;
+    }
+} // namespace
+
+TEST(sixty_four_kb_with_no_frame_is_error_81)
+{
+    // Text, no $FF in it: 80 KB, no end. Once 64 KB have been looked through with no frame, the stream is $81, and
+    // stays so (a byte more changes nothing) until it is closed. Nothing plays.
+    const std::vector<uint8_t> tagged = id3_tag(80'000, 4);
+    const std::vector<uint8_t> text(tagged.begin() + 10, tagged.end()); // loose text: not a tag
+    Mp3Card c;
+    c.give(text);
+    c.run_ms(100);
+    CHECK_EQ(c.state(), SoundFw::S_NO_SYNC);
+    CHECK(frames_played(c) == 0u);
+    CHECK(c.card.firmware().stream_buffered(0) < text.size() - 65'536 + 1);
+    c.give({0x00});
+    c.run_ms(100);
+    CHECK_EQ(c.state(), SoundFw::S_NO_SYNC);
+    c.send(SoundFw::STREAM_CLOSE, 0x67, {0});
+    c.run_ms(1);
+    CHECK_EQ(c.state(), SoundFw::S_IDLE);
+    // Under 64 KB of it with the end is only the end, not the error.
+    Mp3Card d;
+    d.give(std::vector<uint8_t>(text.begin(), text.begin() + 10'000));
+    d.end();
+    d.run_ms(100);
+    CHECK_EQ(d.state(), SoundFw::S_ENDED);
+    CHECK(c.all_ok() && d.all_ok());
+}
+
+TEST(hostile_frames_cost_little_and_end_in_81)
+{
+    // 128 KB of 4-byte free-format "frames" (FF F2 00 00), and of layer I frames: refused, they are junk, passed
+    // over cheaply (given, then 10 ms of the card in 4-cycle ticks: under a second of host time), and 64 KB of them is $81.
+    constexpr size_t BYTES = 0x20000;
+    std::vector<uint8_t> fake;
+    for (size_t i = 0; i < BYTES / 4; ++i)
+        fake.insert(fake.end(), {0xFF, 0xF2, 0x00, 0x00});
+    for (const auto &bytes : {fake, layer_one(BYTES / 136)})
+    {
+        Mp3Card c;
+        const double secs = host_seconds([&] { // the data's arrival too: the search starts as it comes
+            c.give(bytes);
+            for (uint64_t t = 0; t < HZ / 100; t += 4)
+                c.card.tick(4);
+        });
+        std::printf("  %s: 10 ms emulated, %.3f s of host time, state $%02X\n",
+                    bytes[1] == 0xF2 ? "free-format 4-byte frames" : "layer I frames", secs, c.state());
+        CHECK(secs < 1.0);
+        CHECK_EQ(c.state(), SoundFw::S_NO_SYNC);
+        CHECK(frames_played(c) == 0u);
+    }
+}
+
+TEST(layer_iii_frames_that_make_nothing_end_in_81)
+{
+    // Proper layer III headers, MPEG-1 128 kbps at 44.1 kHz, 417 bytes apart, but each frame's main data begins
+    // where no reservoir is (all ones): every frame decodes to nothing. They count as junk: $81, cheaply.
+    std::vector<uint8_t> bytes;
+    while (bytes.size() + 417 <= 0x20000)
+    {
+        bytes.insert(bytes.end(), {0xFF, 0xFB, 0x90, 0xC0});
+        bytes.insert(bytes.end(), 417 - 4, uint8_t{0xFF});
+    }
+    Mp3Card c;
+    const double secs = host_seconds([&] {
+        c.give(bytes);
+        for (uint64_t t = 0; t < HZ / 10; t += 4)
+            c.card.tick(4);
+    });
+    std::printf("  100 ms emulated: %.3f s of host time, state $%02X\n", secs, c.state());
+    CHECK(secs < 1.0);
+    CHECK_EQ(c.state(), SoundFw::S_NO_SYNC);
+    CHECK(frames_played(c) == 0u);
+}
+
+TEST(free_format_is_refused)
+{
+    // cbr128 relabelled free format, the same frames otherwise: junk, all of it. With its end it ends having played
+    // nothing; seven times over (73 KB, no end), $81.
+    const std::vector<uint8_t> once = free_format(mp3_file("cbr128_joint_44k.mp3"));
+    const Played p = play_mp3(once, 0);
+    CHECK(p.tap.empty());
+    CHECK_EQ(p.state, SoundFw::S_ENDED);
+    Mp3Card d;
+    std::vector<uint8_t> seven;
+    for (unsigned k = 0; k < 7; ++k)
+        seven.insert(seven.end(), once.begin(), once.end());
+    d.give(seven);
+    d.run_ms(100);
+    CHECK_EQ(d.state(), SoundFw::S_NO_SYNC);
+    CHECK(frames_played(d) == 0u);
+}
+
+TEST(a_tag_of_100_kb_is_skipped_and_doesnt_count_toward_81)
+{
+    // Cover art makes tags this big. Skipped by its declared size (with its footer, flagged), at once and fed in
+    // pieces: then the file, every sample of it (trimmed by its LAME tag, as a file alone is). A hostile size (over
+    // 8 MB) isn't taken for a tag: junk.
+    const std::vector<uint8_t> mp3 = mp3_file("cbr128_joint_44k.mp3");
+    std::vector<uint8_t> bytes = id3_tag(100'000, 6);
+    bytes[5] = 0x10; // the footer flag
+    const uint8_t footer[10] = {'3', 'D', 'I', 4, 0, 0x10, bytes[6], bytes[7], bytes[8], bytes[9]};
+    bytes.insert(bytes.end(), footer, footer + 10);
+    bytes.insert(bytes.end(), mp3.begin(), mp3.end());
+    const std::vector<int16_t> want = trimmed(mp3);
+    const Played once = play_mp3(bytes, 0), fed = play_mp3(bytes, 2'000);
+    std::printf("  %zu frames wanted; at once %zu, fed %zu\n", want.size() / 2, once.tap.size() / 2, fed.tap.size() / 2);
+    CHECK(once.tap == want);
+    CHECK(fed.tap == want);
+    CHECK_EQ(fed.state, SoundFw::S_ENDED);
+    CHECK(once.ok && fed.ok);
+    // 9 MB declared, 70 KB of text actually there: no tag, junk, $81.
+    std::vector<uint8_t> hostile = id3_tag(70'000, 7);
+    hostile[6] = 0x04, hostile[7] = 0x40, hostile[8] = 0x00, hostile[9] = 0x00; // 9 MB, syncsafe
+    Mp3Card e;
+    e.give(hostile);
+    e.run_ms(100);
+    CHECK_EQ(e.state(), SoundFw::S_NO_SYNC);
+}
+
+TEST(rate_and_channels_follow_each_frame_through_changes)
+{
+    // 44.1 kHz stereo, then 22.05 kHz mono, then 48 kHz stereo, end to end: as minimp3 decodes the whole of it
+    // (trimmed by the first file's LAME tag), given at once, fed in pieces, and fed with the end a second late.
+    // STREAM_STATUS's rate and bitrate follow.
+    const std::vector<uint8_t> bytes = mp3_concat({"cbr128_joint_44k.mp3", "cbr32_mono_22k.mp3", "cbr320_stereo_48k.mp3"});
+    const std::vector<int16_t> want = trimmed(bytes);
+    const Played once = play_mp3(bytes, 0), fed = play_mp3(bytes, 300, 0, true), late = play_mp3(bytes, 300, 1'000);
+    std::printf("  %zu frames: at once %s, fed %s, the end late %s\n", want.size() / 2,
+                once.tap == want ? "as minimp3" : "different", fed.tap == want ? "as minimp3" : "different",
+                late.tap == want ? "as minimp3" : "different");
+    CHECK(once.tap == want);
+    CHECK(fed.tap == want);
+    CHECK(late.tap == want);
+    CHECK(once.ok && fed.ok && late.ok);
+    const std::vector<std::pair<unsigned, unsigned>> changes = {{44'100, 128}, {22'050, 32}, {48'000, 320}};
+    for (const auto &[hz, kbps] : fed.seen)
+        std::printf("  %u Hz, %u kbps\n", hz, kbps);
+    CHECK(fed.seen == changes);
+}
+
+TEST(damaged_frames_mid_stream_play_as_minimp3_with_the_end_at_once_or_late)
+{
+    // Our cbr128 four times over, frames 40 on damaged (big_values past 288: the side info refused, the decoder
+    // reset): minimp3 on the whole stream (trimmed by its LAME tag), frames after them and all, whether the end
+    // comes with the last byte or a second later.
+    const std::vector<uint8_t> one = mp3_file("cbr128_joint_44k.mp3");
+    std::vector<uint8_t> four;
+    for (int i = 0; i < 4; ++i)
+        four.insert(four.end(), one.begin(), one.end());
+    const std::vector<size_t> heads = frame_starts(four);
+    for (const size_t damaged : {size_t{4}, size_t{12}, size_t{20}})
+    {
+        std::vector<uint8_t> s = four;
+        for (size_t k = 40; k < 40 + damaged; ++k)
+        {
+            const size_t side = heads[k] + 4 + ((s[heads[k] + 1] & 1) ? 0 : 2); // past the CRC, if there is one
+            s[side + 4] = 0xFF;
+            s[side + 5] |= 0x80;
+        }
+        const std::vector<int16_t> want = trimmed(s);
+        const Played a = play_mp3(s, 4'096), b = play_mp3(s, 4'096, 1'000);
+        std::printf("  %zu damaged: minimp3 %zu frames; the end at once %zu, late %zu\n", damaged, want.size() / 2,
+                    a.tap.size() / 2, b.tap.size() / 2);
+        CHECK(a.tap == want);
+        CHECK(b.tap == want);
+        CHECK_EQ(a.state, SoundFw::S_ENDED);
+        CHECK_EQ(b.state, SoundFw::S_ENDED);
+    }
+}
+
+// --- Tags between files, a tag's header, a stream of one frame (the parser's cases, on revision 3's streams) ------
+
+namespace
+{
+    /// Every frame minimp3 decodes in `bytes`, the whole data at once, as stereo frames: no trim.
+    std::vector<int16_t> whole(const std::vector<uint8_t> &bytes)
+    {
+        std::vector<int16_t> out;
+        auto dec = std::make_unique<mp3dec_t>();
+        mp3dec_init(dec.get());
+        std::vector<int16_t> pcm(MINIMP3_MAX_SAMPLES_PER_FRAME);
+        size_t pos = 0;
+        while (pos < bytes.size())
+        {
+            mp3dec_frame_info_t info{};
+            const int n = mp3dec_decode_frame(dec.get(), bytes.data() + pos, static_cast<int>(bytes.size() - pos), pcm.data(), &info);
+            if (!info.frame_bytes)
+                break;
+            pos += static_cast<size_t>(info.frame_bytes);
+            for (int i = 0; i < n; ++i)
+            {
+                const int16_t l = pcm[static_cast<size_t>(i * info.channels)];
+                out.push_back(l);
+                out.push_back(info.channels == 2 ? pcm[static_cast<size_t>(i * 2 + 1)] : l);
+            }
+        }
+        return out;
+    }
+    /// `mp3` cut at the first frame past its middle, `insert` put there.
+    std::vector<uint8_t> spliced_mid(const std::vector<uint8_t> &mp3, const std::vector<uint8_t> &insert)
+    {
+        size_t cut = 0;
+        for (const size_t h : frame_starts(mp3))
+            if ((cut = h) >= mp3.size() / 2)
+                break;
+        std::vector<uint8_t> out(mp3.begin(), mp3.begin() + static_cast<std::ptrdiff_t>(cut));
+        out.insert(out.end(), insert.begin(), insert.end());
+        out.insert(out.end(), mp3.begin() + static_cast<std::ptrdiff_t>(cut), mp3.end());
+        return out;
+    }
+} // namespace
+
+TEST(a_tag_between_frames_is_skipped_by_its_size)
+{
+    // A 1,000-byte ID3v2.4 tag between two frames mid-file: skipped by its size, the file plays as if it weren't
+    // there (the trimmed reference), written at once and fed in 300-byte pieces.
+    const std::vector<uint8_t> mp3 = mp3_file("vbr0_stereo_44k.mp3");
+    REQUIRE(!mp3.empty());
+    const std::vector<uint8_t> bytes = spliced_mid(mp3, id3_tag(1'000, 3));
+    const std::vector<int16_t> want = trimmed(mp3);
+    const Played once = play_mp3(bytes, 0), fed = play_mp3(bytes, 300);
+    std::printf("  want %zu, at once %zu, fed %zu\n", want.size() / 2, once.tap.size() / 2, fed.tap.size() / 2);
+    CHECK(once.tap == want);
+    CHECK(fed.tap == want);
+    CHECK_EQ(fed.state, SoundFw::S_ENDED);
+}
+
+TEST(a_tag_s_footer_is_skipped_with_it)
+{
+    // An ID3v2.4 tag with its footer flag set (flags bit 4) ends in a 10-byte footer ("3DI", the version, the
+    // flags, the size again) after its body: the tag is 10 + size + 10 bytes, and the frames after it play from
+    // the footer's end. Between two frames mid-file, and a second tag with a footer right after the first. Must
+    // fail if the footer is left out of the tag's length: its 10 bytes are taken as data, and the frame after
+    // them is found by a fresh search.
+    const std::vector<uint8_t> mp3 = mp3_file("vbr0_stereo_44k.mp3");
+    REQUIRE(!mp3.empty());
+    const auto footed = [](size_t payload, uint32_t seed) {
+        std::vector<uint8_t> t = id3_tag(payload, seed);
+        t[5] = 0x10;
+        t.insert(t.end(), {'3', 'D', 'I', 4, 0, 0x10, t[6], t[7], t[8], t[9]});
+        return t;
+    };
+    const std::vector<int16_t> want = trimmed(mp3);
+    std::vector<uint8_t> two = footed(500, 8);
+    const std::vector<uint8_t> second = footed(700, 9);
+    two.insert(two.end(), second.begin(), second.end());
+    for (const std::vector<uint8_t> &insert : {footed(1'000, 5), two})
+    {
+        const std::vector<uint8_t> bytes = spliced_mid(mp3, insert);
+        const Played once = play_mp3(bytes, 0), fed = play_mp3(bytes, 300);
+        std::printf("  %zu bytes of tags: want %zu, at once %zu, fed %zu\n", insert.size(), want.size() / 2,
+                    once.tap.size() / 2, fed.tap.size() / 2);
+        CHECK(once.tap == want);
+        CHECK(fed.tap == want);
+        CHECK_EQ(once.state, SoundFw::S_ENDED);
+    }
+}
+
+TEST(a_tag_header_must_be_a_real_one)
+{
+    // "ID3" with version 5, or flags the version doesn't define (bit 0 on 2.3; the footer's bit 4 on 2.3), isn't
+    // a tag: its 10 bytes are junk, and the file after it plays whole. Each declares 2 KB: taken as a tag, it would
+    // swallow the file's first frames. Must fail if the version's or the flags' check is loosened.
+    const std::vector<uint8_t> mp3 = mp3_file("cbr128_joint_44k.mp3");
+    REQUIRE(!mp3.empty());
+    const std::vector<int16_t> want = trimmed(mp3);
+    for (const std::vector<uint8_t> &bad : {std::vector<uint8_t>{'I', 'D', '3', 5, 0, 0, 0, 0, 0x10, 0},
+                                            std::vector<uint8_t>{'I', 'D', '3', 3, 0, 0x01, 0, 0, 0x10, 0},
+                                            std::vector<uint8_t>{'I', 'D', '3', 3, 0, 0x10, 0, 0, 0x10, 0}})
+    {
+        std::vector<uint8_t> bytes = bad;
+        bytes.insert(bytes.end(), mp3.begin(), mp3.end());
+        const Played p = play_mp3(bytes, 0);
+        std::printf("  version %u, flags $%02X: want %zu, played %zu\n", bad[3], bad[5], want.size() / 2, p.tap.size() / 2);
+        CHECK(p.tap == want);
+        CHECK_EQ(p.state, SoundFw::S_ENDED);
+    }
+}
+
+TEST(files_back_to_back_with_tags_between_play_whole)
+{
+    // File A, its ID3v1 record ("TAG" and 125 bytes), then file B: with an 80 KB ID3v2.3 tag of binary data (FF FB
+    // 90 00 and other frame-like bytes in it) between the record and B, and with none. A plays to its last frame,
+    // the record and the tag are skipped, and B follows as if A and B were back to back with nothing between: every
+    // sample the same, the decoder run on from A into B. Written at once, and fed in 40-byte pieces. Must fail if
+    // the record is taken for junk: A's last frame is then judged out of step and lost, and B is found afresh by a
+    // search, its first frames decoded without A's.
+    const std::vector<uint8_t> a = mp3_file("cbr128_joint_44k.mp3"), b = mp3_file("vbr0_stereo_44k.mp3");
+    REQUIRE(!a.empty());
+    REQUIRE(!b.empty());
+    std::vector<uint8_t> record{'T', 'A', 'G'};
+    for (unsigned k = 0; k < 125; ++k)
+        record.push_back(static_cast<uint8_t>(k < 60 ? 'a' + k % 26 : 0));
+    const size_t size = 80'000;
+    std::vector<uint8_t> tag{'I', 'D', '3', 3, 0, 0, static_cast<uint8_t>(size >> 21 & 127), static_cast<uint8_t>(size >> 14 & 127),
+                             static_cast<uint8_t>(size >> 7 & 127), static_cast<uint8_t>(size & 127)};
+    uint32_t r = 77;
+    for (size_t k = 0; k < size; ++k)
+    {
+        r = r * 1'103'515'245u + 12'345u;
+        tag.push_back(k % 997 == 0 ? 0xFF : k % 997 == 1 ? 0xFB : k % 997 == 2 ? 0x90 : static_cast<uint8_t>(r >> 16));
+    }
+    std::vector<uint8_t> ab = a;
+    ab.insert(ab.end(), b.begin(), b.end());
+    const Played joined = play_mp3(ab, 0);
+    REQUIRE(joined.tap.size() > trimmed(a).size() + trimmed(b).size());
+    for (const bool with_tag : {false, true})
+    {
+        std::vector<uint8_t> bytes = a;
+        bytes.insert(bytes.end(), record.begin(), record.end());
+        if (with_tag)
+            bytes.insert(bytes.end(), tag.begin(), tag.end());
+        bytes.insert(bytes.end(), b.begin(), b.end());
+        const Played once = play_mp3(bytes, 0), fed = play_mp3(bytes, 40);
+        size_t first = 0;
+        while (first < std::min(once.tap.size(), joined.tap.size()) && once.tap[first] == joined.tap[first])
+            ++first;
+        std::printf("  A, the record%s, B: back to back %zu; at once %zu, fed %zu; the first sample apart %zu\n",
+                    with_tag ? " and a tag" : "", joined.tap.size() / 2, once.tap.size() / 2, fed.tap.size() / 2, first / 2);
+        CHECK(once.tap == joined.tap);
+        CHECK(fed.tap == joined.tap);
+        CHECK_EQ(fed.state, SoundFw::S_ENDED);
+    }
+}
+
+TEST(a_stream_of_one_frame_plays_and_so_does_one_after_junk)
+{
+    // One audio frame alone, the whole of the data at the end: it plays, as minimp3 decodes it. The same frame
+    // after 100 bytes of text plays too (a frame by its own length at the end).
+    for (const char *name : {"cbr128_joint_44k.mp3", "vbr0_stereo_44k.mp3"}) // MPEG-1: a first frame needing no reservoir
+    {
+        const std::vector<uint8_t> f = mp3_file(name);
+        REQUIRE(!f.empty());
+        const std::vector<size_t> heads = frame_starts(f);
+        REQUIRE(heads.size() > 3);
+        const std::vector<uint8_t> one(f.begin() + static_cast<std::ptrdiff_t>(heads[1]),
+                                       f.begin() + static_cast<std::ptrdiff_t>(heads[2])); // after the Info frame
+        const std::vector<int16_t> want = whole(one);
+        std::vector<uint8_t> junk(100, 'x');
+        junk.insert(junk.end(), one.begin(), one.end());
+        const Played alone = play_mp3(one, 0), after = play_mp3(junk, 0);
+        std::printf("  %s's first audio frame: minimp3 %zu; alone %zu, after junk %zu\n", name, want.size() / 2,
+                    alone.tap.size() / 2, after.tap.size() / 2);
+        CHECK(!want.empty());
+        CHECK(alone.tap == want);
+        CHECK(after.tap == want);
+        CHECK_EQ(alone.state, SoundFw::S_ENDED);
+    }
+}
+
+TEST(cp_m_padding_after_the_last_frame_leaves_it_played)
+{
+    // A file padded with $1A to a 128-byte record, as CP/M stores it: the last frame plays, the padding is junk at
+    // the end, and the stream ends.
+    for (const char *name : {"cbr128_joint_44k.mp3", "vbr0_stereo_44k.mp3"})
+    {
+        const std::vector<uint8_t> mp3 = mp3_file(name);
+        REQUIRE(!mp3.empty());
+        std::vector<uint8_t> padded = mp3;
+        do
+            padded.push_back(0x1A);
+        while (padded.size() % 128);
+        const Played p = play_mp3(padded, 0);
+        CHECK(p.tap == trimmed(mp3));
+        CHECK_EQ(p.state, SoundFw::S_ENDED);
+    }
 }
 
 int main() { return run_all(); }

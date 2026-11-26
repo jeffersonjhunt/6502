@@ -26,10 +26,8 @@ VID_COLLIDE     = $04
 VID_SPR_FULL    = $01                  ; SPRCTL's FULL
 VID_SPRX_FULL   = $80                  ; a sprite entry's byte 3 (X's high byte) bit 7: this sprite full resolution
 WIN1            = $C681                ; the north bridge's W1 (the W1 contract)
-WIN1H           = $C6A1                ; and its WIN1H, A20-A23 for W1 (a revision 2 north bridge, B7):
-                                       ;   written only after GX_BANK8 gave a window, so never on $D1
-GX_IFACE        = 8                    ; the interface version the library needs (video card revision 2)
-GX_IFACE_B8     = 12                   ; and GX_BANK8 (function 83's DM_BANK8, B7)
+WIN1H           = $C6A1                ; and its WIN1H, A20-A23 for W1 (B7):
+                                       ;   written only after GX_BANK8 gave a window
 
 ; gxmem.s's, which every module takes
 .globalzp GXP, GXQ, GXT

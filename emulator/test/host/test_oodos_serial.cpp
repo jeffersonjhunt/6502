@@ -238,9 +238,10 @@ TEST(without_the_via_a_paced_burst_arrives_whole_and_the_frame_clock_runs)
 
 TEST(a_paced_stream_costs_the_tick_nothing)
 {
-    // T5: through a second of a stream (250 bytes, one each 28,636 cycles) the tick's own pass is as it was (142
-    // cycles with no area). The ms counted is printed as a record only: it is the bridge's, which counts the cycles
-    // whatever OODOS does, so a check of it couldn't fail (review r1's T8).
+    // T5: through a second of a stream (250 bytes, one each 28,636 cycles) the tick's own pass is as it was (143
+    // cycles with no area), checked as a ceiling, that plus 4 (a page crossing or two: code moving in common memory
+    // moves it a cycle; the owner, 2026-11-26). The ms counted is printed as a record only: it is the bridge's, which
+    // counts the cycles whatever OODOS does, so a check of it couldn't fail (review r1's T8).
     CcpRig r;
     REQUIRE(r.ok);
     const uint16_t irq = sym("IRQ"), end = sym("IRQEND");
@@ -271,7 +272,7 @@ TEST(a_paced_stream_costs_the_tick_nothing)
         if (k > n)
             best = c, n = k;
     std::printf("  a tick: %u cycles (x%u); %u ms counted in %.1f\n", best, n, got, want);
-    CHECK_EQ(best, 142u); // the bridge's tick (N10; 162 with timer 1's)
+    CHECK(best != 0 && best <= 143u + 4); // the bridge's tick: 143 (142 at N10; 162 with timer 1's)
     ran(r, from);
     CHECK_EQ(r.acia().overruns(), 0u);
 }

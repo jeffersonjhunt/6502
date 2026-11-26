@@ -33,28 +33,24 @@
  * request to the backplane's shared /DREQ (Dreq::Wired): the DMA controller
  * polls it and grants it by its module ID, which a channel's CARD register
  * names (dma_controller.h), so the channel isn't the machine file's to say;
- * `drq=N`, revision 1's channel, is refused; `irq` wires the device's
+ * `irq` wires the device's
  * IRQ output to the CPU. Chips: ram, rom (needs an image; CPU writes do
  * nothing), flash (the same, but two chips, even and odd bytes, that take
  * their command sequences: flash.h; an even size), pia6821, via6522,
  * acia6551, dma (the DMA controller, dma_controller.h; at most one, and it
  * takes the bus from the CPU), console (the Console card, console_card.h;
  * at most one; the run loop wires it to the CPU, see console_card()), video
- * (the video card, video_card.h; at most one; `rev=1` or `rev=2`, 1 if
- * omitted, or MachineOptions::video_revision; on revision 1 banks 8-B,
- * 80000-BFFFF, must be one ram line, which it draws from), aperture
- * (revision 2's 64 KB window on card memory, video_card.h's VideoAperture,
- * at E00000-E0FFFF on the backplane: on a revision 2 card it answers, as if
- * mapped last, and the CPU card sends bank 8, 080000-08FFFF, to it: a
- * revision 2 north bridge while MAP's AP8 is set, a revision 1 bridge always
- * (backplane_bridge.h); a line at 80000-8FFFF, as machine files had it
- * before the 24-bit bus, means the same. On a revision 1 card, or with no
- * video line, it is inert: a revision 1 bridge leaves bank 8 the RAM's, and
- * a revision 2 one sends it to the empty E00000 while AP8 is set), usb (the USB card, usb_card.h;
+ * (the video card, video_card.h: at most one; revision 2, ID $92, the only
+ * one, drawing from its own card memory), aperture
+ * (the card's 64 KB window on card memory, video_card.h's VideoAperture,
+ * at E00000-E0FFFF on the backplane: the card answers it, as if
+ * mapped last, and the CPU card sends bank 8, 080000-08FFFF, to it while
+ * the north bridge's MAP has AP8 set (backplane_bridge.h). With no video
+ * line it is inert: the
+ * bridge sends bank 8 to the empty E00000 while AP8 is set), usb (the USB card, usb_card.h;
  * at most one; the run loop takes its /NMI), disk2 (the Disk II controller,
  * disk2_card.h; at most one, slot 6 in Apple II mode), sound (the sound
- * card, the device, sound_card3.h: at most one; `rev=3`, its only revision, may be given, and `memsize=2`,
- * `4` or `8`, its store in MB, 8 the default), sd (the mass storage card, sd_card.h; at most
+ * card, the device, sound_card3.h: at most one; `memsize=2`, `4` or `8`, its store in MB, 8 the default), sd (the mass storage card, sd_card.h; at most
  * one). A mapping larger than the chip mirrors it (a 6522 at 6000-7FFF
  * repeats every 16 bytes, as on Eater's board; a 4-byte 6551 in an I/O
  * block, every 4). Mappings may overlap, and the later line answers: so a
@@ -62,13 +58,11 @@
  * 340-34F, inside the stand-in 6551's 300-37F.
  *
  * Without a `northbridge` line every CPU address is memory with A16-A23
- * low. `northbridge backplane [bootsel] [revision=1|2|3]` fits the backplane's
- * north bridge (backplane_bridge.h): the windows, VEC, ROM space, the I/O
- * hole and the DS3231 real-time clock; revision 2 (ID $D2) adds WIN0H-WIN3H,
- * VECH and MAP, revision 3 (ID $D3) the random source and the timebase
- * (`rng_chip=locked|unlocked|none`, default locked: the ATECC608B fitted),
- * revision 1 (ID $D1) is B1's, and the default is
- * BackplaneBridge::REVISION, 3 (OODOS 0.16 needs it). Its registers are at
+ * low. `northbridge backplane [bootsel] [rng_chip=locked|unlocked|none]` fits
+ * the backplane's north bridge, revision 3, ID $D3 (backplane_bridge.h): the
+ * windows with WIN0H-WIN3H, VEC and VECH, MAP, ROM space, the I/O hole, the
+ * common hole, the DS3231 real-time clock, the timebase and the random source
+ * (`rng_chip=`, default locked: the ATECC608B fitted). Its registers are at
  * io 680-6FF (module D, its IRQ wired: the timebase's tick), and it is named
  * `northbridge`. The clock starts at the host's local time unless the
  * options give one.
@@ -113,10 +107,6 @@ namespace ooe::emu
     {
         /// If set, replaces the image of the first `rom` or `flash` line.
         std::string rom_override;
-        /// The video card's revision (1 or 2), over the `video` line's `rev=`; 0: the line's. Anything
-        /// else fails the build. The machine wires the bus for it, so the card's revision is then fixed
-        /// (VideoCard::set_revision() returns false).
-        unsigned video_revision{0};
         /// An Apple IIe ROM for ROM A's image 0 (the flash line named `rom_a`, at its
         /// start): one 16 KB file ($C000-$FFFF), or the two 8 KB halves, CD then EF.
         /// Apple's ROMs are copyrighted: the owner supplies them.

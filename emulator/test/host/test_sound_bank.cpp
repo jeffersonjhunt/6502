@@ -1,7 +1,7 @@
 /**
  * @file test_sound_bank.cpp
  * @brief The sound card, revision 3: the sound bank (samples, SID and sample effects, the voice manager, wave RAM
- * as the store's cache; hw/future/sound-device.md, "The sound bank" and "How the firmware shares the chips").
+ * as the store's cache; hw/design.md, "The sound bank" and "How the firmware shares the chips").
  * @copyright Copyright (c) 2024-2026 Jefferson J. Hunt (MIT)
  */
 

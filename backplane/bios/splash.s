@@ -7,12 +7,12 @@
 ; plays it from the card's own flash (the samples and the sequence revision 2's
 ; ES5503 player had), begun by one record, BOOTSOUND, at the vertical blank
 ; where the splash starts, so the sound's frame n plays with the picture's
-; frame n (hw/future/sound-device.md, "Boot, reset and Apple II mode").
+; frame n (hw/design.md, "Sound card revision 3", "Boot, reset and Apple II mode").
 ;
 ; CTRL's RESET first, so whatever a program left playing before C800R stops and
 ; a record it left half written is dropped; then READY waited for, 250 ms at
 ; most (power-on brings it within 100 ms). With no READY by then the splash
-; runs silent, as it does on revisions 1 and 2, which the ROM doesn't drive.
+; runs silent.
 ;
 ; The BIOS doesn't wait for the sound, nor for BOOTSOUND's reply (tag STAG,
 ; left in the event FIFO: OODOS's cold boot empties it). The monitor is up
@@ -33,7 +33,7 @@ SPLASH:
                 LDA     VIDEO_ID
                 CMP     #VIDEO_ID_V2
                 BEQ     :+
-                RTS                    ; no revision 2 video card: no splash, and no sound for it
+                RTS                    ; no video card: no splash, and no sound for it
 :               STZ     PLAYS
                 LDA     SOUND_ID
                 CMP     #SOUND_ID_V3

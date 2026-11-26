@@ -11,7 +11,7 @@
 
 .setcpu "65C02"
 .include "sys.inc"
-.import WARM, NB3CHK, BINIT, MFORMAT, DAYS2DATE, UNKEEP, CLKINIT
+.import WARM, HOLEON, BINIT, MFORMAT, DAYS2DATE, UNKEEP, CLKINIT
 .importzp TYEAR, TMONTH, TDATE
 .export COLD
 .exportzp ROMVER
@@ -40,7 +40,7 @@ COLD:           SEI
                 STA     NB_WIN0
                 LDX     #$FF
                 TXS
-                JSR     NB3CHK         ; north bridge revision 3, or the monitor (block 61's; W2 has it)
+                JSR     HOLEON         ; the common hole on (block 61's; W2 has it)
                 LDA     #0             ; $0000-$0CFF; the stack is empty
                 TAX
 @clear:

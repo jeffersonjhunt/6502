@@ -1,29 +1,27 @@
-# The backplane computer (hw/design.md), as far as the emulator models it:
-# the CPU and north bridge card, 1 MB of RAM on the backplane, and the
-# flash. Step 1 of the emulator plan; the cards come later.
+# The backplane computer (hw/design.md), as the emulator models it: the CPU
+# card with its north bridge and ROM A, 1 MB of RAM, ROM B (the cartridge),
+# and the cards fitted below. Each card is the one revision the machine has.
 #
-# The north bridge maps the CPU's 64 KB through four 16 KB windows. At reset
+# The CPU card: a W65C02S and the north bridge, revision 3 (ID $D3;
+# hw/design.md, "The north bridge, revision 3"), its registers at $C680.
+# It maps the CPU's 64 KB through four 16 KB windows, with WIN0H-WIN3H and
+# VECH (A20-A23), MAP (AP8 sends bank 8 to the video aperture), the common
+# hole, the timebase (the 1 kHz tick, its interrupt as module D, the
+# millisecond counter) and the random number chip (an ATECC608B). At reset
 # W0-W2 are RAM blocks 0-2 and W3 is the top 16 KB of ROM A, read-only, so
 # the BIOS starts in flash and shadows itself into bank F (hw/design.md,
-# "Boot"). Its registers are at $C680. Add `bootsel` to start with W3 on RAM
-# block 63 instead, as when the bus spy has loaded RAM. It is revision 3
-# (ID $D3; hw/design.md, "The north bridge, revision 3"): revision 2's WIN0H-WIN3H and VECH
-# (A20-A23) and MAP (AP8 sends bank 8 to the video aperture), and the
-# timebase (the 1 kHz tick, its interrupt as module D, the millisecond
-# counter) and the random number chip. OODOS 0.16 needs it. `revision=2` and
-# `revision=1` (B1's, no WINnH, VECH or MAP) are the older bridges, for the
-# ROM's tests. The bridge owns the DS3231 real-time clock (ds3231.h), which
-# starts at the host's local time.
+# "Boot"). Add `bootsel` to start with W3 on RAM block 63 instead, as when
+# the bus spy has loaded RAM. The bridge owns the DS3231 real-time clock
+# (ds3231.h), which starts at the host's local time.
 #
-# The bus is the new one (hw/design.md, "The new bus"): 24-bit physical
-# addresses, and memory chosen by address, not by module ID. The RAM card
-# is 000000-0FFFFF (RAM A-D its quarters); the flash is ROM A at F00000-
-# F7FFFF (on the CPU card) and ROM B, the cartridge, at F80000-FFFFFF; a
-# window's ROM block b is F00000 + b x $4000. Memory cycles carry the
-# master's ID on PS0-PS3 (D for the CPU), so IDs 0-5 and F, once RAM A-D
-# and the flash, are empty slots, and the memory lines carry no module=.
-# Wait states come only from a card pulling /WAIT (a line's wait=; none here
-# needs any): the north bridge's WAIT0-3 slow nothing (step B2).
+# The bus (hw/design.md, "The new bus"): 24-bit physical addresses, memory
+# chosen by address, not by module ID. The RAM card is 000000-0FFFFF (RAM
+# A-D its quarters); the flash is ROM A at F00000-F7FFFF (on the CPU card)
+# and ROM B, the cartridge, at F80000-FFFFFF; a window's ROM block b is
+# F00000 + b x $4000. Memory cycles carry the master's ID on PS0-PS3 (D for
+# the CPU), so IDs 0-5 and F are empty slots, and the memory lines carry no
+# module=. Wait states come only from a card pulling /WAIT (a line's wait=;
+# none here needs any): the north bridge's WAIT0-3 slow nothing.
 #
 # The flash image is the whole 512 KB ROM A (as a programmer would write
 # it), with the BIOS in its top 16 KB: block 31, $F7C000-$F7FFFF. The CPU
@@ -40,62 +38,62 @@
 # BIOS's C806R copies the first good image into bank E before entering
 # Apple II mode. ROM B is the game cartridge, erased.
 #
-# The DMA controller (module 8, $C400), revision 2 (ID $82; hw/design.md,
-# "The DMA controller, revision 2"), takes the bus from the CPU for its
-# transfers; CONTROL starts at $70, so software turns it on. Its channels
-# share one register window, which CONTROL's SELECT points at. A card whose
-# line says `drq` pulls the shared /DREQ; the controller polls the cards
-# and grants the channel whose CARD names the requesting card's module.
-# CARD's reset values give today's wiring: channel 0 module 7 (mass
-# storage), channel 1 module 9 (video), channel 2 module A (sound), and
-# channel 3 none (memory to memory). The USB card isn't wired to /DREQ.
+# The DMA controller (module 8, $C400; ID $82, hw/design.md, "The DMA
+# controller, revision 2") takes the bus from the CPU for its transfers;
+# CONTROL starts at $70, so software turns it on. Its channels share one
+# register window, which CONTROL's SELECT points at. A card whose line says
+# `drq` pulls the shared /DREQ; the controller polls the cards and grants
+# the channel whose CARD names the requesting card's module. CARD's reset
+# values are the machine's wiring: channel 0 module 7 (mass storage),
+# channel 1 module 9 (video), channel 2 module A (sound), and channel 3
+# none (memory to memory). The USB card isn't wired to /DREQ.
 #
 # The Console card (module E, $C700) is the front panel: switches, lights,
 # HALT/CONT and a breakpoint on any bus cycle. Without a panel attached (the
 # terminal emulator has none) programs can still use its breakpoint and
 # HALT, which stop at the debugger.
 #
-# The video card (module 9, $C480) draws VGA 640x480 (video_card.h). It
-# powers up with the display off: software sets the palette, a layer and
-# CTRL. `emulator --screen FILE` saves its last frame. Revision 1 (rev=1,
-# today's BIOS and OODOS) draws from banks 8-B, which it snoops. Revision 2
-# (hw/video-rev2.md, proposed: rev=2, or MachineOptions::video_revision)
-# draws from 2 MB of its own memory, reached through the aperture line,
-# E00000-E0FFFF, and through its data port, served by DMA channel 1. While
-# the north bridge's AP8 (MAP, $C6A5 bit 0) is set, as it is from any reset,
-# the CPU card sends bank 8 (080000-08FFFF) to the aperture, from the CPU's
-# windows and DMA alike, so old software finds the card where it always
-# has; banks 9-B stay RAM. With AP8 clear bank 8 is RAM, and the card is
-# reached at E00000 (a window's WINnH $0E). The BIOS clears AP8 when there
-# is no revision 2 card. On revision 1 the aperture line is inert and the
-# card never asks for DMA.
+# The video card (module 9, $C480; ID $92, hw/video-rev2.md) draws VGA
+# 640x480 (video_card.h) from 2 MB of its own memory, reached through the
+# aperture line, E00000-E0FFFF, and through its data port, served by DMA
+# channel 1. It powers up with the display off: software sets the palette,
+# a layer and CTRL. `emulator --screen FILE` saves its last frame. While the
+# north bridge's AP8 (MAP, $C6A5 bit 0) is set, as it is from any reset, the
+# CPU card sends bank 8 (080000-08FFFF) to the aperture, from the CPU's
+# windows and DMA alike; banks 9-B stay RAM. With AP8 clear bank 8 is RAM,
+# and the card is reached at E00000 (a window's WINnH $0E). The BIOS clears
+# AP8 when there is no video card.
 #
-# The USB card (module B, $C580) is the keyboard, mouse and game port
-# (usb_card.h). Nothing types on it in the terminal app; the WebUI does.
+# The USB card (module B, $C580) is the keyboard, mouse, game port and the
+# speaker Apple II mode uses (usb_card.h). Nothing types on it in the
+# terminal app; the WebUI does.
 #
-# The sound card (module A, $C500) is revision 3, the card as a device
-# (sound_card3.h, hw/future/sound-device.md): command records in, event
+# The sound card (module A, $C500; ID $A3, hw/design.md, "Sound card
+# revision 3") is a device (sound_card3.h): command records in, event
 # records out, its firmware playing tunes, music, samples and streams on its
-# own SIDs, ES5503 and codec, 8 MB of store (memsize=8). Its DMA request
-# (DATA, while a transfer is open) is served by channel 2. rev=1 or rev=2 is
-# the older card (sound_card.h), which the BIOS and OODOS no longer drive.
+# own SIDs, ES5503 and codec, with 8 MB of store (memsize=8; 2 and 4 are
+# the other sizes). Its DMA request (DATA, while a transfer is open) is
+# served by channel 2.
 #
-# The mass storage card (module 7, $C380) is an SD card behind an RP2350
-# (sd_card.h): sectors through DATA, by CPU or DMA (channel 0). `emulator --sd
-# FILE` puts a card image in its slot, written through.
+# The mass storage card (module 7, $C380; ID $71) is an SD card behind an
+# RP2350 (sd_card.h): sectors through DATA, by CPU or DMA (channel 0).
+# `emulator --sd FILE` puts a card image in its slot, written through.
 #
 # The serial card (module 6, $C300): its TL16C552A isn't modelled yet, so
-# the terminal is a STAND-IN, a 6551 at $C300-$C303 (mirrored through the
-# block, as before: the BIOS and OODOS use $C300-$C303 only). The card's
-# W65C22S VIA is real (via6522.h), at $C340-$C34F: the later line answers
-# there, over the 6551's mirror. Both pull IRQL bit 6 (module 6). The
-# card's INTSTAT ($C322) isn't modelled: $C322 is still the 6551's mirror
-# (its command register), so a handler tells the VIA by its IFR. The VIA's
-# ports are the two joysticks (joystick_ports.h): joystick 1 on PA0-PA4,
-# joystick 2 on PB0-PB4, up/down/left/right/fire, 0 when pressed; the
-# rest pulled up, so `LDA $C341` `AND #$1F` reads $1F with nothing pressed.
-# The WebUI drives them from gamepads or its keys; the terminal app's
-# debugger has `joy`.
+# the terminal is a stand-in, a 6551 at $C300-$C303 (mirrored through the
+# block: the BIOS and OODOS use $C300-$C303 only). The card's W65C22S VIA
+# is modelled (via6522.h), at $C340-$C34F: the later line answers there,
+# over the 6551's mirror. Both pull IRQL bit 6 (module 6). The card's
+# INTSTAT ($C322) isn't modelled: $C322 is the 6551's mirror (its command
+# register), so a handler tells the VIA by its IFR. The VIA's ports are the
+# two joysticks (joystick_ports.h): joystick 1 on PA0-PA4, joystick 2 on
+# PB0-PB4, up/down/left/right/fire, 0 when pressed; the rest pulled up, so
+# `LDA $C341` `AND #$1F` reads $1F with nothing pressed. The WebUI drives
+# them from gamepads or its keys; the terminal app's debugger has `joy`.
+#
+# The Disk II controller (module C, $C600; disk2_card.h) is slot 6 in Apple
+# II mode, and in native mode its sixteen switches at $C600-$C60F with its
+# ID at $C67F.
 #
 #   emulator --machine machines/backplane.machine bios.rom
 
@@ -119,9 +117,9 @@ via6522   340-34F  space=io  name=via  irq          # the serial card's VIA, ove
 joyports  name=joysticks  via=via                    # on PA0-4 and PB0-4
 sd        380-3FF  space=io  name=sd  irq  drq
 dma       400-47F  space=io  name=dma  irq
-video     480-4FF  space=io  name=video  irq  drq  rev=2
-aperture  E00000-E0FFFF  name=aperture   # revision 2: bank 8 is sent here while AP8 is set
-sound     500-57F  space=io  name=sound  irq  drq  rev=3  memsize=8
+video     480-4FF  space=io  name=video  irq  drq
+aperture  E00000-E0FFFF  name=aperture   # bank 8 is sent here while AP8 is set
+sound     500-57F  space=io  name=sound  irq  drq  memsize=8
 usb       580-5FF  space=io  name=usb  irq
 disk2     600-67F  space=io  name=disk2               # slot 6 in Apple II mode
 console   700-77F  space=io  name=console  irq     # the front panel

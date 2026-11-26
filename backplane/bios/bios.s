@@ -99,11 +99,8 @@ START:
                 LDA     NB_STATUS
                 AND     #NB_STATUS_BOOTSEL
                 BNE     RESET          ; booted from RAM: no flash to go back to
-                LDX     NB_ID          ; (B7) WIN0H 0 for the stub, on a bridge of revision 2 or more: a program
-                CPX     #NB_ID_V2      ; that jumped to C800R may have left it set, and
-                BCC     @w0            ; BOOT2's NBSET comes only after the stub
-                STZ     NB_WIN0H
-@w0:            STZ     NB_WIN0
+                STZ     NB_WIN0H       ; (B7) WIN0H 0 for the stub: a program that jumped to C800R may have
+                STZ     NB_WIN0        ; left it set, and BOOT2's NBSET comes only after the stub
                 LDX     #STUB_END - STUB - 1
 @stub:          LDA     STUB,X
                 STA     $00,X
@@ -167,7 +164,7 @@ BOOT:           LDA     #0
 MONBOOT:        LDA     #1
 BOOT2:          LDX     #$FF
                 TXS
-                NBSET                  ; revision 2 or more: WINnH and VECH 0, AP8 by the video card (A kept)
+                NBSET                  ; WINnH and VECH 0, AP8 by the video card (A kept)
                 STZ     NB_WIN0        ; as at a hard reset, for C800R
                 STA     BOOTMODE
                 LDA     #1
@@ -383,8 +380,8 @@ MOTHER:         .byte   $0D, "THE DIAGNOSTICS IN THE FLASH ARE ANOTHER BUILD'S: 
 MROM:           .byte   $0D, "ROM: F FLASH UPDATE, 0-3 APPLE II MODE, ANY OTHER KEY MONITOR ", 0
 
 ; $C818's $A2 (BEEP: 800 Hz, the PC's beep, for A x 10 ms; A = 0, 250 ms) and
-; $A3 (STOPALL), X the function, on a revision 3 sound card (hw/future/sound-
-; device.md, "Bare metal"): READY waited for (250 ms), then CMD's room for a
+; $A3 (STOPALL), X the function, on a revision 3 sound card (hw/design.md,
+; "Bare metal"): READY waited for (250 ms), then CMD's room for a
 ; whole record (100 ms); the record written whole with interrupts off, tag
 ; RTAG; then its REPLY (100 ms), each other record the card sends meanwhile
 ; read and dropped. Carry clear once the REPLY is in (whatever its status);
@@ -510,8 +507,8 @@ SWAIT:          LDX     #0
                 RTS
 
 ; Break (NMI), BRK and the demo's end: a fresh stack, windows 0-2 on RAM
-; blocks 0-2 (W3 and VEC are the BIOS's; on revision 2 or more every WINnH and
-; VECH 0 and MAP as the boot sets it), the cards quiet, the text screen
+; blocks 0-2 (W3 and VEC are the BIOS's; every WINnH and VECH 0 and MAP as
+; the boot sets it), the cards quiet, the text screen
 ; (VSCREEN finds it from the ID bytes), then the monitor.
 BREAK:
                 CLD
@@ -541,7 +538,7 @@ IRQ:            PHA
 ; Stop what would go on behind the monitor: every DMA channel (all eight), the SD card's
 ; command, the boot splash and the video port's DMA request, every sound on a revision 3 sound card (CTRL's
 ; RESET: its tunes, music, effects, streams and beep, an open transfer and both FIFOs, IEN 0; one write, no
-; wait; revisions 1 and 2 aren't driven); and turn off the interrupts that
+; wait); and turn off the interrupts that
 ; IRQ can't answer, so a program run with R can CLI: the clock's tick too
 ; (its time runs on), a front-panel key already pending, and the VIA's. What
 ; it doesn't know (a program's own state) is left alone; the serial card the
@@ -549,10 +546,10 @@ IRQ:            PHA
 ; at $C340; only an emulator machine without its via6522 line has the stand-in
 ; 6551's mirror there, which takes VIA_IER's write until WOZMON undoes it.
 QUIET:
-                LDA     #NB_RTC_TICK   ; TICK cleared, TIE off; SET 0 sends nothing
+                LDA     #NB_RTC_TICK   ; TICK cleared; SET 0 sends nothing
                 STA     NB_RTCCTL
-                LDA     #NB_TB_MSF | NB_TB_OVR ; (revision 3) the timebase's flags cleared, MSIE off:
-                STA     NB_TBCTL       ; no ID check, since an older bridge drops the write
+                LDA     #NB_TB_MSF | NB_TB_OVR ; the timebase's flags cleared, MSIE off
+                STA     NB_TBCTL
                 LDA     DMA_ID
                 CMP     #DMA_ID_V2
                 BNE     @sd

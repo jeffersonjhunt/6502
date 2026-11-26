@@ -638,23 +638,26 @@ TEST(a_layout_1_program_is_as_l1_left_it)
 TEST(the_tick_costs_its_measured_cycles)
 {
     // O6 (N9 and N10): the dispatcher's cost for a tick alone, the bridge's (IRQL $FF, IRQH $DF), the interrupt's 7
-    // and the RTI included: with no area 142 (162 with timer 1's tick and OODOS's own MS, to 0.15), with a layout-1
-    // area 189 (201 before); a layout-2 area's, said; and the USB card's interrupt for a key, said. The bridge's
-    // counter has no carry to take, so a tick has one cost.
+    // and the RTI included: with no area 143 (142 before common memory shrank 14 bytes, 162 with timer 1's tick and
+    // OODOS's own MS, to 0.15), with a layout-1 area 188 (189 at N10, 201 before); a layout-2 area's, said; and the
+    // USB card's interrupt for a key, said. The bridge's counter has no carry to take, so a tick has one cost. The
+    // figures are printed as a record and checked as ceilings, today's plus 4 (a page crossing or two): code moving a
+    // few bytes in common memory changes them by a cycle, and that alone isn't a failure (the owner, 2026-11-26).
     CcpRig r;
     REQUIRE(r.ok);
     open(r, "X");
     const Costs none = time_interrupts(r, ms(600));
     Costs::print("no area, a tick", none.tick);
     REQUIRE(!none.tick.empty());
-    CHECK_EQ(Costs::mode(none.tick), 142u); // measured (N10): the fast path's two polls, TICK's acknowledge
+    CHECK(Costs::mode(none.tick) <= 143u + 4); // 143 measured: the fast path's two polls, TICK's acknowledge
     for (const auto &[c, n] : none.tick)
-        CHECK_EQ(c, 142u); // every tick (no carry of OODOS's own to take since N10)
+        CHECK(c <= 143u + 4); // every tick (no carry of OODOS's own to take since N10)
     wboot(r);
     open(r, "1");
     const Costs one = time_interrupts(r, ms(600));
     Costs::print("layout 1, a tick", one.tick);
-    CHECK_EQ(Costs::mode(one.tick), 188u); // measured (N16, code placement; N10 189): BIT TBCTL, the acknowledge, MS0's low byte
+    // 188 measured (N16): BIT TBCTL, the acknowledge, MS0's low byte
+    CHECK(!one.tick.empty() && Costs::mode(one.tick) <= 188u + 4);
     wboot(r);
     open(r, "2");
     const Costs two = time_interrupts(r, ms(600));

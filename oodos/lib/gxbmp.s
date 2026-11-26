@@ -71,34 +71,15 @@ BANDS:  .byte   128, 128, 0, 64, 51     ; GX_FRECT's whole rows a fill: 64 KB at
 .assert GB_640 = 3 && GB_DIRECT = 4, error, "the tables' order is GB_*'s"
 
 ; A the bitmap (GB_*), GX_V its first card page: carry clear; past
-; GB_DIRECT, carry set and A GE_FORMAT, nothing changed. GB_DIRECT needs
-; OODOS's interface 13 (function 83's DM_VFILLW, which GX_FRECT uses):
-; below it, carry set and A GE_VERSION, nothing changed (review round 1,
-; F1; asked of function 80 here, so gxmem.s, which GW-BASIC links, keeps no
-; copy of the version).
-GX_IFACE_DIRECT = 13
+; GB_DIRECT, carry set and A GE_FORMAT, nothing changed.
 GX_BMP: cmp     #GB_DIRECT + 1
         bcs     @no
-        cmp     #GB_DIRECT
-        bne     @take
-        lda     #FT_INFO
-        ldx     #0
-        ldy     #O_FRAME
-        jsr     BDOS
-        cmp     #$FF                    ; no function 80: A = X = $FF
-        beq     @old
-        cmp     #GX_IFACE_DIRECT
-        bcc     @old
-        lda     #GB_DIRECT
-@take:  sta     bmode
+        sta     bmode
         lda     GX_V
         sta     bunit
         lda     GX_V + 1
         sta     bunit + 1
         clc
-        rts
-@old:   lda     #GE_VERSION
-        sec
         rts
 @no:    lda     #GE_FORMAT
         rts

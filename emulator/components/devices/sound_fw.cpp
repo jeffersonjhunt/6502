@@ -67,11 +67,15 @@ namespace ooe::emu
         size_t tag_left{0}; ///< of an ID3v2 tag being skipped
         bool fresh{false};  ///< junk passed over since the last frame: the next is found by a search, afresh
         size_t looked{0};   ///< how far past the frame at the front a look for anything frame-like has gone
+        /// Where an ID3v1 record is due: the end of a frame in step that "TAG" followed (~0: none). The record
+        /// (128 bytes) is skipped there as a tag is, so the decoder runs on into the next file as if it weren't.
+        uint64_t v1_at{~0ull};
+        static constexpr size_t V1_BYTES = 128;
     };
 
     namespace
     {
-        // Revision 2's MP3 feeding rules (sound_card.cpp), on the ring: the same decisions, so a stream fed as it
+        // The MP3 feeding rules, on the ring: the same decisions whenever the bytes come, so a stream fed as it
         // plays decodes as the whole data would.
 
         /// A layer III header's frame length in bytes, padding included: 0 if `h` isn't one.
@@ -247,7 +251,7 @@ namespace ooe::emu
             const long v = std::lround(static_cast<double>(x) * 32767.0);
             return static_cast<int16_t>(std::clamp<long>(v, -32768, 32767));
         }
-        /// x volume / 255, rounded half away from zero: revision 2's VOLL and VOLR.
+        /// x volume / 255, rounded half away from zero.
         int16_t scaled(int16_t s, uint8_t vol)
         {
             if (vol == 255)
@@ -340,13 +344,13 @@ namespace ooe::emu
                         if (voices_[v].use == V_MUSIC)
                             holder = SRC_MUSIC;
                 const float g = holder == SRC_TUNES ? tg : static_cast<float>(mix_[holder]) / 255.0f;
-                if (tune_.chips == 3) // a two-SID tune: A left, B right, as revision 2
+                if (tune_.chips == 3) // a two-SID tune: A left, B right
                     src[holder][n] += chip[n] * g;
                 else // a one-SID tune, or none: both chips in both ears
                     src[holder][0] += chip[n] * g, src[holder][1] += chip[n] * g;
             }
         }
-        // The ES5503, at half of full scale as revision 2's bus mixes it: the effects' and the boot sound's
+        // The ES5503, at half of full scale: the effects' and the boot sound's
         // oscillators (channels 0 and 1) at the effects' level, music's (channels 2 and 3) at music's.
         int16_t d[4];
         port_.doc_frame(d);
@@ -355,7 +359,7 @@ namespace ooe::emu
             src[SRC_EFFECTS][ch] += 0.5f * static_cast<float>(d[ch]) / 32768.0f * static_cast<float>(mix_[SRC_EFFECTS]) / 255.0f;
             src[SRC_MUSIC][ch] += 0.5f * static_cast<float>(d[2 + ch]) / 32768.0f * static_cast<float>(mix_[SRC_MUSIC]) / 255.0f;
         }
-        // The streams, at half of full scale as revision 2's bus mixes its stream.
+        // The streams, at half of full scale.
         unsigned ran = 0; // each stream once a frame: one that took over at a join has had its frame
         for (unsigned s = 0; s < STREAMS; ++s)
         {
@@ -422,7 +426,7 @@ namespace ooe::emu
             out_.erase(out_.begin(), out_.begin() + static_cast<std::ptrdiff_t>(out_.size() - 2u * RATE));
     }
 
-    // --- the boot sound: revision 2's player's sequence (docsnd.s), the firmware's own player ------------
+    // --- the boot sound: the sequence docsnd.s played, the firmware's own player -----------------------
 
     namespace
     {
@@ -1311,6 +1315,13 @@ namespace ooe::emu
                 v.push_back(static_cast<uint8_t>(seq_.thresh));
                 event(EV_MUSIC_COUNT, 0, v);
             }
+            if (mv.tone && e.freq16 > TONE_TOP_HZ * 16) // above the tone generator's top: a rest for its length
+            {
+                if (mv.gated)
+                    music_gate(lv, false), mv.gated = false;
+                mv.next_us = at + e.len;
+                break;
+            }
             if (mv.tone)
             {
                 mtone_.step = e.freq16 / 16.0 / RATE;
@@ -1974,6 +1985,8 @@ namespace ooe::emu
         {
             const unsigned s = p[0];
             const uint32_t len = get24(p + 1);
+            if (s < STREAMS)
+                ++streams_[s].data_records; // taken or refused
             if (s >= STREAMS || !streams_[s].open || streams_[s].ended || len == 0)
             {
                 reply(tag, s >= STREAMS || len == 0 ? E_PARAM : E_STATE);
@@ -2307,7 +2320,7 @@ namespace ooe::emu
         case BEEP:
         {
             const uint32_t hz = get16(p), len = get16(p + 2);
-            if (hz < 20 || hz > 20000)
+            if (hz < 20 || hz > TONE_TOP_HZ)
             {
                 reply(tag, E_PARAM);
                 break;
@@ -2343,7 +2356,7 @@ namespace ooe::emu
             for (unsigned i = 0; ok && i < count; ++i)
             {
                 const int8_t x = static_cast<int8_t>(v[i]);
-                ok = x >= -24 && x <= 24; // half-dB, revision 2's
+                ok = x >= -24 && x <= 24; // half-dB
                 g[first + i] = x;
             }
             if (!ok)
@@ -2743,10 +2756,10 @@ namespace ooe::emu
 
     bool SoundFw::decode_mp3(unsigned s)
     {
-        // The next frame of the ring's data decoded into the stream's queue, by revision 2's rules: a frame in step
+        // The next frame of the ring's data decoded into the stream's queue, by these rules: a frame in step
         // with the stream is decoded once its end and the next header have come (or the data has ended); one out of
         // step only once minimp3's own sync rule has decided on it (a run of frames in step, or the data's end); an
-        // ID3v2 tag is skipped by its size. Until a decision can be made it waits for more: false. True when the
+        // ID3v2 tag is skipped by its size, and an ID3v1 record at a frame in step's end by its 128. Until a decision can be made it waits for more: false. True when the
         // queue gained frames or the header was taken; the data's end sets end_decoded.
         Stream &st = streams_[s];
         Mp3 &m = *st.mp3;
@@ -2811,6 +2824,15 @@ namespace ooe::emu
                     return false;
                 continue;
             }
+            if (st.rd == m.v1_at)
+            {
+                m.v1_at = ~0ull;
+                m.tag_left = Mp3::V1_BYTES;
+                m.tagged += Mp3::V1_BYTES;
+                if (no_sync())
+                    return false;
+                continue;
+            }
             if (have < 10 && !eof && at(0) == 'I')
                 return false;
             uint8_t h[4] = {};
@@ -2836,6 +2858,14 @@ namespace ooe::emu
                 {
                     n = fb + 4;
                     search = false;
+                }
+                else if (have >= fb + 3 && at(fb) == 'T' && at(fb + 1) == 'A' && at(fb + 2) == 'G')
+                {
+                    // An ID3v1 record at the frame's end (a file's last 128 bytes, another file after it): the
+                    // frame by its own length, then the record skipped, the decoder in step on into the next.
+                    n = fb;
+                    search = false;
+                    m.v1_at = st.rd + fb;
                 }
                 else
                 {
@@ -3045,7 +3075,7 @@ namespace ooe::emu
                     const auto sample = [&](uint64_t i) -> int16_t {
                         if (st.fmt & 2)
                             return static_cast<int16_t>(static_cast<uint16_t>(ring_byte(s, i) | ring_byte(s, i + 1) << 8));
-                        return static_cast<int16_t>((ring_byte(s, i) - 128) * 256); // unsigned, as revision 2
+                        return static_cast<int16_t>((ring_byte(s, i) - 128) * 256); // unsigned
                     };
                     const uint64_t step = st.fmt & 2 ? 2 : 1;
                     out[0] = sample(st.rd);

@@ -1,7 +1,7 @@
 ; The sound card's records for the diagnostics (stage 10 in block 22, S10 in
 ; block 21; each block its own copy): a command record sent through CMD, its
 ; REPLY read back from EVT. The card is revision 3, the device
-; (hw/future/sound-device.md): every command gets one REPLY, in order, and
+; (hw/design.md, "Sound card revision 3"): every command gets one REPLY, in order, and
 ; events met on the way are read and dropped. Interrupts are off for the
 ; whole run, so nothing else reads EVT. Times are timer 2's (TZERO, TTICK):
 ; a unit of Y is 65,536 PHI2 cycles, about 9.2 ms.

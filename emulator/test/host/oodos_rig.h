@@ -263,24 +263,27 @@ namespace oodos_rig
         return card;
     }
 
-    /// The sound card's revision on the machines this suite's rigs build from backplane.machine: 0 its own
-    /// (revision 3, the card as a device), or another given on the sound line (`rev=`). Set
-    /// once at a suite's start, as test_oodos_sound and the other sound suites do, as video_revision is given.
-    inline unsigned &sound_revision()
-    {
-        static unsigned rev = 0;
-        return rev;
-    }
-    /// backplane.machine's text with its sound line given `rev=` (and `memsize=` when not 0, in MB).
-    inline std::string machine_with_sound(unsigned rev, unsigned memsize_mb = 0)
+    /// backplane.machine's text with its sound card's store `memsize_mb` MB (2, 4 or 8) on its line.
+    inline std::string machine_with_memsize(unsigned memsize_mb)
     {
         std::string text = read_text(EMU_MACHINE_DIR "/backplane.machine");
         const std::string line = "sound     500-57F  space=io  name=sound  irq  drq";
         const size_t at = text.find(line);
         if (at != std::string::npos) // the line's own options replaced
-            text.replace(at + line.size(), text.find('\n', at) - at - line.size(),
-                         "  rev=" + std::to_string(rev) +
-                             (memsize_mb ? "  memsize=" + std::to_string(memsize_mb) : std::string()));
+            text.replace(at + line.size(), text.find('\n', at) - at - line.size(), "  memsize=" + std::to_string(memsize_mb));
+        return text;
+    }
+    /// backplane.machine without its video card (the card's line and its aperture's).
+    inline std::string no_video_machine()
+    {
+        std::string text = read_text(EMU_MACHINE_DIR "/backplane.machine");
+        for (const char *line : {"\nvideo ", "\naperture "})
+        {
+            const size_t at = text.find(line);
+            if (at == std::string::npos)
+                return {};
+            text.erase(at + 1, text.find('\n', at + 1) - at);
+        }
         return text;
     }
     /// Block 61's byte at its CPU address `addr` ($8000-$BFFF: OODOS's BIOS block, sound.s's variables).
@@ -301,15 +304,12 @@ namespace oodos_rig
         /// `images`: a 16 KB IIe ROM file for image n, any of 0-3 (MachineOptions::apple_roms).
         /// `machine_text`: a machine description in place of backplane.machine's (fewer cards, say).
         /// `disk2_sequencer`: the Disk II's sequencer PROM, the owner's, from the fixtures (none by default).
-        /// `video_revision`: the video card's, 2 by default: OODOS is built for revision 2 only
-        /// (hw/video-rev2.md); 1 where a test asks what OODOS does on the old card.
         explicit Rig(std::vector<uint8_t> card = sd_image("oodos.sparse"), std::vector<std::string> apple_rom = {},
                      const std::string &machine_text = {}, const std::string &disk2_sequencer = {},
-                     unsigned video_revision = 2, const std::array<std::string, 4> &images = {})
+                     const std::array<std::string, 4> &images = {})
         {
             MachineOptions opt;
             opt.rom_override = EMU_BIOS_ROM;
-            opt.video_revision = video_revision;
             opt.apple_rom = std::move(apple_rom);
             for (unsigned n = 0; n < 4; ++n)
                 if (!images[n].empty())
@@ -319,9 +319,7 @@ namespace oodos_rig
             // SYNC before CcpRig's set_time, fell where the host's clock put it.
             opt.rtc_time = Ds3231::Time{2026, 10, 30, 12, 0, 0, (days(2026, 10, 30) - 1) % 7 + 1};
             std::string error;
-            machine = Machine::build(!machine_text.empty() ? machine_text
-                                     : sound_revision()  ? machine_with_sound(sound_revision())
-                                                         : read_text(EMU_MACHINE_DIR "/backplane.machine"),
+            machine = Machine::build(!machine_text.empty() ? machine_text : read_text(EMU_MACHINE_DIR "/backplane.machine"),
                                      "backplane.machine", opt, error);
             if (machine)
                 console = make_console(*machine, error);
@@ -333,7 +331,7 @@ namespace oodos_rig
             cpu = std::make_unique<Cpu6502>(machine->bus(), Cpu6502::Model::W65C02S);
             machine->bus().reset();
             cpu->reset();
-            if (!until("BACKPLANE BIOS 0.21\r\\\r", ms(2000)))
+            if (!until("BACKPLANE BIOS 0.22\r\\\r", ms(2000)))
             {
                 std::printf("  the ROM BIOS didn't reach its monitor\n");
                 return;
@@ -503,6 +501,10 @@ namespace oodos_rig
             }
             for (const auto &[phys, bytes] : f.segments)
                 poke(phys, bytes);
+            // WIN0H-WIN3H and VECH 0 first, as the ROM's NBSET leaves them before it hands over: a boot from
+            // the monitor may come while the ROM has a window borrowed (VPUTC's W2 on the aperture).
+            for (unsigned i = 0; i < 5; ++i)
+                machine->bus().write(static_cast<uint16_t>(NB + 0x20 + i), 0);
             const uint8_t windows[] = {0, 60, 61, 62, 62};
             for (unsigned i = 0; i < 5; ++i)
                 machine->bus().write(static_cast<uint16_t>(NB + i), windows[i]);
@@ -810,10 +812,8 @@ namespace oodos_rig
             unsigned entry = 0, block = M_DIRBLOCKS; ///< M:'s last entry and next block put_m() used
 
             explicit CcpRig(std::vector<std::string> apple_rom = {}, const std::string &machine_text = {},
-                            const std::string &disk2_sequencer = {}, unsigned video_revision = 2,
-                            const std::array<std::string, 4> &images = {})
-                : Rig(sd_image("oodos.sparse"), std::move(apple_rom), machine_text, disk2_sequencer, video_revision,
-                      images)
+                            const std::string &disk2_sequencer = {}, const std::array<std::string, 4> &images = {})
+                : Rig(sd_image("oodos.sparse"), std::move(apple_rom), machine_text, disk2_sequencer, images)
             {
                 if (!ok)
                     return;
