@@ -151,6 +151,54 @@ namespace
         l.records = r.phys(KBLK + 6) | r.phys(KBLK + 7) << 8;
         return l;
     }
+    /// A BDOS call by L4TEST's G command: "aa xx", the cycles from its JSR BDOS to the return, and the program's
+    /// W1 block then.
+    struct Call
+    {
+        std::string ret;
+        uint64_t cycles{0};
+        unsigned w1{0};
+    };
+    Call timed(CcpRig &r, uint8_t fn, unsigned ax)
+    {
+        static const std::map<std::string, uint16_t> lbl = labels(SYS + "/l4test.lbl");
+        const uint16_t call = static_cast<uint16_t>(lbl.at("c_g") + 9), back = static_cast<uint16_t>(call + 3);
+        CHECK_EQ(r.phys(call), 0x20); // c_g's JSR BDOS, after its LDA, LDX and LDY
+        Call c;
+        uint64_t c0 = 0;
+        r.watch = [&](uint16_t pc) {
+            if (pc == call && r.nb(0) == 0)
+                c0 = r.cpu->cycles();
+            else if (pc == back && r.nb(0) == 0 && c0 && !c.cycles)
+            {
+                c.cycles = r.cpu->cycles() - c0;
+                c.w1 = r.nb(1);
+            }
+        };
+        c.ret = gcall(r, fn, ax);
+        r.watch = nullptr;
+        return c;
+    }
+    /// The cycles a record of `calls` calls of `fn` with a count of `count` (44) on the open FCB, from the third
+    /// call on (every buffer in use, as a long read finds them); 33 from record 0, a call's records on each time.
+    double per_record(CcpRig &r, uint8_t fn, unsigned count, unsigned calls)
+    {
+        CHECK_EQ(gcall(r, 44, count), std::string("00 00"));
+        uint64_t sum = 0;
+        for (unsigned c = 0; c < calls; ++c)
+        {
+            if (fn == 33)
+            {
+                const unsigned rec = c * count;
+                r.poke(FCB + 33, std::vector<uint8_t>{static_cast<uint8_t>(rec), static_cast<uint8_t>(rec >> 8), 0});
+            }
+            const Call k = timed(r, fn, FCB);
+            CHECK_EQ(k.ret, std::string("00 00"));
+            if (c >= 2)
+                sum += k.cycles;
+        }
+        return static_cast<double>(sum) / ((calls - 2) * count);
+    }
 } // namespace
 
 TEST(sixty_four_kb_load_into_video_memory_byte_for_byte_and_faster_than_33)
@@ -180,12 +228,13 @@ TEST(sixty_four_kb_load_into_video_memory_byte_for_byte_and_faster_than_33)
     const std::vector<uint8_t> bank2 = mem(r, 0x88000, 128);
     CHECK_EQ(load(r, 0, 129, 0x84000).ret, std::string("FF FF"));
     CHECK(mem(r, 0x88000, 128) == bank2);
-    // The same 64 KB by 51 and 33 with a count of 128 (44), four calls, into blocks 40-43.
+    // The same 64 KB by 51 and 33 with a count of 128 (44), four calls, into blocks 40-43. scall is the loop's
+    // first instruction, so the four calls are timed from the first time through it, not the last.
     static const std::map<std::string, uint16_t> lbl = labels(SYS + "/l4test.lbl");
     const uint16_t sc = lbl.at("scall"), sr = lbl.at("sret");
     uint64_t s0 = 0, scycles = 0;
     r.watch = [&](uint16_t pc) {
-        if (pc == sc && r.nb(0) == 0)
+        if (pc == sc && r.nb(0) == 0 && !s0)
             s0 = r.cpu->cycles();
         else if (pc == sr && r.nb(0) == 0 && s0)
             scycles = r.cpu->cycles() - s0;
@@ -194,7 +243,7 @@ TEST(sixty_four_kb_load_into_video_memory_byte_for_byte_and_faster_than_33)
     CHECK_EQ(command(r, 'S', "S", {128, 0x00, 0xA0, 4}), std::string("00 00")); // segment $A000: $A0000
     r.watch = nullptr;
     CHECK(same(mem(r, 0xA0000, 65536), slice(data, 0, 65536), "64 KB by 33"));
-    std::printf("  64 KB: DM_LOAD %llu cycles (%.1f ms), 51 and 33 x 128 %llu cycles (%.1f ms); %u ms counted, %.1f in the cycles\n",
+    std::printf("  64 KB: DM_LOAD %llu cycles (%.1f ms), four 33 calls of 128 %llu cycles (%.1f ms); %u ms counted, %.1f in the cycles\n",
                 static_cast<unsigned long long>(l.cycles), static_cast<double>(l.cycles) / HZ * 1000,
                 static_cast<unsigned long long>(scycles), static_cast<double>(scycles) / HZ * 1000, counted, secs * 1000);
     CHECK(l.cycles > 0 && scycles > 4 * l.cycles);
@@ -371,6 +420,36 @@ TEST(a_stream_plays_through_a_64_kb_load_with_no_underrun)
                 static_cast<unsigned long long>(l.cycles), r.phys(0x2000 + 96), r.phys(0x2000 + 106));
     CHECK_EQ(r.phys(0x2000 + 96), 2);  // EV_SSTATE: playing
     CHECK_EQ(r.phys(0x2000 + 106), 0); // EV_SUNDER
+}
+
+// For the record, not gated (the figures in the Programmer's Guide's entries for 20, 33 and 44): the cycles a record
+// of 20 and 33 with a count, and of DM_LOAD, the DMA address $4000 (the program's W1) or a segment.
+TEST(for_the_record_the_cycles_a_record_of_20_33_and_dm_load)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    put_b(r, "BIG     BIN", noise(96 * 1024, 3));
+    r.put_m({{0, "BIG     BIN", noise(64 * 1024, 3)}});
+    open(r, "X");
+    CHECK_EQ(gcall(r, F_DMAOFF_FN, 0x4000), std::string("00 00"));
+    const auto figure = [&](const char *what, unsigned drive, uint8_t fn, unsigned count, unsigned calls) {
+        open_file(r, drive, "BIG     BIN");
+        std::printf("  %-34s %6.0f cycles a record\n", what, per_record(r, fn, count, calls));
+    };
+    figure("B: 20 x 1", 2, 20, 1, 40);
+    figure("B: 20 x 96", 2, 20, 96, 8);
+    figure("B: 20 x 128", 2, 20, 128, 6);
+    figure("M: 20 x 96", 13, 20, 96, 5);
+    figure("M: 20 x 128", 13, 20, 128, 4);
+    CHECK_EQ(gcall(r, 51, 0xA000), std::string("00 00")); // a segment: $A0000
+    CHECK_EQ(gcall(r, F_DMAOFF_FN, 0), std::string("00 00"));
+    figure("B: 33 x 128, segment $A000", 2, 33, 128, 5);
+    CHECK_EQ(gcall(r, 51, 0xFFFF), std::string("00 00"));
+    open_file(r, 2, "BIG     BIN");
+    const Load l = load(r, 0, 512, 0x90000);
+    CHECK_EQ(l.ret, std::string("00 00"));
+    std::printf("  %-34s %6.0f cycles a record\n", "B: DM_LOAD, 64 KB", static_cast<double>(l.cycles) / 512);
+    CHECK_EQ(gcall(r, 44, 1), std::string("00 00"));
 }
 
 // L4a (hw/oolib.md, "L4a: open's byte count"): function 15 with CR $FF gives the byte count of the file's
