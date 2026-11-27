@@ -701,8 +701,8 @@ RELOC:          LDA     RLEFT
 
 ; LLEFT bytes of image to LDEST, from LREC's record (the file's header
 ; record: the image starts at its byte 16): whole records straight there,
-; the first and a last part through LBUF. Carry set with A and X on a
-; read's failure.
+; up to 128 a call (LRUN), the first and a last part through LBUF. Carry
+; set with A and X on a read's failure.
 LIMAGE:         LDA     #<LBUF
                 LDX     #>LBUF
                 JSR     RREAD
@@ -715,24 +715,9 @@ LIMAGE:         LDA     #<LBUF
                 LDA     LLEFT
                 BEQ     @done
                 BPL     @part
-@straight:      LDA     LDEST
-                LDX     LDEST + 1
-                JSR     RREAD
-                BCC     @on
+@straight:      JSR     LRUN
+                BCC     @whole
                 RTS
-@on:            CLC
-                LDA     LDEST
-                ADC     #RECORD
-                STA     LDEST
-                BCC     @less
-                INC     LDEST + 1
-@less:          SEC
-                LDA     LLEFT
-                SBC     #RECORD
-                STA     LLEFT
-                BCS     @whole
-                DEC     LLEFT + 1
-                BRA     @whole
 @part:          LDA     #<LBUF
                 LDX     #>LBUF
                 JSR     RREAD
@@ -742,6 +727,71 @@ LIMAGE:         LDA     #<LBUF
                 JSR     COPYBUF
 @done:          CLC
                 RTS
+
+; The whole records LLEFT holds, 128 at most (LCOUNT), from LREC to LDEST
+; by one 33 with that multi-sector count (its whole sectors go straight
+; there: bdosfile.s's DIRECT), the count put back to 1 after it, for the
+; part record through LBUF; LREC, LDEST and LLEFT on by them. Carry set
+; with A and X if it fails.
+LRUN:           LDA     #128
+                LDX     LLEFT + 1
+                CPX     #>(128 * RECORD)
+                BCS     @n             ; 16 KB or more
+                LDA     LLEFT          ; LLEFT / 128: under 128
+                ASL     A
+                TXA
+                ROL     A
+@n:             STA     LCOUNT
+                LDY     #F_MULTISEC
+                JSR     BDOS_ENTRY
+                LDA     LDEST
+                LDX     LDEST + 1
+                JSR     RREAD          ; LREC on by one
+                PHP
+                PHA
+                PHX
+                LDA     #1
+                LDY     #F_MULTISEC
+                JSR     BDOS_ENTRY
+                PLX
+                PLA
+                PLP
+                BCS     @done
+                LDA     LCOUNT         ; LREC on by the rest
+                DEC     A
+                CLC
+                ADC     LREC
+                STA     LREC
+                BCC     @dest
+                INC     LREC + 1
+                BNE     @dest
+                INC     LREC + 2
+@dest:          LDA     LCOUNT
+                BPL     @all
+                CLC                    ; 128: LDEST and LLEFT by 16 KB
+                LDA     LDEST + 1
+                ADC     #>(128 * RECORD)
+                STA     LDEST + 1
+                SEC
+                LDA     LLEFT + 1
+                SBC     #>(128 * RECORD)
+                STA     LLEFT + 1
+                CLC
+                RTS
+@all:           LDA     LLEFT          ; fewer: every whole record, the part left
+                AND     #$80
+                CLC
+                ADC     LDEST
+                STA     LDEST
+                LDA     LLEFT + 1
+                ADC     LDEST + 1
+                STA     LDEST + 1
+                STZ     LLEFT + 1
+                LDA     LLEFT
+                AND     #RECORD - 1
+                STA     LLEFT
+                CLC
+@done:          RTS
 
 ; LBUF from offset A to its end, or LLEFT bytes if fewer, to LDEST; both
 ; move on. Nothing when LLEFT is 0.

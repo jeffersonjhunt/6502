@@ -28,7 +28,9 @@
  *   - 59 by a program: overlays at two pages, every refusal and its codes,
  *     the caller's DMA address and segment, error mode and multi-sector
  *     count kept, R0-R2 the address again; 60 with and without an RSX; 47;
- *   - a BDOS call's cost through no, one and three RSXs.
+ *   - a BDOS call's cost through no, one and three RSXs;
+ *   - a program's image over 16 KB, its whole records by 33 up to 128 a call, loaded byte for byte; the
+ *     load's cycles for the record.
  */
 
 #include "harness.h"
@@ -673,6 +675,93 @@ TEST(a_bdos_call_through_rsxs_costs_their_filters)
                 static_cast<unsigned long long>(three));
     CHECK(none < one && one < three);
     CHECK(three - none < 3 * 60);
+}
+
+// ---- a program's image -------------------------------------------------------------------------
+
+namespace
+{
+    std::vector<uint8_t> noise(size_t n, uint32_t seed)
+    {
+        std::vector<uint8_t> b(n);
+        for (auto &x : b)
+        {
+            seed ^= seed << 13;
+            seed ^= seed >> 17;
+            seed ^= seed << 5;
+            x = static_cast<uint8_t>(seed >> 8);
+        }
+        return b;
+    }
+    /// A .COM of `image` bytes of noise at $0300 (oodos.inc's header), whose first instruction is JMP WBOOT.
+    std::vector<uint8_t> big_com(unsigned image)
+    {
+        std::vector<uint8_t> c = {'O', 'O', 'D', 0x1A, 0, 0x03, static_cast<uint8_t>(image),
+                                  static_cast<uint8_t>(image >> 8), 0, 0, 0, 0, 0, 0, 0, 0};
+        std::vector<uint8_t> body = noise(image, 5);
+        body[0] = 0x4C;
+        body[1] = 0x00;
+        body[2] = 0x02;
+        c.insert(c.end(), body.begin(), body.end());
+        return c;
+    }
+    /// `line` run at the prompt: the cycles from the loader's start (59) to the program's first instruction.
+    uint64_t load_cycles(Ccp &r, const std::string &line)
+    {
+        const uint16_t loader = sym("LOADER");
+        uint64_t s0 = 0, took = 0;
+        r.watch = [&](uint16_t pc) {
+            if (!s0 && pc == loader && r.nb(3) == 62)
+                s0 = r.cpu->cycles();
+            else if (s0 && !took && pc == 0x0300 && r.nb(0) == 0)
+                took = r.cpu->cycles() - s0;
+        };
+        r.cmd(line);
+        r.watch = nullptr;
+        return took;
+    }
+} // namespace
+
+TEST(an_image_over_16_kb_loads_byte_for_byte_by_whole_records_many_a_call)
+{
+    // 20,000 bytes: the header record's last 112, then 155 whole records (one 33 of 128, one of 27), then the
+    // part record's 48 through LBUF. The TPA is blocks 0-2, so the program's address is the physical one.
+    Ccp r;
+    REQUIRE(r.ok);
+    constexpr unsigned IMAGE = 20000;
+    const std::vector<uint8_t> com = big_com(IMAGE);
+    r.put_m({{0, "BIG     COM", com}});
+    r.poke(0x0300 + IMAGE, std::vector<uint8_t>(512, 0xEE));
+    CHECK(load_cycles(r, "m:big") > 0); // it ran
+    std::vector<uint8_t> got(IMAGE);
+    for (unsigned i = 0; i < IMAGE; ++i)
+        got[i] = r.phys(0x0300 + i);
+    unsigned i = 0;
+    while (i < IMAGE && got[i] == com[16 + i])
+        ++i;
+    if (i < IMAGE)
+        std::printf("  the image: first different at %u of %u\n", i, IMAGE);
+    CHECK_EQ(i, IMAGE);
+    for (unsigned k = 0; k < 512; ++k)
+        CHECK_EQ(r.phys(0x0300 + IMAGE + k), 0xEE); // nothing past it
+    for (unsigned k = 0; k < 16; ++k)
+        CHECK_EQ(res(r, "LHDR", k), com[k]); // and LBUF's neighbour as the header left it
+    CHECK_EQ(r.phys(SCB_PHYS + 0x4A), 1); // the multi-sector count the CCP gives the program, after it
+}
+
+// For the record, not gated: the loader's cycles for an 8 KB and a 32 KB .COM on M:.
+TEST(for_the_record_the_cycles_to_load_an_8_and_a_32_kb_com)
+{
+    Ccp r;
+    REQUIRE(r.ok);
+    r.put_m({{0, "BIG8    COM", big_com(8 * 1024)}, {0, "BIG32   COM", big_com(32 * 1024)}});
+    for (const char *line : {"m:big8", "m:big32"})
+    {
+        const uint64_t c = load_cycles(r, line);
+        CHECK(c > 0);
+        std::printf("  %-7s %8llu cycles (%.1f ms), the loader to $0300\n", line, static_cast<unsigned long long>(c),
+                    static_cast<double>(c) / HZ * 1000);
+    }
 }
 
 int main()
