@@ -7220,9 +7220,6 @@ tunes alike on the device against revision 2's register path in the owner's sens
 
 **Risks still open:**
 
-- **Function 20's record path** reads 203 KB/s alone and 189 KB/s with a stream's interrupts, under a 48 kHz stereo
-  stream's 192 KB/s: a program streaming at that rate reads its file by function 83's `DM_LOAD` (L3STRM does). A
-  later OODOS fix.
 - **The release** (the plan's step 7): the site's emulator with revision 3 and every catalog card rebuilt on OODOS
   0.17 (the owner's answer 15) wait for it; a card from before 0.17 on a revision 3 machine writes registers the card
   doesn't have and plays no sound.
@@ -7231,6 +7228,68 @@ tunes alike on the device against revision 2's register path in the owner's sens
 - **Later, not built:** loading from an open file ([Q14](design.md#the-drafts-questions-decided)), the spec's 6510
   map and fuller C64 support for RSIDs (each with its own corpus baseline), WIDE on the DATA port, a `fwslots=`
   machine option ([design.md's open questions](design.md#open-questions)).
+
+## Multi-record reads: whole sectors straight to the program ##
+
+Built 2026-11-26 on `feat/fn20-direct` (the owner approved the plan that day, with 7 answers). Before it, a read of N
+records a call (44) still took every record through a buffer and the BIOS's general copy: function 20 with a count of
+96 on an `oodos-8m` drive cost 4,581 cycles a record, 20 times `DM_LOAD`'s 224, and the loader read every `.COM` a
+record a call. An earlier "735 KB/s, 1,218 cycles a record" for 33 with a count was a timing slip in
+`test_oodos_load` (its watch timed only the last of four calls), fixed first.
+
+**As built:**
+
+- **A, the BIOS's COPY** (`bios.s`): a copy no window cuts is one chunk, and CHUNKS finds both its sides before its
+  one DMAGO, so COPY goes there at once; only a cut copy keeps the first, checking pass that makes it all or nothing.
+  No program is known to put a buffer where a window cuts it and the far side is refused, so it has no case (the
+  owner's answer 6); the comment at COPY says why the pass stays. About 20% off every file call's copies: a record a
+  call 9,863 → 7,742 cycles.
+- **B, DIRECT** (`bdosfile.s`): SREAD1 and RREAD1 (20 and 33) try a run first. A run is whole sectors from record CR
+  read by the BIOS's RDRUN straight to the program (one READ on channel 0, or DMAGO for M:), 8 at most, taken only
+  when MULTI has 4 records or more to go, the drive is M: or an SD unit of OODOS's own formats (never an apple-do
+  drive: its sectors are its track buffer's), CR starts a sector, and the run is inside the extent (RC), CR's block,
+  the call's count and the destination: with a DMA segment none of it OODOS's card memory (OSWIN), else the
+  program's window to its end, a sector the window's end cuts going a record at a time. It stops short of the first
+  of its sectors any buffer of the drive holds, changed or not, so a record written and not yet on the card is read
+  from its buffer. F changes only after the run, so a physical error keeps the records done (MERR), as before.
+  MULTI moves on by MSTEP, the record function's records (1 but for a run); 33 leaves CR at the run's last record,
+  as one at a time does. RUNLEN and RUNGO, the run's length and its read, are shared with `DM_LOAD`'s LOADGO.
+- **C, the loader** (`loader.s`, function 59, so every program the CCP runs): LRUN reads the image's whole records
+  up to 128 a call (44 with N, one 33, 44 back to 1 for the part record through LBUF).
+- **Not done** (the owner's answers 3 and 4): direct writes (21, 34, 40), whose hazards (a changed buffer of the same
+  sector, ZEROBLK, 40's zero fill) are larger and which nothing in the repository makes with a count; and PIP, which
+  reads a record a call, its 2.9 s for 32 KB mostly not its reads, to be profiled first.
+
+**Measured** (`test_oodos_load` and `test_oodos_rsx`, for the record, not gated; cycles a record, the buffers in
+use):
+
+| | Before | A | A and B |
+|---|---|---|---|
+| B: 20, a count of 1 | 9,863 | 7,742 | 7,802 |
+| B: 20 × 96 / × 128 | 4,581 / 4,573 | 3,851 / 3,851 | **317 / 310** |
+| M: 20 × 96 / × 128 | 4,786 / 4,781 | 3,897 / 3,894 | **475 / 466** |
+| B: 33 × 128, a DMA segment | 4,856 | 4,217 | **283** |
+| B: `DM_LOAD` | 224 | 221 | 222 |
+
+With C, the CCP loads a 32 KB `.COM` from M: (the loader to the program's first instruction) in 239,924 cycles,
+33.5 ms, against 2,320,518 (324 ms) with A and B and more before; an 8 KB one in 90,448 against 599,561. On M: the
+floor is the copy itself, DMA's 2 cycles a byte.
+
+**Cases** (`test_oodos_load`, `test_oodos_rsx`), each holding a record at a time too, each with its mutant killed on
+it alone: a changed buffer's record read, not the card's; the file's end inside a sector, nothing written past it;
+M:'s blocks not next to each other and a run from inside a block; 33 from inside a sector; two windows not next to
+each other; an apple-do unit; 33's CR the run's last record; a segment run reaching OODOS's card memory refused at
+the record it always was; a physical error after 8 sectors, the records before it kept; a 20,000-byte `.COM` loaded
+byte for byte. **The one guard of the speed** (the owner's answer 7): 20 × 96 on B: under 400 cycles a record, a
+ceiling (317 now; 3,869 with every record through a buffer), since every other case passes either way.
+
+**Sizes:** block 60 576 → 285 bytes free (the owner's answer 2 accepted about 286), block 61 788 (A fits in
+`bios.s`'s padding), block 62 (RES) 283 → 192, SYSBSS 27 → 26 (MSTEP), common memory 61, zero page full.
+
+**Risks:** the next BDOS feature may have to go to `BDOS2` (block 62) or move code out of block 60; DIRECT's
+coherence is the buffers' tags, which nothing today goes around; a run holds the CPU about 4,100 cycles on an SD unit,
+under a tick, as `DM_LOAD`'s already does, but neither has been timed on the real card; the figures above move with
+any later change to these paths.
 
 ## Testing ##
 
