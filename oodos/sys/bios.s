@@ -1636,9 +1636,31 @@ MOVE:           STA     CNT
 ; CNT bytes from side S to side D (SIDES): a bank of 0 or 1 is a CPU address
 ; through that bank's windows, PHYS a physical one. In chunks that cross no
 ; window, each one DMA copy. Carry set, and nothing copied, if a chunk can't
-; be (PHYSOF): a first pass only checks them. Uses A, X, Y.
+; be (PHYSOF). A copy that no window cuts is one chunk, and CHUNKS finds
+; both its sides (PHYSOF) before its one DMAGO: it goes there at once. A
+; copy a window cuts keeps a first pass that only checks its chunks, so a
+; refused later chunk leaves the earlier ones uncopied too: no program is
+; known to put a buffer where a window cuts it and the far side is refused
+; (a DMA address within a record of $C000), but the copy stays all or
+; nothing. Uses A, X, Y.
 .assert CNT = SIDES + 8, error, "COPY saves SIDES and CNT together"
-COPY:           LDX     #9
+COPY:           LDA     CNT            ; one chunk: neither side's window cuts it
+                STA     DCOUNT
+                LDA     CNT + 1
+                STA     DCOUNT + 1
+                LDX     #SIDE_S
+                JSR     CLIP
+                LDX     #SIDE_D
+                JSR     CLIP
+                LDA     DCOUNT
+                CMP     CNT
+                BNE     @cut
+                LDA     DCOUNT + 1
+                CMP     CNT + 1
+                BNE     @cut
+                STZ     DRY
+                JMP     CHUNKS
+@cut:           LDX     #9
 @save:          LDA     SIDES,X
                 STA     SAVED,X
                 DEX

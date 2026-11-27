@@ -2,7 +2,8 @@
  * @file test_oodos_load.cpp
  * @brief OOLIB's L4 (hw/oolib.md, "The plan"): function 83's DM_LOAD, a file's records loaded into
  * physical memory by DMA: whole sectors straight from the SD card, the ends and the apple-do drives
- * through the BDOS's buffers, M: by DMAGO.
+ * through the BDOS's buffers, M: by DMAGO. And functions 20 and 33 with a multi-sector count, whose
+ * whole sectors go straight to the program the same way (bdosfile.s's DIRECT, sharing DM_LOAD's run).
  * @copyright Copyright (c) 2024-2026 Jefferson J. Hunt (MIT)
  *
  * L4TEST (oodos/sys/test/l4test.s) as test_oodos_video runs it. The files are put on B: behind OODOS's
@@ -14,8 +15,10 @@
 #include "oodos_rig.h"
 #include "sound_card.h"
 
+#include <algorithm>
 #include <cstdio>
 #include <map>
+#include <memory>
 #include <string>
 #include <tuple>
 #include <vector>
@@ -151,6 +154,74 @@ namespace
         l.records = r.phys(KBLK + 6) | r.phys(KBLK + 7) << 8;
         return l;
     }
+    /// A BDOS call by L4TEST's G command: "aa xx", the cycles from its JSR BDOS to the return, and the program's
+    /// W1 block then.
+    struct Call
+    {
+        std::string ret;
+        uint64_t cycles{0};
+        unsigned w1{0};
+    };
+    Call timed(CcpRig &r, uint8_t fn, unsigned ax)
+    {
+        static const std::map<std::string, uint16_t> lbl = labels(SYS + "/l4test.lbl");
+        const uint16_t call = static_cast<uint16_t>(lbl.at("c_g") + 9), back = static_cast<uint16_t>(call + 3);
+        CHECK_EQ(r.phys(call), 0x20); // c_g's JSR BDOS, after its LDA, LDX and LDY
+        Call c;
+        uint64_t c0 = 0;
+        r.watch = [&](uint16_t pc) {
+            if (pc == call && r.nb(0) == 0)
+                c0 = r.cpu->cycles();
+            else if (pc == back && r.nb(0) == 0 && c0 && !c.cycles)
+            {
+                c.cycles = r.cpu->cycles() - c0;
+                c.w1 = r.nb(1);
+            }
+        };
+        c.ret = gcall(r, fn, ax);
+        r.watch = nullptr;
+        return c;
+    }
+    /// The cycles a record of `calls` calls of `fn` with a count of `count` (44) on the open FCB, from the third
+    /// call on (every buffer in use, as a long read finds them); 33 from record 0, a call's records on each time.
+    double per_record(CcpRig &r, uint8_t fn, unsigned count, unsigned calls)
+    {
+        CHECK_EQ(gcall(r, 44, count), std::string("00 00"));
+        uint64_t sum = 0;
+        for (unsigned c = 0; c < calls; ++c)
+        {
+            if (fn == 33)
+            {
+                const unsigned rec = c * count;
+                r.poke(FCB + 33, std::vector<uint8_t>{static_cast<uint8_t>(rec), static_cast<uint8_t>(rec >> 8), 0});
+            }
+            const Call k = timed(r, fn, FCB);
+            CHECK_EQ(k.ret, std::string("00 00"));
+            if (c >= 2)
+                sum += k.cycles;
+        }
+        return static_cast<double>(sum) / ((calls - 2) * count);
+    }
+    /// The program's W1 block, as a BDOS call (12, the version) returns to it.
+    unsigned prog_w1(CcpRig &r) { return timed(r, 12, 0).w1; }
+    /// `n` bytes of the program's memory from `at` in its W1 (block `w1`).
+    std::vector<uint8_t> w1_mem(CcpRig &r, unsigned w1, uint16_t at, size_t n)
+    {
+        return mem(r, w1 * 16384u + (at - 0x4000u), n);
+    }
+    void w1_fill(CcpRig &r, unsigned w1, uint16_t at, size_t n, uint8_t b)
+    {
+        r.poke(w1 * 16384u + (at - 0x4000u), std::vector<uint8_t>(n, b));
+    }
+    /// The FCB at FCB for `name83` on `drive`, not opened.
+    void name_fcb(CcpRig &r, uint32_t at, unsigned drive, const std::string &name83)
+    {
+        std::vector<uint8_t> fcb(36, 0);
+        fcb[0] = static_cast<uint8_t>(drive);
+        for (unsigned i = 0; i < 11; ++i)
+            fcb[1 + i] = static_cast<uint8_t>(name83[i]);
+        r.poke(at, fcb);
+    }
 } // namespace
 
 TEST(sixty_four_kb_load_into_video_memory_byte_for_byte_and_faster_than_33)
@@ -180,12 +251,13 @@ TEST(sixty_four_kb_load_into_video_memory_byte_for_byte_and_faster_than_33)
     const std::vector<uint8_t> bank2 = mem(r, 0x88000, 128);
     CHECK_EQ(load(r, 0, 129, 0x84000).ret, std::string("FF FF"));
     CHECK(mem(r, 0x88000, 128) == bank2);
-    // The same 64 KB by 51 and 33 with a count of 128 (44), four calls, into blocks 40-43.
+    // The same 64 KB by 51 and 33 with a count of 128 (44), four calls, into blocks 40-43. scall is the loop's
+    // first instruction, so the four calls are timed from the first time through it, not the last.
     static const std::map<std::string, uint16_t> lbl = labels(SYS + "/l4test.lbl");
     const uint16_t sc = lbl.at("scall"), sr = lbl.at("sret");
     uint64_t s0 = 0, scycles = 0;
     r.watch = [&](uint16_t pc) {
-        if (pc == sc && r.nb(0) == 0)
+        if (pc == sc && r.nb(0) == 0 && !s0)
             s0 = r.cpu->cycles();
         else if (pc == sr && r.nb(0) == 0 && s0)
             scycles = r.cpu->cycles() - s0;
@@ -194,10 +266,10 @@ TEST(sixty_four_kb_load_into_video_memory_byte_for_byte_and_faster_than_33)
     CHECK_EQ(command(r, 'S', "S", {128, 0x00, 0xA0, 4}), std::string("00 00")); // segment $A000: $A0000
     r.watch = nullptr;
     CHECK(same(mem(r, 0xA0000, 65536), slice(data, 0, 65536), "64 KB by 33"));
-    std::printf("  64 KB: DM_LOAD %llu cycles (%.1f ms), 51 and 33 x 128 %llu cycles (%.1f ms); %u ms counted, %.1f in the cycles\n",
+    std::printf("  64 KB: DM_LOAD %llu cycles (%.1f ms), four 33 calls of 128 %llu cycles (%.1f ms); %u ms counted, %.1f in the cycles\n",
                 static_cast<unsigned long long>(l.cycles), static_cast<double>(l.cycles) / HZ * 1000,
                 static_cast<unsigned long long>(scycles), static_cast<double>(scycles) / HZ * 1000, counted, secs * 1000);
-    CHECK(l.cycles > 0 && scycles > 4 * l.cycles);
+    CHECK(l.cycles > 0 && scycles > l.cycles); // 33's whole sectors go straight too, but DM_LOAD is still the faster
     CHECK(l.cycles < static_cast<uint64_t>(ms(25)));
 }
 
@@ -371,6 +443,315 @@ TEST(a_stream_plays_through_a_64_kb_load_with_no_underrun)
                 static_cast<unsigned long long>(l.cycles), r.phys(0x2000 + 96), r.phys(0x2000 + 106));
     CHECK_EQ(r.phys(0x2000 + 96), 2);  // EV_SSTATE: playing
     CHECK_EQ(r.phys(0x2000 + 106), 0); // EV_SUNDER
+}
+
+// For the record, not gated (the figures in the Programmer's Guide's entries for 20, 33 and 44): the cycles a record
+// of 20 and 33 with a count, and of DM_LOAD, the DMA address $4000 (the program's W1) or a segment.
+TEST(for_the_record_the_cycles_a_record_of_20_33_and_dm_load)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    put_b(r, "BIG     BIN", noise(96 * 1024, 3));
+    r.put_m({{0, "BIG     BIN", noise(64 * 1024, 3)}});
+    open(r, "X");
+    CHECK_EQ(gcall(r, F_DMAOFF_FN, 0x4000), std::string("00 00"));
+    const auto figure = [&](const char *what, unsigned drive, uint8_t fn, unsigned count, unsigned calls) {
+        open_file(r, drive, "BIG     BIN");
+        std::printf("  %-34s %6.0f cycles a record\n", what, per_record(r, fn, count, calls));
+    };
+    figure("B: 20 x 1", 2, 20, 1, 40);
+    figure("B: 20 x 96", 2, 20, 96, 8);
+    figure("B: 20 x 128", 2, 20, 128, 6);
+    figure("M: 20 x 96", 13, 20, 96, 5);
+    figure("M: 20 x 128", 13, 20, 128, 4);
+    CHECK_EQ(gcall(r, 51, 0xA000), std::string("00 00")); // a segment: $A0000
+    CHECK_EQ(gcall(r, F_DMAOFF_FN, 0), std::string("00 00"));
+    figure("B: 33 x 128, segment $A000", 2, 33, 128, 5);
+    CHECK_EQ(gcall(r, 51, 0xFFFF), std::string("00 00"));
+    open_file(r, 2, "BIG     BIN");
+    const Load l = load(r, 0, 512, 0x90000);
+    CHECK_EQ(l.ret, std::string("00 00"));
+    std::printf("  %-34s %6.0f cycles a record\n", "B: DM_LOAD, 64 KB", static_cast<double>(l.cycles) / 512);
+    CHECK_EQ(gcall(r, 44, 1), std::string("00 00"));
+}
+
+// Functions 20 and 33 with a count: whole sectors straight to the program (bdosfile.s's DIRECT). Each case is
+// a way a run could go wrong; every one holds for the record way as well (a record a buffer), as before.
+
+TEST(a_multi_record_read_takes_a_changed_buffer_s_record_not_the_card_s)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    const std::vector<uint8_t> data = noise(96 * 128, 9);
+    put_b(r, "BIG     BIN", data);
+    open(r, "X");
+    const unsigned w1 = prog_w1(r);
+    open_file(r, 2, "BIG     BIN");
+    // Record 9 written (34), not closed: its sector is in a buffer, changed; the card has the old one.
+    const std::vector<uint8_t> rec = noise(128, 99);
+    r.poke(0x3000, rec);
+    CHECK_EQ(gcall(r, F_DMAOFF_FN, 0x3000), std::string("00 00"));
+    r.poke(FCB + 33, std::vector<uint8_t>{9, 0, 0});
+    CHECK_EQ(gcall(r, F_WRITERAND_FN, FCB), std::string("00 00"));
+    open_file(r, 2, "BIG     BIN");
+    CHECK_EQ(gcall(r, F_DMAOFF_FN, 0x4000), std::string("00 00"));
+    w1_fill(r, w1, 0x4000, 96 * 128, 0xEE);
+    CHECK_EQ(gcall(r, 44, 96), std::string("00 00"));
+    CHECK_EQ(gcall(r, 20, FCB), std::string("00 00"));
+    std::vector<uint8_t> want = data;
+    std::copy(rec.begin(), rec.end(), want.begin() + 9 * 128);
+    CHECK(same(w1_mem(r, w1, 0x4000, 96 * 128), want, "96 records, record 9 the written one"));
+    CHECK_EQ(gcall(r, 44, 1), std::string("00 00"));
+}
+
+TEST(a_multi_record_read_ends_at_the_file_s_end_inside_a_sector)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    const std::vector<uint8_t> data = noise(99 * 128, 11); // the last sector holds 3 records
+    put_b(r, "ODD     BIN", data);
+    open(r, "X");
+    const unsigned w1 = prog_w1(r);
+    open_file(r, 2, "ODD     BIN");
+    CHECK_EQ(gcall(r, F_DMAOFF_FN, 0x4000), std::string("00 00"));
+    w1_fill(r, w1, 0x4000, 128 * 128, 0xEE);
+    CHECK_EQ(gcall(r, 44, 128), std::string("00 00"));
+    CHECK_EQ(gcall(r, 20, FCB), std::string("01 63")); // the end, 99 records read
+    const std::vector<uint8_t> got = w1_mem(r, w1, 0x4000, 128 * 128);
+    CHECK(same(std::vector<uint8_t>(got.begin(), got.begin() + 99 * 128), data, "the 99 records"));
+    CHECK(std::all_of(got.begin() + 99 * 128, got.end(), [](uint8_t b) { return b == 0xEE; })); // nothing past
+    CHECK_EQ(gcall(r, 44, 1), std::string("00 00"));
+}
+
+TEST(a_multi_record_read_follows_blocks_that_are_not_next_to_each_other)
+{
+    // Two files on M: (2 KB blocks) written in turn, a block at a time: each file's blocks are every other one.
+    CcpRig r;
+    REQUIRE(r.ok);
+    open(r, "X");
+    const unsigned w1 = prog_w1(r);
+    CHECK_EQ(gcall(r, F_DMAOFF_FN, 0x4000), std::string("00 00"));
+    CHECK_EQ(gcall(r, 44, 16), std::string("00 00"));
+    constexpr uint32_t FCB2 = 0x2170;
+    name_fcb(r, FCB, 13, "AAAA    DAT");
+    name_fcb(r, FCB2, 13, "BBBB    DAT");
+    CHECK_EQ(gcall(r, 22, FCB), std::string("00 00"));
+    CHECK_EQ(gcall(r, 22, FCB2), std::string("00 00"));
+    const std::vector<uint8_t> da = noise(160 * 128, 21), db = noise(160 * 128, 22);
+    for (unsigned k = 0; k < 10; ++k)
+    {
+        r.poke(w1 * 16384u, std::vector<uint8_t>(da.begin() + k * 2048, da.begin() + (k + 1) * 2048));
+        CHECK_EQ(gcall(r, 21, FCB), std::string("00 00"));
+        r.poke(w1 * 16384u, std::vector<uint8_t>(db.begin() + k * 2048, db.begin() + (k + 1) * 2048));
+        CHECK_EQ(gcall(r, 21, FCB2), std::string("00 00"));
+    }
+    CHECK_EQ(gcall(r, 16, FCB), std::string("00 00"));
+    CHECK_EQ(gcall(r, 16, FCB2), std::string("00 00"));
+    open_file(r, 13, "AAAA    DAT");
+    // A sector first, then 96 records from record 4: the first run starts inside a block.
+    CHECK_EQ(gcall(r, 44, 4), std::string("00 00"));
+    CHECK_EQ(gcall(r, 20, FCB), std::string("00 00"));
+    CHECK_EQ(gcall(r, 44, 96), std::string("00 00"));
+    w1_fill(r, w1, 0x4000, 96 * 128, 0xEE);
+    CHECK_EQ(gcall(r, 20, FCB), std::string("00 00"));
+    CHECK(same(w1_mem(r, w1, 0x4000, 96 * 128), slice(da, 4 * 128, 96 * 128), "records 4-99 of AAAA.DAT"));
+    CHECK_EQ(gcall(r, 44, 1), std::string("00 00"));
+}
+
+TEST(a_random_multi_record_read_from_inside_a_sector_starts_its_runs_at_the_next)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    const std::vector<uint8_t> data = noise(200 * 128, 17);
+    put_b(r, "RND     BIN", data);
+    open(r, "X");
+    const unsigned w1 = prog_w1(r);
+    open_file(r, 2, "RND     BIN"); // no buffer holds a sector of the file
+    CHECK_EQ(gcall(r, F_DMAOFF_FN, 0x4000), std::string("00 00"));
+    CHECK_EQ(gcall(r, 44, 48), std::string("00 00"));
+    r.poke(FCB + 33, std::vector<uint8_t>{101, 0, 0});
+    CHECK_EQ(gcall(r, 33, FCB), std::string("00 00"));
+    CHECK(same(w1_mem(r, w1, 0x4000, 48 * 128), slice(data, 101 * 128, 48 * 128), "records 101-148"));
+    CHECK_EQ(r.phys(FCB + 32), 20); // record 148's place in extent 1
+    CHECK_EQ(r.phys(FCB + 12), 1);
+    CHECK_EQ(r.phys(FCB + 33), 101);
+    CHECK_EQ(gcall(r, 44, 1), std::string("00 00"));
+}
+
+TEST(a_random_multi_record_read_leaves_cr_at_its_last_record_as_one_at_a_time_does)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    const std::vector<uint8_t> data = noise(200 * 128, 17);
+    put_b(r, "RND     BIN", data);
+    open(r, "X");
+    const unsigned w1 = prog_w1(r);
+    open_file(r, 2, "RND     BIN");
+    CHECK_EQ(gcall(r, F_DMAOFF_FN, 0x4000), std::string("00 00"));
+    CHECK_EQ(gcall(r, 44, 48), std::string("00 00"));
+    // From 104, 48 records: 104-127, then 128-151, the last a run's.
+    r.poke(FCB + 33, std::vector<uint8_t>{104, 0, 0});
+    CHECK_EQ(gcall(r, 33, FCB), std::string("00 00"));
+    CHECK(same(w1_mem(r, w1, 0x4000, 48 * 128), slice(data, 104 * 128, 48 * 128), "records 104-151"));
+    CHECK_EQ(r.phys(FCB + 32), 23); // record 151's place in extent 1
+    CHECK_EQ(r.phys(FCB + 12), 1);
+    CHECK_EQ(r.phys(FCB + 33), 104); // R0-R2 the first's
+    // So 20 next reads record 151 again.
+    CHECK_EQ(gcall(r, 44, 1), std::string("00 00"));
+    CHECK_EQ(gcall(r, 20, FCB), std::string("00 00"));
+    CHECK(same(w1_mem(r, w1, 0x4000, 128), slice(data, 151 * 128, 128), "function 20 after: record 151"));
+}
+
+TEST(a_multi_record_read_into_two_windows_that_are_not_next_to_each_other)
+{
+    // W1 on block 20 (L4TEST's M), W0 on block 0: the program's $3FFF and $4000 are $3FFF and $50000. A DMA
+    // address near W0's end: the records reach W1 where the program sees it, and block 1 ($4000-) gets none.
+    CcpRig r;
+    REQUIRE(r.ok);
+    const std::vector<uint8_t> data = noise(64 * 128, 13);
+    put_b(r, "WIN     BIN", data);
+    open(r, "X");
+    CHECK_EQ(command(r, 'M', "M", {20}).substr(0, 2), std::string("14"));
+    // (review 1, T1: $3C80 and $3E80, not on a page, hold DIRECT's round-up of a part page to the window's end)
+    for (const uint16_t at : {uint16_t(0x3C80), uint16_t(0x3E00), uint16_t(0x3E80), uint16_t(0x3F00), uint16_t(0x3F80)})
+    {
+        open_file(r, 2, "WIN     BIN");
+        CHECK_EQ(gcall(r, F_DMAOFF_FN, at), std::string("00 00"));
+        CHECK_EQ(gcall(r, 44, 32), std::string("00 00"));
+        r.poke(20 * 16384u, std::vector<uint8_t>(4096, 0xEE));
+        r.poke(1 * 16384u, std::vector<uint8_t>(4096, 0xEE));
+        CHECK_EQ(gcall(r, 20, FCB), std::string("00 00"));
+        std::vector<uint8_t> got = mem(r, at, 0x4000u - at);
+        const std::vector<uint8_t> rest = mem(r, 20 * 16384u, 32 * 128 - got.size());
+        got.insert(got.end(), rest.begin(), rest.end());
+        char what[16];
+        std::snprintf(what, sizeof what, "from $%04X", at);
+        CHECK(same(got, slice(data, 0, 32 * 128), what));
+        CHECK(mem(r, 1 * 16384u, 4096) == std::vector<uint8_t>(4096, 0xEE));
+    }
+    CHECK_EQ(gcall(r, 44, 1), std::string("00 00"));
+}
+
+TEST(a_multi_record_read_on_an_apple_do_unit_goes_through_its_track_buffer)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    REQUIRE(r.mount(3, "/DISKS/CPM.DSK") == 0);
+    open(r, "X");
+    const unsigned w1 = prog_w1(r);
+    open_file(r, 3, "PATTERN BIN");
+    CHECK_EQ(gcall(r, F_DMAOFF_FN, 0x4000), std::string("00 00"));
+    CHECK_EQ(gcall(r, 44, 96), std::string("00 00"));
+    CHECK_EQ(gcall(r, 20, FCB), std::string("00 00"));
+    CHECK(same(w1_mem(r, w1, 0x4000, 96 * 128), gen(96 * 128, 5), "C:'s PATTERN.BIN, 96 records"));
+    CHECK_EQ(gcall(r, 44, 1), std::string("00 00"));
+}
+
+TEST(a_multi_record_read_through_a_segment_into_oodos_s_card_memory_stops_where_it_did)
+{
+    // A segment at $87800: records 0-15 fill the rest of slot 1's window (the program's card bank); record 16
+    // would be slot 2's, OODOS's card memory. The call is refused there, A = X = $FF, as a record at a time
+    // always refused it, the first 16 records written and nothing of slot 2's.
+    CcpRig r;
+    REQUIRE(r.ok);
+    const std::vector<uint8_t> data = noise(64 * 128, 23);
+    put_b(r, "SEG     BIN", data);
+    open(r, "X");
+    open_file(r, 2, "SEG     BIN");
+    const std::vector<uint8_t> slot2 = mem(r, 0x88000, 4096);
+    CHECK_EQ(gcall(r, 51, 0x8780), std::string("00 00"));
+    CHECK_EQ(gcall(r, F_DMAOFF_FN, 0), std::string("00 00"));
+    CHECK_EQ(gcall(r, 44, 32), std::string("00 00"));
+    CHECK_EQ(gcall(r, 20, FCB), std::string("FF FF"));
+    CHECK(same(mem(r, 0x87800, 16 * 128), slice(data, 0, 16 * 128), "records 0-15 in slot 1's window"));
+    CHECK(mem(r, 0x88000, 4096) == slot2);
+    CHECK_EQ(gcall(r, 51, 0xFFFF), std::string("00 00"));
+    CHECK_EQ(gcall(r, 44, 1), std::string("00 00"));
+}
+
+namespace
+{
+    /// The card, failing every read once `left` more have been served (while `armed`).
+    struct CountFaultMedia : MemoryMedia
+    {
+        using MemoryMedia::MemoryMedia;
+        bool armed{false};
+        int left{0};
+        bool read(uint64_t lba, uint8_t *out) override
+        {
+            if (armed && left-- <= 0)
+                return false;
+            return MemoryMedia::read(lba, out);
+        }
+    };
+} // namespace
+
+TEST(a_physical_error_in_a_multi_record_read_keeps_the_records_read_before_it)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    auto fm = std::make_shared<CountFaultMedia>(r.media->bytes(), "card");
+    r.media = fm;
+    r.sd().insert(fm, false);
+    r.run(ms(SdCard::INIT_MS + 10));
+    REQUIRE(r.mount(1, "/OODOS/A.IMG") == 0);
+    REQUIRE(r.mount(2, "/OODOS/B.IMG") == 0);
+    const std::vector<uint8_t> data = noise(96 * 128, 19);
+    put_b(r, "ERR     BIN", data);
+    open(r, "X");
+    const unsigned w1 = prog_w1(r);
+    open_file(r, 2, "ERR     BIN");
+    CHECK_EQ(gcall(r, 45, 0xFF), std::string("00 00")); // errors returned
+    CHECK_EQ(gcall(r, F_DMAOFF_FN, 0x4000), std::string("00 00"));
+    CHECK_EQ(gcall(r, 44, 96), std::string("00 00"));
+    w1_fill(r, w1, 0x4000, 96 * 128, 0xEE);
+    // The card serves 8 sectors more (records 0-31), then fails: Disk I/O, CR at record 32.
+    fm->left = 8;
+    fm->armed = true;
+    const std::string ret = gcall(r, 20, FCB);
+    fm->armed = false;
+    CHECK_EQ(ret, std::string("FF 01"));
+    CHECK_EQ(r.phys(FCB + 32), 32);
+    CHECK(same(w1_mem(r, w1, 0x4000, 32 * 128), slice(data, 0, 32 * 128), "records 0-31"));
+    // The next call goes on from record 32.
+    CHECK_EQ(gcall(r, 44, 32), std::string("00 00"));
+    CHECK_EQ(gcall(r, 20, FCB), std::string("00 00"));
+    CHECK(same(w1_mem(r, w1, 0x4000, 32 * 128), slice(data, 32 * 128, 32 * 128), "records 32-63"));
+    CHECK_EQ(gcall(r, 44, 1), std::string("00 00"));
+}
+
+// The one guard of the run's speed (the owner's answer 7, 2026-11-26): every case above passes whether DIRECT
+// takes a run or not. Function 20 with a count of 96 on B:, the buffers full: 319 cycles a record when its runs
+// are taken, 4,586 when every record goes through a buffer. A ceiling, with a margin. Each call's records are
+// compared with the file too, its 8 calls across 6 extents (review 1, T3: 20's runs up to and past an extent's end).
+TEST(function_20_with_a_count_of_96_reads_under_400_cycles_a_record)
+{
+    CcpRig r;
+    REQUIRE(r.ok);
+    const std::vector<uint8_t> data = noise(96 * 1024, 3);
+    put_b(r, "BIG     BIN", data);
+    open(r, "X");
+    const unsigned w1 = prog_w1(r);
+    CHECK_EQ(gcall(r, F_DMAOFF_FN, 0x4000), std::string("00 00"));
+    open_file(r, 2, "BIG     BIN");
+    CHECK_EQ(gcall(r, 44, 96), std::string("00 00"));
+    uint64_t sum = 0;
+    for (unsigned k = 0; k < 8; ++k)
+    {
+        w1_fill(r, w1, 0x4000, 96 * 128, 0xEE);
+        const Call call = timed(r, 20, FCB);
+        CHECK_EQ(call.ret, std::string("00 00"));
+        char what[24];
+        std::snprintf(what, sizeof what, "call %u's records", k);
+        CHECK(same(w1_mem(r, w1, 0x4000, 96 * 128), slice(data, k * 96 * 128, 96 * 128), what));
+        if (k >= 2)
+            sum += call.cycles;
+    }
+    const double c = static_cast<double>(sum) / (6 * 96);
+    if (c >= 400)
+        std::printf("  B: 20 x 96: %.0f cycles a record\n", c);
+    CHECK(c < 400);
+    CHECK_EQ(gcall(r, 44, 1), std::string("00 00"));
 }
 
 // L4a (hw/oolib.md, "L4a: open's byte count"): function 15 with CR $FF gives the byte count of the file's

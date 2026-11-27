@@ -242,8 +242,10 @@ Functions 20, 21, 33, 34 and 40 move as many records a call as the multi-sector 
 44 sets it (and 49 reaches it in the SCB at `$4A`). The CCP sets it to 1 at each warm boot.
 
 With a count of N, the records go to or from the DMA address, the DMA address + 128, and so on to + 128 × (N − 1);
-the DMA address itself doesn't change. The FCB is read once and written back once, so N records a call cost less
-than N calls: on M:, 4,321 cycles a record read 128 at a time, against 4,723 a call for one.
+the DMA address itself doesn't change. The FCB is read once and written back once, and a read's whole sectors go
+straight from the drive to the program, so N records a call cost far less than N calls: on an `oodos-8m` drive,
+310 cycles a record read 128 at a time, against about 7,800 a call for one. (A write's records, and every record on
+O:, P: or an apple-do unit, still go through the BDOS's buffers a record at a time.)
 
 - The call stops at the first record that doesn't succeed. The error is returned as it would be for that record,
   and X says how many records were done before it (for an error other than a physical one).

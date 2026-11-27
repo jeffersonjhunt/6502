@@ -1013,10 +1013,12 @@ a read-only window, or with a DMA segment memory OODOS keeps for itself, is A = 
 
 #### Cycles
 
-Measured by `test_oodos_sys`'s FSTEST on an `oodos-8m` drive, BDOSENT to its return: 4,914 cycles for a record in a
-sector already in a buffer, 13,069 when the sector must be read; with a count of 128 on M:, 562,907 cycles, 4,397 a
-record ([hw/oodos.md](../../hw/oodos.md#the-archive-bit-and-the-update-stamp-item-10), measured again 2026-11-04).
-The BDOS stub adds 220.
+Measured by `test_oodos_load` from the program's `JSR BDOS` to its return, the buffers in use as a long read
+finds them ([hw/oodos.md](../../hw/oodos.md#multi-record-reads-whole-sectors-straight-to-the-program), 2026-11-26):
+on an `oodos-8m` drive about 7,800 cycles a call with a count of 1; with a count of 96, 317 cycles a record, and of
+128, 310; on M:, 475 and 466. With a count, the whole sectors of the call's records go straight from the drive to
+the program's memory, 8 sectors (4 KB) at a time, and only the records at a run's ends (and a sector a buffer holds,
+or a window's edge cuts) go through a buffer. Function 83's `DM_LOAD` takes 222 cycles a record.
 
 #### Since
 
@@ -1607,9 +1609,10 @@ move off a written extent on a read-only drive; 4 Invalid Drive. The buffer is c
 
 #### Cycles
 
-7,938 cycles for a record in a buffered sector on M:, BDOSENT to its return, and 8,176 through a DMA segment,
-measured by `test_oodos_sys` ([hw/oodos.md](../../hw/oodos.md#the-bdos-phase-3), phase 3c). The BDOS stub adds
-216.
+With a count of 128 and a DMA segment, on an `oodos-8m` drive: 283 cycles a record, from the program's `JSR BDOS`
+to its return, the whole sectors straight from the drive as for [function 20](#bdos-20), measured by
+`test_oodos_load` ([hw/oodos.md](../../hw/oodos.md#multi-record-reads-whole-sectors-straight-to-the-program),
+2026-11-26). With a count of 1, about what 20 takes.
 
 #### Since
 
@@ -2018,7 +2021,8 @@ once:
 
 #### Cycles
 
-Not measured. What a count saves a record is in [function 20](#bdos-20)'s Cycles.
+The call itself is quick. What a count saves a record: on an `oodos-8m` drive, a read of 128 records a call is 310
+cycles a record against about 7,800 a call for one ([function 20](#bdos-20)'s Cycles).
 
 #### Since
 
