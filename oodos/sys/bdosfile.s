@@ -102,6 +102,8 @@
 .setcpu "65C02"
 .include "bdos.inc"
 .importzp DBCB, AP, AMASK, MK, RERR
+.import RDRUN, DRVAPL                  ; bios.s's
+.importzp SRCP
 
 DEF_DMA         = $0280                ; the base page's buffer
 
@@ -2112,8 +2114,6 @@ GENCHK:         LDA     CSLOT
 ; last record loaded leaves it (R0-R2 and CR that record's, F on its
 ; extent), or of the first if none was.
 .import LFCB, LREC, LCNT, LDST, LDONE  ; video.s's
-.import RDRUN, DRVAPL                  ; bios.s's
-.importzp SRCP
 .export LOADGO
 
 .segment "SYSBSS"
@@ -2189,73 +2189,25 @@ LDSTEP:         LDA     LCNT
                 BEQ     @eof0         ; a block never written
                 BIT     LDIR
                 BPL     @buf0
-                LDA     FC + FCB_CR
-                AND     #3
-                BNE     @buf0        ; not a sector's first record
-                SEC                    ; T2 = the records here: the extent's, the block's, the count's
-                LDA     FC + FCB_RC
-                SBC     FC + FCB_CR
-                STA     T2
-                LDA     FC + FCB_CR
-                AND     BLM
-                STA     T3
-                SEC
-                LDA     BLM
-                SBC     T3
-                INC     A              ; the block's records from CR on
-                CMP     T2
-                BCS     @blk
-                STA     T2
-@blk:           LDA     LCNT + 1
-                BNE     @cnt
-                LDA     LCNT
-                CMP     T2
-                BCS     @cnt
-                STA     T2
-@cnt:           LSR     T2             ; whole sectors, 8 at most
-                LSR     T2
-                BEQ     @buf0
-                LDA     T2
-                CMP     #9
-                BCC     @run
-                LDA     #8
-                STA     T2
-@run:           JSR     RECSEC         ; LBA: CR's sector (T4 0)
-                LDA     CDRV           ; the BIOS's drive, as DISKOP selects it
-                INC     A
-                CMP     BIOSDRV
-                BEQ     @sel
-                STA     BIOSDRV
-                DEC     A
-                LDX     #1
-                JSR     B_SELDSK
-                STX     T3
-                ORA     T3
-                BNE     @sel
-                STZ     BIOSDRV
-                BRA     @ioerr
-@sel:           LDA     LBA
-                STA     BW1
-                LDA     LBA + 1
-                STA     BW1 + 1
+                LDA     LCNT + 1       ; the count's records, 255 at most here
+                BEQ     @few
+                LDA     #$FF
+                BRA     @len
+@few:           LDA     LCNT
+@len:           JSR     RUNLEN         ; T2: the whole sectors from CR
+                BEQ     @buf0          ; none: CR inside a sector, or less than one
+                JSR     RECSEC         ; LBA: CR's sector (T4 0)
                 LDX     #2
 @d:             LDA     LDST,X
                 STA     SRCP,X
                 DEX
                 BPL     @d
-                LDA     #BIOS_BLOCK    ; block 61's RDRUN, called directly
-                STA     NB_WIN2
-                LDA     T2
-                JSR     RDRUN
-                CMP     #0
-                BNE     @ioerr
+                JSR     RUNGO
                 LDA     T2             ; 4 records a sector
                 ASL     A
                 ASL     A
                 JSR     LDADV
                 JMP     LDSTEP
-@ioerr:         LDA     #ER_IO
-                JMP     DERR
 
 ; One record through a buffer to the destination.
 LDBUF:         JSR     RECSEC
@@ -2281,6 +2233,75 @@ LDBUF:         JSR     RECSEC
                 LDA     #1
                 JSR     LDADV
                 JMP     LDSTEP
+
+; A and T2 = the whole sectors (0-8) from record CR of F's extent that the
+; extent (RC), CR's block and A records hold; 0 if CR doesn't start a
+; sector. Z as A. LOADGO's and DIRECT's: at most 8 sectors, 4 KB, a run,
+; which holds the CPU under a tick (one READ on channel 0, DMAGO's blocks
+; for M:). Uses T3.
+RUNLEN:         STA     T2
+                LDA     FC + FCB_CR
+                AND     #3
+                BNE     @none          ; not a sector's first record
+                SEC                    ; the extent's records from CR
+                LDA     FC + FCB_RC
+                SBC     FC + FCB_CR
+                CMP     T2
+                BCS     @rc
+                STA     T2
+@rc:            LDA     FC + FCB_CR    ; the block's records from CR
+                AND     BLM
+                STA     T3
+                SEC
+                LDA     BLM
+                SBC     T3
+                INC     A
+                CMP     T2
+                BCS     @blk
+                STA     T2
+@blk:           LSR     T2             ; whole sectors, 8 at most
+                LSR     T2
+                LDA     T2
+                CMP     #9
+                BCC     @done
+                LDA     #8
+                STA     T2
+@done:          TAX                    ; Z as A
+                RTS
+@none:          LDA     #0
+                STA     T2
+                RTS
+
+; T2 sectors of drive CDRV from sector LBA straight to physical SRCP, by the
+; BIOS's RDRUN, the BIOS's drive selected first as DISKOP selects it (a
+; select of a known drive, X bit 0 set, changes nothing but the drive, so
+; SRCP holds). A physical error ends the call (Disk I/O, DERR). Keeps T2.
+RUNGO:          LDA     CDRV
+                INC     A
+                CMP     BIOSDRV
+                BEQ     @sel
+                STA     BIOSDRV
+                DEC     A
+                LDX     #1
+                JSR     B_SELDSK
+                STX     T3
+                ORA     T3
+                BNE     @sel
+                STZ     BIOSDRV
+                BRA     @err
+@sel:           LDA     LBA
+                STA     BW1
+                LDA     LBA + 1
+                STA     BW1 + 1
+                LDA     #BIOS_BLOCK    ; block 61's RDRUN, called directly
+                STA     NB_WIN2
+                LDA     T2
+                JSR     RDRUN
+                CMP     #0
+                BNE     @err
+                RTS
+@err:           LDA     #ER_IO
+                JMP     DERR
 
 LDEOF:          LDA     #1
 LDEND:          PHA
