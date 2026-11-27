@@ -8,8 +8,9 @@
  * by STREAM_DATA and DATA, as a host would. The tap is the firmware's stream tap: each frame as it played, at
  * the stream's rate. The MP3s are the repo's own (test/host/mp3, made by LAME: their Info frame's LAME tag
  * carries the encoder's delay and padding). Then the decoder's robustness: 64 KB with no frame, hostile and
- * empty frames cheaply refused, free format, a 100 KB tag, rate and channels changing mid-stream, and damaged
- * frames, each as minimp3 decodes the whole data, the end given with the last byte or late.
+ * empty frames cheaply refused, free format, a 100 KB tag, and damaged frames, each as minimp3 decodes the whole
+ * data, the end given with the last byte or late; rate and channels changing mid-stream (files of other formats
+ * end to end), as minimp3 decodes each file on its own.
  */
 
 #include "harness.h"
@@ -190,10 +191,13 @@ namespace
         std::ifstream in(std::string(EMU_MP3_DIR) + "/" + name, std::ios::binary);
         return {std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>()};
     }
-    /// minimp3 on its own, the whole file, then trimmed as the LAME tag says: the Info frame left out, the
-    /// encoder's delay and the decoder's 529 off the front, the padding less 529 off the end.
-    std::vector<int16_t> trimmed(const std::vector<uint8_t> &mp3)
+    /// minimp3 on each file on its own (a fresh decoder for each), the files' audio end to end, then trimmed as the
+    /// first file's LAME tag says: its Info frame left out, the encoder's delay and the decoder's 529 off the front,
+    /// the padding less 529 off the end. A stream trims by its first file's tag only, so a later file's Info frame
+    /// stays in, as it decodes.
+    std::vector<int16_t> trimmed_each(const std::vector<std::vector<uint8_t>> &files)
     {
+        const std::vector<uint8_t> &mp3 = files.front();
         const char tag[] = "LAME";
         const auto lame = std::search(mp3.begin(), mp3.end(), tag, tag + 4);
         CHECK(lame != mp3.end());
@@ -203,33 +207,38 @@ namespace
         const uint32_t delay = static_cast<uint32_t>(mp3[t] << 4 | mp3[t + 1] >> 4);
         const uint32_t padding = static_cast<uint32_t>((mp3[t + 1] & 0x0F) << 8 | mp3[t + 2]);
         std::vector<int16_t> out;
-        auto dec = std::make_unique<mp3dec_t>();
-        mp3dec_init(dec.get());
         std::vector<int16_t> pcm(MINIMP3_MAX_SAMPLES_PER_FRAME);
-        size_t pos = 0;
         bool first = true;
-        while (pos < mp3.size())
+        for (const std::vector<uint8_t> &f : files)
         {
-            mp3dec_frame_info_t info{};
-            const int n = mp3dec_decode_frame(dec.get(), mp3.data() + pos, static_cast<int>(mp3.size() - pos), pcm.data(), &info);
-            if (!info.frame_bytes)
-                break;
-            pos += static_cast<size_t>(info.frame_bytes);
-            if (first)
+            auto dec = std::make_unique<mp3dec_t>();
+            mp3dec_init(dec.get());
+            size_t pos = 0;
+            while (pos < f.size())
             {
-                first = false; // the Info frame
-                continue;
-            }
-            for (int i = 0; i < n; ++i)
-            {
-                const int16_t l = pcm[static_cast<size_t>(i * info.channels)];
-                out.push_back(l);
-                out.push_back(info.channels == 2 ? pcm[static_cast<size_t>(i * 2 + 1)] : l);
+                mp3dec_frame_info_t info{};
+                const int n = mp3dec_decode_frame(dec.get(), f.data() + pos, static_cast<int>(f.size() - pos), pcm.data(), &info);
+                if (!info.frame_bytes)
+                    break;
+                pos += static_cast<size_t>(info.frame_bytes);
+                if (first)
+                {
+                    first = false; // the Info frame
+                    continue;
+                }
+                for (int i = 0; i < n; ++i)
+                {
+                    const int16_t l = pcm[static_cast<size_t>(i * info.channels)];
+                    out.push_back(l);
+                    out.push_back(info.channels == 2 ? pcm[static_cast<size_t>(i * 2 + 1)] : l);
+                }
             }
         }
         const size_t head = 2 * (delay + 529), tail = 2 * (padding - 529);
         return std::vector<int16_t>(out.begin() + static_cast<std::ptrdiff_t>(head), out.end() - static_cast<std::ptrdiff_t>(tail));
     }
+    /// minimp3 on its own, the whole file, trimmed as its LAME tag says.
+    std::vector<int16_t> trimmed(const std::vector<uint8_t> &mp3) { return trimmed_each({mp3}); }
 } // namespace
 
 TEST(a_stream_bigger_than_the_store_plays_with_no_underrun)
@@ -1004,15 +1013,17 @@ TEST(a_tag_of_100_kb_is_skipped_and_doesnt_count_toward_81)
 
 TEST(rate_and_channels_follow_each_frame_through_changes)
 {
-    // 44.1 kHz stereo, then 22.05 kHz mono, then 48 kHz stereo, end to end: as minimp3 decodes the whole of it
-    // (trimmed by the first file's LAME tag), given at once, fed in pieces, and fed with the end a second late.
-    // STREAM_STATUS's rate and bitrate follow.
-    const std::vector<uint8_t> bytes = mp3_concat({"cbr128_joint_44k.mp3", "cbr32_mono_22k.mp3", "cbr320_stereo_48k.mp3"});
-    const std::vector<int16_t> want = trimmed(bytes);
+    // 44.1 kHz stereo, then 22.05 kHz mono, then 48 kHz stereo, end to end: each file as minimp3 decodes it on its
+    // own, the three end to end (trimmed by the first file's LAME tag), every frame of each kept across the format
+    // changes; given at once, fed in pieces, and fed with the end a second late. STREAM_STATUS's rate and bitrate
+    // follow.
+    const char *names[] = {"cbr128_joint_44k.mp3", "cbr32_mono_22k.mp3", "cbr320_stereo_48k.mp3"};
+    const std::vector<uint8_t> bytes = mp3_concat({names[0], names[1], names[2]});
+    const std::vector<int16_t> want = trimmed_each({mp3_file(names[0]), mp3_file(names[1]), mp3_file(names[2])});
     const Played once = play_mp3(bytes, 0), fed = play_mp3(bytes, 300, 0, true), late = play_mp3(bytes, 300, 1'000);
     std::printf("  %zu frames: at once %s, fed %s, the end late %s\n", want.size() / 2,
-                once.tap == want ? "as minimp3" : "different", fed.tap == want ? "as minimp3" : "different",
-                late.tap == want ? "as minimp3" : "different");
+                once.tap == want ? "as each alone" : "different", fed.tap == want ? "as each alone" : "different",
+                late.tap == want ? "as each alone" : "different");
     CHECK(once.tap == want);
     CHECK(fed.tap == want);
     CHECK(late.tap == want);
@@ -1205,6 +1216,46 @@ TEST(files_back_to_back_with_tags_between_play_whole)
         CHECK(once.tap == joined.tap);
         CHECK(fed.tap == joined.tap);
         CHECK_EQ(fed.state, SoundFw::S_ENDED);
+    }
+}
+
+TEST(files_that_change_format_back_to_back_keep_every_frame)
+{
+    // File A, then file B of another format (MPEG version or sample rate), in one stream: back to back, with A's
+    // ID3v1 record between, with a 2 KB ID3v2.4 tag between, and with both. Every sample is each file's as minimp3
+    // decodes it on its own, A's then B's (trimmed by A's LAME tag): A's last frame, whole by its own length,
+    // plays, though the header after it is of another format; B starts afresh. Written at once, and fed in 40-byte
+    // pieces. Must fail if a frame followed by another format's header is taken for one out of step: A's last
+    // frame (1,152 samples, or 576) is then lost when nothing is between.
+    const std::pair<const char *, const char *> pairs[] = {{"cbr128_joint_44k.mp3", "cbr32_mono_22k.mp3"},
+                                                           {"vbr9_mono_22k.mp3", "cbr320_stereo_48k.mp3"}};
+    std::vector<uint8_t> record{'T', 'A', 'G'};
+    for (unsigned k = 0; k < 125; ++k)
+        record.push_back(static_cast<uint8_t>(k < 60 ? 'a' + k % 26 : 0));
+    const std::vector<uint8_t> tag = id3_tag(2'000, 41);
+    for (const auto &[an, bn] : pairs)
+    {
+        const std::vector<uint8_t> a = mp3_file(an), b = mp3_file(bn);
+        REQUIRE(!a.empty());
+        REQUIRE(!b.empty());
+        const std::vector<int16_t> want = trimmed_each({a, b});
+        for (unsigned between = 0; between < 4; ++between) // nothing, the record, the tag, both
+        {
+            std::vector<uint8_t> bytes = a;
+            if (between & 1)
+                bytes.insert(bytes.end(), record.begin(), record.end());
+            if (between & 2)
+                bytes.insert(bytes.end(), tag.begin(), tag.end());
+            bytes.insert(bytes.end(), b.begin(), b.end());
+            const Played once = play_mp3(bytes, 0), fed = play_mp3(bytes, 40);
+            static const char *const what[] = {"nothing", "the record", "a tag", "the record and a tag"};
+            std::printf("  %s, then %s, %s between: each alone %zu; at once %zu, fed %zu\n", an, bn, what[between],
+                        want.size() / 2, once.tap.size() / 2, fed.tap.size() / 2);
+            CHECK(once.tap == want);
+            CHECK(fed.tap == want);
+            CHECK_EQ(once.state, SoundFw::S_ENDED);
+            CHECK_EQ(fed.state, SoundFw::S_ENDED);
+        }
     }
 }
 

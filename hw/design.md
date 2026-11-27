@@ -2333,7 +2333,11 @@ is buffered, underruns reported (decided). The rules:
   minimp3's own sync rule has decided on it; until a decision can be made, the stream waits for more. So a stream fed
   as it plays decodes as the whole file would. An ID3v1 record ("TAG", 128 bytes) at a frame in step's end is
   skipped as a tag is, the frame before it taken by its own length: files joined with their records between play
-  as if back to back, the decoder run on from one into the next (cleanup review 1, 2026-11-26).
+  as if back to back, the decoder run on from one into the next (cleanup review 1, 2026-11-26). A frame in step
+  followed by a valid header of another format (MPEG version, layer or sample rate: the next file) is taken by its
+  own length too, where minimp3 on the whole data drops it as out of step; the next file is then found by a search
+  and the decoder starts afresh on it. So no audio is lost at a join: files that change format play as each
+  decodes on its own, end to end, with or without a record or a tag between (the owner, 2026-11-26).
 - **STREAM_END waits for the chunk coming.** Sent while the stream's own STREAM_DATA transfer is open, it takes effect
   when that transfer ends: what is in plays out, the chunk in flight included.
 - **Arithmetic for the rule.** At CD quality with 32 KB chunks the card asks about five times a second; at 128 kbit/s

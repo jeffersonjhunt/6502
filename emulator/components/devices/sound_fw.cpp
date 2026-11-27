@@ -2757,9 +2757,10 @@ namespace ooe::emu
     bool SoundFw::decode_mp3(unsigned s)
     {
         // The next frame of the ring's data decoded into the stream's queue, by these rules: a frame in step
-        // with the stream is decoded once its end and the next header have come (or the data has ended); one out of
-        // step only once minimp3's own sync rule has decided on it (a run of frames in step, or the data's end); an
-        // ID3v2 tag is skipped by its size, and an ID3v1 record at a frame in step's end by its 128. Until a decision can be made it waits for more: false. True when the
+        // with the stream is decoded once its end and the next header have come (or the data has ended), by its own
+        // length when that header is another format's; one out of step only once minimp3's own sync rule has
+        // decided on it (a run of frames in step, or the data's end); an ID3v2 tag is skipped by its size, and an
+        // ID3v1 record at a frame in step's end by its 128. Until a decision can be made it waits for more: false. True when the
         // queue gained frames or the header was taken; the data's end sets end_decoded.
         Stream &st = streams_[s];
         Mp3 &m = *st.mp3;
@@ -2857,6 +2858,14 @@ namespace ooe::emu
                 if (have >= fb + 4 && mp3_frame_bytes(next) && mp3_same(h, next))
                 {
                     n = fb + 4;
+                    search = false;
+                }
+                else if (have >= fb + 4 && mp3_frame_bytes(next))
+                {
+                    // Another format's header at the frame's end (a version, layer or rate of its own: the next
+                    // file): the frame by its own length, not lost as out of step; the next is then found by a
+                    // search and the decoder started afresh on it, as on that file alone.
+                    n = fb;
                     search = false;
                 }
                 else if (have >= fb + 3 && at(fb) == 'T' && at(fb + 1) == 'A' && at(fb + 2) == 'G')
