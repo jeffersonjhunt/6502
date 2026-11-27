@@ -35,7 +35,8 @@
 ;   20 F_READ        the record CR of the extent to the DMA address, CR + 1;
 ;                    the next extent opened after 128. A = 0, 1 the end of
 ;                    the file (or a record never written). 20, 21, 33, 34
-;                    and 40 do the multi-sector count's records (44): MULTI
+;                    and 40 do the multi-sector count's records (44): MULTI;
+;                    20's and 33's whole sectors go straight there (DIRECT)
 ;   21 F_WRITE       the DMA address's record to CR, CR + 1, a block taken
 ;                    if it needs one; the next extent opened, or made, after
 ;                    128. A = 0, 1 no directory space, 2 the disk full. A
@@ -127,6 +128,9 @@ MRAND:          .res    1              ; bit 6: random, R0-R2 back to RSAVE at t
 MKPW:           .res    1              ; F_MAKE: bit 7, f6' with passwords on: an XFCB too
 RSAVE:          .res    3
 DSAVE:          .res    2              ; F_OPEN's entry, while its XFCB is looked for (OPENPW) and the last extent (LASTS1)
+
+.segment "SYSBSS"
+MSTEP:          .res    1              ; MULTI's: the records its record function did, 1 or DIRECT's run
 
 .segment "BDOS"
 
@@ -1208,6 +1212,8 @@ ZEROBLK:        LDA     BLM            ; (BLM + 1) / 4 sectors
 ; bit 6: R0-R2 moved on a record each time, and put back at the end. Carry
 ; set: a read, the records to the program's memory. All N records' memory
 ; is checked first (MRANGE): memory refused, A = X = $FF and nothing done.
+; The record function may do several records (MSTEP, set to 1 before each
+; call: SREAD1's and RREAD1's DIRECT runs); MULTI moves on by as many.
 MULTI:          STA     MBODY
                 STX     MBODY + 1
                 ROR     MRAND          ; the carry to bit 7, random to bit 6
@@ -1223,24 +1229,40 @@ MULTI:          STA     MBODY
                 BCC     @ok
                 JMP     ABORT
 @ok:            STZ     MDONE
-@record:        JSR     @call
+@record:        LDA     #1
+                STA     MSTEP
+                JSR     @call
                 TAY
                 BNE     @stop
-                INC     MDONE
-                DEC     MLEFT
+                CLC
+                LDA     MDONE
+                ADC     MSTEP
+                STA     MDONE
+                SEC
+                LDA     MLEFT
+                SBC     MSTEP
+                STA     MLEFT
                 BEQ     @stop
                 LDA     #1
                 STA     MON
+                LDA     MSTEP          ; RDMA on by 128 x MSTEP
+                LSR     A
+                TAY
+                LDA     #0
+                ROR     A
                 CLC
-                LDA     RDMA
-                ADC     #128
+                ADC     RDMA
                 STA     RDMA
-                BCC     @rand
-                INC     RDMA + 1
-@rand:          BIT     MRAND
+                TYA
+                ADC     RDMA + 1
+                STA     RDMA + 1
+                BIT     MRAND
                 BVC     @record
-                INC     FC + FCB_R
-                BNE     @record
+                CLC
+                LDA     FC + FCB_R
+                ADC     MSTEP
+                STA     FC + FCB_R
+                BCC     @record
                 INC     FC + FCB_R + 1
                 BNE     @record
                 INC     FC + FCB_R + 2
@@ -1338,6 +1360,133 @@ MERR:           LDA     MON
                 JMP     MBACK
 @none:          RTS
 
+; SREAD1's and RREAD1's run: carry clear, MSTEP records of F's extent from
+; record CR read by whole sectors straight to RDMA's place, F unchanged (the
+; caller moves CR on); carry set, nothing done, for a record through a
+; buffer as before. A run is taken when MULTI has a sector's records or
+; more to go, and: the drive is M: or an SD unit of OODOS's own formats
+; (DM_LOAD's rule: an apple-do drive's sectors are its track buffer's); CR
+; starts a sector, and the run is the whole sectors the extent, CR's block
+; and the call have, 8 at most (RUNLEN); the block was written; the
+; destination takes the run whole: with a DMA segment none of it OODOS's
+; card memory (OSWIN: MRANGE's SEGOK has checked the rest), else the
+; program's CPU address through its window to the window's end, a sector
+; that window's end cuts going the record way; and the run stops short of
+; the first of its sectors that a buffer of the drive holds, changed or
+; not (that sector is the buffer's). A run declined goes the record way,
+; which refuses what it always has where it always has (DOUT). A physical
+; error ends the call (RUNGO), F as the records before the run left it.
+DNO:            SEC
+                RTS
+DIRECT:         LDA     MLEFT
+                CMP     #4
+                BCC     DNO            ; under a sector's records to go
+                JSR     RUNLEN
+                BEQ     DNO
+                LDA     CDRV
+                CMP     #DRV_M
+                BEQ     @drive
+                CMP     #SD_DRIVES
+                BCS     DNO            ; O:, P:
+                TAX
+                LDA     DRVAPL,X
+                BMI     DNO            ; an apple-do unit
+@drive:         JSR     FPIDX
+                JSR     FPTR
+                LDA     T0
+                STA     BLK
+                LDA     T1
+                STA     BLK + 1
+                ORA     BLK
+                BEQ     DNO            ; never written: the record way's A = 1
+                JSR     RECSEC         ; LBA: CR's sector
+                LDA     DMASEG
+                AND     DMASEG + 1
+                CMP     #$FF
+                BEQ     @cpu
+                LDX     #RDMA          ; SG: the run's physical start
+                JSR     SEGADR
+                LDA     T2             ; to SG + T2 x 512 - 1
+                ASL     A
+                DEC     A
+                TAY
+                LDA     #$FF
+                JSR     OSWIN
+                BCS     DNO
+                LDX     #2
+@sg:            LDA     SG,X
+                STA     SRCP,X
+                DEX
+                BPL     @sg
+                BRA     @held
+@cpu:           LDA     RDMA + 1       ; the whole sectors to the window's end:
+                AND     #$3F           ; ($4000 - the offset) / 512, down
+                LDX     RDMA
+                BEQ     @page
+                INC     A
+@page:          EOR     #$FF
+                SEC
+                ADC     #$40
+                LSR     A
+                BEQ     DNO            ; CR's sector crosses the window's end
+                CMP     T2
+                BCS     @fits
+                STA     T2
+@fits:          LDA     RDMA + 1       ; SRCP: through the program's window, as the
+                ROL     A              ; BIOS's PHYSOF has it (MRANGE has refused
+                ROL     A              ; a window with no block a run may take)
+                ROL     A
+                AND     #3
+                TAX
+                LDA     ST_WIN,X
+                AND     #$3F           ; the block: A14-A19
+                STA     SRCP + 1
+                LSR     A
+                LSR     A
+                STA     SRCP + 2
+                LDA     SRCP + 1
+                ROR     A              ; its bottom 2 bits to A14-A15
+                ROR     A
+                ROR     A
+                AND     #$C0
+                STA     SRCP + 1
+                LDA     RDMA + 1
+                AND     #$3F
+                ORA     SRCP + 1
+                STA     SRCP + 1
+                LDA     RDMA
+                STA     SRCP
+@held:          LDA     CDRV           ; short of the first sector a buffer of the
+                INC     A              ; drive holds
+                STA     T3
+                LDX     #NBCB - 1
+@buf:           LDA     BCB_DRV,X
+                CMP     T3
+                BNE     @next
+                SEC                    ; its sector's place in the run
+                LDA     BCB_LO,X
+                SBC     LBA
+                TAY
+                LDA     BCB_HI,X
+                SBC     LBA + 1
+                BNE     @next          ; before the run, or far past it
+                CPY     T2
+                BCS     @next
+                STY     T2
+@next:          DEX
+                BPL     @buf
+                LDA     T2
+                BNE     @run
+                SEC                    ; CR's own sector: the buffer's
+                RTS
+@run:           JSR     RUNGO
+                LDA     T2             ; 4 records a sector
+                ASL     A
+                ASL     A
+                STA     MSTEP
+                CLC
+                RTS
+
 ; MRAND random (MULTI moves it to bit 6), R0-R2 kept to put back.
 RSTART:         LDA     #$80
                 STA     MRAND
@@ -1371,7 +1520,15 @@ SREAD1:         LDA     FC + FCB_CR
 @record:        LDA     FC + FCB_CR
                 CMP     FC + FCB_RC
                 BCS     @end
-                JSR     READREC
+                JSR     DIRECT         ; whole sectors straight to the program
+                BCS     @one
+                CLC
+                LDA     FC + FCB_CR
+                ADC     MSTEP
+                STA     FC + FCB_CR
+                LDA     #0
+                RTS
+@one:           JSR     READREC        ; or a record through a buffer
                 BCS     @end
                 INC     FC + FCB_CR
                 LDA     #0
@@ -1469,7 +1626,16 @@ RREAD1:         JSR     RANDPOS
                 STA     FC + FCB_CR
                 CMP     FC + FCB_RC
                 BCS     @unwritten
-                JSR     READREC
+                JSR     DIRECT         ; whole sectors straight to the program
+                BCS     @one
+                LDA     MSTEP          ; CR the run's last record's, as 33 leaves it
+                DEC     A
+                CLC
+                ADC     FC + FCB_CR
+                STA     FC + FCB_CR
+                LDA     #0
+                RTS
+@one:           JSR     READREC        ; or a record through a buffer
                 BCS     @unwritten
                 LDA     #0
                 RTS
