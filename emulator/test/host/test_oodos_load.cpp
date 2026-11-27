@@ -612,7 +612,8 @@ TEST(a_multi_record_read_into_two_windows_that_are_not_next_to_each_other)
     put_b(r, "WIN     BIN", data);
     open(r, "X");
     CHECK_EQ(command(r, 'M', "M", {20}).substr(0, 2), std::string("14"));
-    for (const uint16_t at : {uint16_t(0x3E00), uint16_t(0x3F00), uint16_t(0x3F80)})
+    // (review 1, T1: $3C80 and $3E80, not on a page, hold DIRECT's round-up of a part page to the window's end)
+    for (const uint16_t at : {uint16_t(0x3C80), uint16_t(0x3E00), uint16_t(0x3E80), uint16_t(0x3F00), uint16_t(0x3F80)})
     {
         open_file(r, 2, "WIN     BIN");
         CHECK_EQ(gcall(r, F_DMAOFF_FN, at), std::string("00 00"));
@@ -623,7 +624,9 @@ TEST(a_multi_record_read_into_two_windows_that_are_not_next_to_each_other)
         std::vector<uint8_t> got = mem(r, at, 0x4000u - at);
         const std::vector<uint8_t> rest = mem(r, 20 * 16384u, 32 * 128 - got.size());
         got.insert(got.end(), rest.begin(), rest.end());
-        CHECK(same(got, slice(data, 0, 32 * 128), at == 0x3E00 ? "from $3E00" : at == 0x3F00 ? "from $3F00" : "from $3F80"));
+        char what[16];
+        std::snprintf(what, sizeof what, "from $%04X", at);
+        CHECK(same(got, slice(data, 0, 32 * 128), what));
         CHECK(mem(r, 1 * 16384u, 4096) == std::vector<uint8_t>(4096, 0xEE));
     }
     CHECK_EQ(gcall(r, 44, 1), std::string("00 00"));
@@ -719,16 +722,32 @@ TEST(a_physical_error_in_a_multi_record_read_keeps_the_records_read_before_it)
 
 // The one guard of the run's speed (the owner's answer 7, 2026-11-26): every case above passes whether DIRECT
 // takes a run or not. Function 20 with a count of 96 on B:, the buffers full: 319 cycles a record when its runs
-// are taken, 4,586 when every record goes through a buffer. A ceiling, with a margin.
+// are taken, 4,586 when every record goes through a buffer. A ceiling, with a margin. Each call's records are
+// compared with the file too, its 8 calls across 6 extents (review 1, T3: 20's runs up to and past an extent's end).
 TEST(function_20_with_a_count_of_96_reads_under_400_cycles_a_record)
 {
     CcpRig r;
     REQUIRE(r.ok);
-    put_b(r, "BIG     BIN", noise(96 * 1024, 3));
+    const std::vector<uint8_t> data = noise(96 * 1024, 3);
+    put_b(r, "BIG     BIN", data);
     open(r, "X");
+    const unsigned w1 = prog_w1(r);
     CHECK_EQ(gcall(r, F_DMAOFF_FN, 0x4000), std::string("00 00"));
     open_file(r, 2, "BIG     BIN");
-    const double c = per_record(r, 20, 96, 8);
+    CHECK_EQ(gcall(r, 44, 96), std::string("00 00"));
+    uint64_t sum = 0;
+    for (unsigned k = 0; k < 8; ++k)
+    {
+        w1_fill(r, w1, 0x4000, 96 * 128, 0xEE);
+        const Call call = timed(r, 20, FCB);
+        CHECK_EQ(call.ret, std::string("00 00"));
+        char what[24];
+        std::snprintf(what, sizeof what, "call %u's records", k);
+        CHECK(same(w1_mem(r, w1, 0x4000, 96 * 128), slice(data, k * 96 * 128, 96 * 128), what));
+        if (k >= 2)
+            sum += call.cycles;
+    }
+    const double c = static_cast<double>(sum) / (6 * 96);
     if (c >= 400)
         std::printf("  B: 20 x 96: %.0f cycles a record\n", c);
     CHECK(c < 400);

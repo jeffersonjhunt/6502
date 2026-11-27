@@ -720,45 +720,54 @@ namespace
         r.watch = nullptr;
         return took;
     }
+    /// The image of `com` at $0300 byte for byte (the TPA is blocks 0-2: the program's address is the physical one).
+    bool image_at_0300(const Ccp &r, const std::vector<uint8_t> &com)
+    {
+        const unsigned n = static_cast<unsigned>(com.size() - 16);
+        unsigned i = 0;
+        while (i < n && r.phys(0x0300 + i) == com[16 + i])
+            ++i;
+        if (i < n)
+            std::printf("  the image of %u bytes: first different at %u\n", n, i);
+        return i == n;
+    }
 } // namespace
 
 TEST(an_image_over_16_kb_loads_byte_for_byte_by_whole_records_many_a_call)
 {
     // 20,000 bytes: the header record's last 112, then 155 whole records (one 33 of 128, one of 27), then the
-    // part record's 48 through LBUF. The TPA is blocks 0-2, so the program's address is the physical one.
-    Ccp r;
-    REQUIRE(r.ok);
-    constexpr unsigned IMAGE = 20000;
-    const std::vector<uint8_t> com = big_com(IMAGE);
-    r.put_m({{0, "BIG     COM", com}});
-    r.poke(0x0300 + IMAGE, std::vector<uint8_t>(512, 0xEE));
-    CHECK(load_cycles(r, "m:big") > 0); // it ran
-    std::vector<uint8_t> got(IMAGE);
-    for (unsigned i = 0; i < IMAGE; ++i)
-        got[i] = r.phys(0x0300 + i);
-    unsigned i = 0;
-    while (i < IMAGE && got[i] == com[16 + i])
-        ++i;
-    if (i < IMAGE)
-        std::printf("  the image: first different at %u of %u\n", i, IMAGE);
-    CHECK_EQ(i, IMAGE);
-    for (unsigned k = 0; k < 512; ++k)
-        CHECK_EQ(r.phys(0x0300 + IMAGE + k), 0xEE); // nothing past it
-    for (unsigned k = 0; k < 16; ++k)
-        CHECK_EQ(res(r, "LHDR", k), com[k]); // and LBUF's neighbour as the header left it
-    CHECK_EQ(r.phys(SCB_PHYS + 0x4A), 1); // the multi-sector count the CCP gives the program, after it
+    // part record's 48 through LBUF. And 16,700 (review 1, T2): 129 whole records after the header record's 112,
+    // just past 16 KB, so one 33 of 128 and one of 1 (LRUN's 16 KB test at its edge), then the part's 76.
+    for (const unsigned image : {20000u, 16700u})
+    {
+        Ccp r;
+        REQUIRE(r.ok);
+        const std::vector<uint8_t> com = big_com(image);
+        r.put_m({{0, "BIG     COM", com}});
+        r.poke(0x0300 + image, std::vector<uint8_t>(512, 0xEE));
+        CHECK(load_cycles(r, "m:big") > 0); // it ran
+        CHECK(image_at_0300(r, com));
+        for (unsigned k = 0; k < 512; ++k)
+            CHECK_EQ(r.phys(0x0300 + image + k), 0xEE); // nothing past it
+        for (unsigned k = 0; k < 16; ++k)
+            CHECK_EQ(res(r, "LHDR", k), com[k]); // and LBUF's neighbour as the header left it
+        CHECK_EQ(r.phys(SCB_PHYS + 0x4A), 1); // the multi-sector count the CCP gives the program, after it
+    }
 }
 
-// For the record, not gated: the loader's cycles for an 8 KB and a 32 KB .COM on M:.
+// For the record, not gated: the loader's cycles for an 8 KB and a 32 KB .COM on M:. Each image is compared
+// byte for byte too: the 32 KB one reaches W2, $8000-$8300 (review 1, T2: OO-Amp loads overlays there).
 TEST(for_the_record_the_cycles_to_load_an_8_and_a_32_kb_com)
 {
     Ccp r;
     REQUIRE(r.ok);
-    r.put_m({{0, "BIG8    COM", big_com(8 * 1024)}, {0, "BIG32   COM", big_com(32 * 1024)}});
+    const std::vector<uint8_t> com8 = big_com(8 * 1024), com32 = big_com(32 * 1024);
+    r.put_m({{0, "BIG8    COM", com8}, {0, "BIG32   COM", com32}});
     for (const char *line : {"m:big8", "m:big32"})
     {
         const uint64_t c = load_cycles(r, line);
         CHECK(c > 0);
+        CHECK(image_at_0300(r, line == std::string("m:big8") ? com8 : com32));
         std::printf("  %-7s %8llu cycles (%.1f ms), the loader to $0300\n", line, static_cast<unsigned long long>(c),
                     static_cast<double>(c) / HZ * 1000);
     }

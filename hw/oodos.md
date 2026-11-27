@@ -7251,7 +7251,11 @@ record a call. An earlier "735 KB/s, 1,218 cycles a record" for 33 with a count 
   the call's count and the destination: with a DMA segment none of it OODOS's card memory (OSWIN), else the
   program's window to its end, a sector the window's end cuts going a record at a time. It stops short of the first
   of its sectors any buffer of the drive holds, changed or not, so a record written and not yet on the card is read
-  from its buffer. F changes only after the run, so a physical error keeps the records done (MERR), as before.
+  from its buffer. F changes only after the run, so on a physical error F is as the records before the run left it
+  (MERR): a run's records count only when the whole run succeeds, and an error inside a run leaves CR at the run's
+  start though some of its sectors came, where a record at a time would leave it past them. Nothing is lost: the
+  error has no count (CP/M 3 gives none for a physical error), and the next call reads those records again (review
+  1, D1).
   MULTI moves on by MSTEP, the record function's records (1 but for a run); 33 leaves CR at the run's last record,
   as one at a time does. RUNLEN and RUNGO, the run's length and its read, are shared with `DM_LOAD`'s LOADGO.
 - **C, the loader** (`loader.s`, function 59, so every program the CCP runs): LRUN reads the image's whole records
@@ -7289,7 +7293,9 @@ ceiling (317 now; 3,869 with every record through a buffer), since every other c
 **Risks:** the next BDOS feature may have to go to `BDOS2` (block 62) or move code out of block 60; DIRECT's
 coherence is the buffers' tags, which nothing today goes around; a run holds the CPU about 4,100 cycles on an SD unit,
 under a tick, as `DM_LOAD`'s already does, but neither has been timed on the real card; the figures above move with
-any later change to these paths.
+any later change to these paths. The 8-sector cap is held by review, not by a test: a run of 16 sectors fails nothing
+in the emulator, `DM_LOAD`'s stream case included, and the plan's function 20 stream case was dropped for that
+reason (no program streams through 20: OO-Amp and L3STRM use `DM_LOAD`) (review 1, T4).
 
 ## Testing ##
 
